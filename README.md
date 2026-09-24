@@ -4,9 +4,10 @@ Django + Angular booking/property-management demo, running side by side in
 Docker with a Postgres database. See `Booking System Demo - Build Plan.md`
 for the full project plan (models, API design, day-by-day schedule).
 
-**Status:** scaffold complete and verified working end-to-end (Angular <->
-Django <-> Postgres, plus pgAdmin for DB inspection). No booking features
-yet - see "Next steps" at the bottom.
+**Status:** scaffold verified end-to-end (Angular <-> Django <-> Postgres,
+plus pgAdmin for DB inspection). The `Property` model now exists (first
+piece of the data layer) - see "Next steps" at the bottom for what's still
+missing.
 
 ## Prerequisites
 
@@ -74,6 +75,10 @@ backend/
   core/                Small app - currently just the health-check endpoint
     views.py           GET /api/health/ - queries Postgres, returns status
     urls.py
+  listings/            Data layer for bookable properties
+    models.py          Property model (title, description, location, price_per_night, capacity, amenities, is_active)
+    admin.py           Registers Property in Django Admin (dev-only DB inspection, see Epic 4 for the real admin UI)
+    migrations/        0001_initial.py creates the properties table
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -87,6 +92,40 @@ docker-compose.yml   Wires the four services together
 .env                 Local dev secrets (gitignored) - real values, ready to use
 .env.example         Committed template for .env
 ```
+
+## Data model
+
+**`Property`** (`listings` app, `listings/models.py`) - a single bookable
+listing (apartment or room):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `CharField` | Guest-facing name |
+| `description` | `TextField` | Optional, longer free text |
+| `location` | `CharField` | Free-text location (e.g. "Thessaloniki, Greece"), used for search/filtering later |
+| `price_per_night` | `DecimalField` | Decimal, not float - money should never lose precision |
+| `capacity` | `PositiveIntegerField` | Max guests |
+| `amenities` | `JSONField` | List of amenity strings, e.g. `["wifi", "parking"]` - stored as native Postgres `jsonb`, no extra package needed |
+| `is_active` | `BooleanField` | Inactive properties are hidden from customer listings but kept for history |
+| `created_at` / `updated_at` | `DateTimeField` | Auto-managed timestamps |
+
+Registered in Django Admin (`listings/admin.py`) for quick inspection during
+development - `PropertyAdmin` shows title/location/price/capacity/is_active
+in the list view and lets you search and filter. This is **not** the
+demo-facing admin UI (that's the custom Angular admin dashboard planned for
+Epic 4) - just a fast way to eyeball the table while building.
+
+Domain models live in their own apps rather than in `core` (which stays
+infrastructure-only): `listings` holds `Property` now and will pick up
+`PropertyImage` next. Later tickets are expected to add sibling apps the
+same way (e.g. `accounts` for the `Profile` model, `bookings` for
+`Booking`).
+
+Migration: `listings/migrations/0001_initial.py` creates the `Property`
+table. It applies automatically the next time the `backend` container
+starts (the Dockerfile runs `migrate` on boot - see "Quick start" above);
+outside Docker, run `python manage.py migrate` from `backend/` with a
+reachable Postgres connection.
 
 ## Environment variables
 
@@ -119,12 +158,12 @@ you ever need to regenerate it.
    - Username: `booking_demo` (from `POSTGRES_USER` - not `admin` or
      the pgAdmin login email)
    - Password: from `POSTGRES_PASSWORD` in `.env`
-5. Save. You should see the `booking_demo` database with 10 tables, all
-   of them Django's built-ins (`auth_user`, `auth_group`,
-   `django_migrations`, `django_session`, etc.) - created automatically
-   by the `migrate` step that runs when the backend container boots. No
-   app-specific tables yet since there are no models beyond the two
-   built-in Django apps (`auth`, `admin`) enabled so far.
+5. Save. You should see the `booking_demo` database with its tables -
+   Django's built-ins (`auth_user`, `auth_group`, `django_migrations`,
+   `django_session`, etc.) plus app-specific tables as they're added
+   (e.g. `listings_property` - see "Data model" above), all created
+   automatically by the `migrate` step that runs when the backend
+   container boots.
 
 pgAdmin's own settings (including this server registration) are stored in
 a named Docker volume (`pgadmin_data`), so they survive `docker compose
@@ -150,6 +189,7 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 ## Next steps (per the build plan)
 
-The scaffold and three-way connectivity check are done and verified. Next
-chunk: the `Property` / `Booking` / `Profile` / `PropertyImage` models and
-migrations, DRF serializers/viewsets, JWT auth, and the Faker seed script.
+The scaffold, three-way connectivity check, and the `Property` model are
+done. Still pending from the data layer: `PropertyImage`, `Profile`, and
+`Booking` models and migrations, registering everything in Django Admin,
+and the Faker seed script - then DRF serializers/viewsets and JWT auth.
