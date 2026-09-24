@@ -64,6 +64,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Fields: `property` (FK), `guest` (FK → User), `check_in`, `check_out`, `total_price`, `status` (`pending`/`confirmed`/`cancelled`), `created_at`.
   - Acceptance: no separate `Availability` model — availability is computed by querying non-cancelled `Booking` rows that overlap the requested date range.
   - Done: new `bookings` app (completes the app split alongside `listings`/`accounts`). `property` uses `on_delete=PROTECT` (booking history shouldn't block a hard-delete silently — use `Property.is_active` to retire a property instead); `guest` uses `CASCADE`. The acceptance criterion's query is implemented now as `Booking.objects.overlapping(property, check_in, check_out)` (a custom QuerySet method) — the standard interval-overlap test, cancelled bookings excluded by default — so TICKET-015's `POST /api/bookings/` can call it directly instead of reinventing it. `check_out > check_in` enforced twice: `clean()` (`ValidationError`) plus a DB `CheckConstraint` backstop. Verified against a throwaway SQLite DB: overlap detection, adjacent-range non-overlap, per-property isolation, cancelled-exclusion (and opt-in inclusion), `clean()` rejection, and the DB constraint all passed. Registered in Django Admin (filterable by status, date-hierarchy on `check_in`). README's "Data model" section and "Next steps" updated.
+  - Follow-up raised after this ticket shipped: `Booking.objects.overlapping()` is a query, not a concurrency guarantee — two simultaneous `POST /api/bookings/` requests for the same property/dates can both pass that check before either commits (a classic check-then-act race). That gap, plus the equivalent one for cancellations and Stripe payments, is deliberately delegated forward rather than patched onto this already-shipped ticket — see the new requirements added to TICKET-015 and TICKET-029.
 
 - [ ] **TICKET-009** — `Review` model + migration (nice-to-have)
   - Priority: P2
@@ -105,6 +106,10 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Priority: P0
   - Depends on: TICKET-008, TICKET-014
   - `GET /api/bookings/` (own bookings for a guest, all bookings for admin), `POST /api/bookings/` (create, with overlap validation against existing non-cancelled bookings), `PATCH /api/bookings/{id}/` (guest can cancel their own; admin can change status).
+  - Concurrency requirements (delegated from TICKET-008 — closes the double-booking race):
+    - `POST /api/bookings/`: `Booking.objects.overlapping()` alone is not race-proof (check-then-act). Add a Postgres `ExclusionConstraint` on `Booking` (needs the `btree_gist` extension — `django.contrib.postgres.operations.BtreeGistExtension` in a new `bookings` migration): `(property WITH =, daterange(check_in, check_out) WITH &&) WHERE status <> 'cancelled'`. This makes two overlapping non-cancelled bookings for the same property impossible at the DB level regardless of request timing — the real backstop, not just the pre-check.
+    - Wrap booking creation in `transaction.atomic()`; catch the `IntegrityError` the constraint raises on a genuine race and return a clean 409/400 ("these dates were just booked by someone else") instead of a 500. Keep calling `overlapping()` first as a fast, friendly pre-check for the non-race case — just don't rely on it alone.
+    - `PATCH /api/bookings/{id}/` (cancel/status-change): treat as a single atomic read-modify-write — `select_for_update()` the specific `Booking` row inside `transaction.atomic()` — so a guest's cancel and an admin's status change landing at nearly the same time can't produce a lost update. Validate the status transition explicitly (e.g. reject cancelling an already-cancelled booking, or confirming one that's cancelled) instead of blindly overwriting `status`.
 
 - [ ] **TICKET-016** — Admin stats endpoint
   - Priority: P1
@@ -189,6 +194,10 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 
 - [ ] **TICKET-029** — Stripe test-mode checkout on booking confirm
   - Priority: P1 · Depends on: TICKET-020
+  - Payment-safety requirements (delegated from TICKET-008 — avoids double charges):
+    - Use a Stripe idempotency key per checkout attempt, derived from the booking id, so a double-click or a network retry never creates two PaymentIntents/charges for the same booking.
+    - Only start payment after the booking row has been committed (i.e. it already survived TICKET-015's exclusion-constraint check) — never take payment for a booking that lost the race and was rejected.
+    - Drive `Booking.status -> confirmed` from a Stripe webhook confirming payment actually succeeded, not optimistically the moment the client calls confirm — a booking should never read as confirmed before money has actually moved.
 
 - [ ] **TICKET-030** — Booking-confirmation email (Brevo or Resend free tier)
   - Priority: P1 · Depends on: TICKET-020
