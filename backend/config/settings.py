@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'listings',
     'accounts',
     'bookings',
+    'reviews',
 ]
 
 MIDDLEWARE = [

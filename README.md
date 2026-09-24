@@ -88,6 +88,10 @@ backend/
     models.py          Booking model + the overlap-query manager (no separate Availability model)
     admin.py           Filterable/searchable Booking list (dev-only DB inspection)
     migrations/        0001_initial.py creates the bookings table
+  reviews/             A guest's rating/comment on a Property (nice-to-have)
+    models.py          Review model (rating 1-5, one review per guest per property)
+    admin.py           Filterable/searchable Review list (dev-only DB inspection)
+    migrations/        0001_initial.py creates the reviews table
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -220,16 +224,40 @@ and the DB constraint all behave as intended.
 Registered in Django Admin with a filterable/searchable list
 (status, date-hierarchy on `check_in`).
 
+**`Review`** (new `reviews` app, `reviews/models.py`, nice-to-have) - a
+guest's rating/comment on a `Property`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `property` | `ForeignKey -> Property` | `related_name="reviews"`, `on_delete=PROTECT` (same reasoning as `Booking`) |
+| `guest` | `ForeignKey -> User` | `related_name="reviews"`, `on_delete=CASCADE` |
+| `rating` | `PositiveSmallIntegerField` | 1-5, validated by `MinValueValidator`/`MaxValueValidator` |
+| `comment` | `TextField` | Optional |
+| `created_at` | `DateTimeField` | Auto-managed |
+
+Two invariants, each enforced at both the application and DB layer (the
+established pattern from `PropertyImage`/`Booking`): rating must be 1-5
+(field validators for a friendly `ValidationError`, backstopped by a DB
+`CheckConstraint`), and one review per guest per property (`full_clean()`'s
+built-in uniqueness check, backstopped by a DB `UniqueConstraint`
+`unique_review_per_guest_per_property`) - a guest updates their existing
+review rather than posting duplicates. Verified against a throwaway SQLite
+DB: valid reviews from different guests, both out-of-range ratings and
+duplicate (property, guest) pairs rejected at the application level, and
+both DB constraints rejecting the same bypassing a bulk `.create()`.
+
+Registered in Django Admin with a filterable/searchable list (by rating).
+
 Domain models live in their own apps rather than in `core` (which stays
 infrastructure-only): `listings` holds `Property`/`PropertyImage`,
-`accounts` holds `Profile`, `bookings` holds `Booking`. That's the full
-set from the build plan's Data Models table (`Review` is a separate,
-nice-to-have ticket).
+`accounts` holds `Profile`, `bookings` holds `Booking`, `reviews` holds
+`Review`. That's the complete Data Models table from the build plan.
 
 Migrations: `listings/migrations/0001_initial.py` creates `Property`,
 `0002_propertyimage.py` creates `PropertyImage`,
-`accounts/migrations/0001_initial.py` creates `Profile`, and
-`bookings/migrations/0001_initial.py` creates `Booking`. All apply
+`accounts/migrations/0001_initial.py` creates `Profile`,
+`bookings/migrations/0001_initial.py` creates `Booking`, and
+`reviews/migrations/0001_initial.py` creates `Review`. All apply
 automatically the next time the `backend` container starts (the Dockerfile
 runs `migrate` on boot - see "Quick start" above); outside Docker, run
 `python manage.py migrate` from `backend/` with a reachable Postgres
@@ -297,7 +325,8 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 ## Next steps (per the build plan)
 
-The scaffold, three-way connectivity check, and the full P0 data layer
-(`Property`, `PropertyImage`, `Profile`, `Booking`) are done. Next up: DRF
-serializers/viewsets, JWT auth, and the Faker seed script (Epic 1's
-remaining tickets), then the API layer in Epic 2.
+The scaffold, three-way connectivity check, the full P0 data layer
+(`Property`, `PropertyImage`, `Profile`, `Booking`), and the nice-to-have
+`Review` model are all done. Next up: a pass confirming everything's
+registered in Django Admin and the Faker seed script (Epic 1's remaining
+tickets), then DRF serializers/viewsets and JWT auth in Epic 2.
