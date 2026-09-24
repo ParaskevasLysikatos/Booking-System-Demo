@@ -42,11 +42,12 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Acceptance: migration applies cleanly; model registered in Django Admin.
   - Done: new `listings` app (dedicated app for domain models, separate from the infra-only `core` app — `PropertyImage` will join it next; `accounts`/`bookings` apps planned for later tickets). `listings/models.py` adds `Property` with the ticket's fields plus `created_at`/`updated_at` timestamps; `amenities` is a `JSONField` (list of strings), `price_per_night` a `DecimalField`. Migration `listings/migrations/0001_initial.py` generated via `makemigrations` and verified with `manage.py check` + `makemigrations --check` (no live Postgres reachable from this environment, so the actual `migrate` against Postgres still needs to run via `docker compose up`). Registered in Django Admin (`listings/admin.py`, list/search/filter configured). README updated with a new "Data model" section and refreshed "Next steps".
 
-- [ ] **TICKET-006** — `PropertyImage` model + migration
+- [x] **TICKET-006** — `PropertyImage` model + migration
   - Priority: P0
   - Depends on: TICKET-005
   - Fields: `property` (FK → Property), `image`, `is_cover`.
   - Acceptance: a property can have multiple images, exactly one flagged `is_cover` (validate or document the convention).
+  - Done: added to the `listings` app alongside `Property`. `image` is a `URLField` (stock photo URLs for now — TICKET-036 swaps in real uploads later). "Exactly one cover" is enforced both ways: `PropertyImage.save()` un-covers any sibling when one is flagged `is_cover=True`, and a partial `UniqueConstraint` (`unique_cover_image_per_property`) backstops it at the DB level against bulk `.update()` calls that skip `save()`. `Property.cover_image` falls back to the earliest-added image when none is flagged. Verified with a real migrate + ORM exercise against a throwaway SQLite DB (cover hand-off, DB-constraint rejection, fallback ordering all passed) since Postgres isn't reachable from this environment. Registered in Django Admin with an inline on the Property page plus a standalone list. README's "Data model" section and "Next steps" updated.
 
 - [ ] **TICKET-007** — `Profile` model + migration
   - Priority: P0

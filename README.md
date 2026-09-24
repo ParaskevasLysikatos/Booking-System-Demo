@@ -76,9 +76,9 @@ backend/
     views.py           GET /api/health/ - queries Postgres, returns status
     urls.py
   listings/            Data layer for bookable properties
-    models.py          Property model (title, description, location, price_per_night, capacity, amenities, is_active)
-    admin.py           Registers Property in Django Admin (dev-only DB inspection, see Epic 4 for the real admin UI)
-    migrations/        0001_initial.py creates the properties table
+    models.py          Property + PropertyImage models
+    admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
+    migrations/        0001_initial.py (Property), 0002_propertyimage.py (PropertyImage)
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -109,23 +109,53 @@ listing (apartment or room):
 | `is_active` | `BooleanField` | Inactive properties are hidden from customer listings but kept for history |
 | `created_at` / `updated_at` | `DateTimeField` | Auto-managed timestamps |
 
+**`PropertyImage`** (`listings` app, `listings/models.py`) - a photo
+belonging to a `Property`. A property can have many; at most one may be
+flagged `is_cover` (used as the listing's thumbnail):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `property` | `ForeignKey -> Property` | `related_name="images"`, `on_delete=CASCADE` |
+| `image` | `URLField` | Photo URL. Demo data uses stock photo URLs (Faker seed script); real uploads are TICKET-036, a later nice-to-have |
+| `is_cover` | `BooleanField` | Marks the thumbnail photo. At most one `True` per property |
+| `created_at` | `DateTimeField` | Auto-managed |
+
+The "exactly one cover image" rule from the ticket is enforced two ways:
+
+- **Application level** - `PropertyImage.save()` un-covers any sibling image
+  when one is saved with `is_cover=True`, so callers never have to remember
+  to flip the old cover off themselves.
+- **Database level** - a partial unique constraint
+  (`unique_cover_image_per_property`) on `(property)` where `is_cover=True`
+  is the hard backstop, e.g. against a bulk `.update()` that bypasses
+  `save()`.
+
+If no image is flagged yet, `Property.cover_image` (a convenience property)
+falls back to the earliest-added image - `PropertyImage`'s default
+ordering (`-is_cover`, `created_at`) already puts the real cover first when
+one exists, so `.images.first()` does the right thing either way. It
+returns `None` for a property with no images at all.
+
 Registered in Django Admin (`listings/admin.py`) for quick inspection during
 development - `PropertyAdmin` shows title/location/price/capacity/is_active
-in the list view and lets you search and filter. This is **not** the
-demo-facing admin UI (that's the custom Angular admin dashboard planned for
-Epic 4) - just a fast way to eyeball the table while building.
+in the list view and lets you search and filter, and edits its images
+inline (add/reorder/flag-as-cover without leaving the property page).
+`PropertyImage` also has its own admin list for browsing images across all
+properties. This is **not** the demo-facing admin UI (that's the custom
+Angular admin dashboard planned for Epic 4) - just a fast way to eyeball
+the tables while building.
 
 Domain models live in their own apps rather than in `core` (which stays
-infrastructure-only): `listings` holds `Property` now and will pick up
-`PropertyImage` next. Later tickets are expected to add sibling apps the
-same way (e.g. `accounts` for the `Profile` model, `bookings` for
-`Booking`).
+infrastructure-only): `listings` now holds `Property` and `PropertyImage`.
+Later tickets are expected to add sibling apps the same way (e.g.
+`accounts` for the `Profile` model, `bookings` for `Booking`).
 
-Migration: `listings/migrations/0001_initial.py` creates the `Property`
-table. It applies automatically the next time the `backend` container
-starts (the Dockerfile runs `migrate` on boot - see "Quick start" above);
-outside Docker, run `python manage.py migrate` from `backend/` with a
-reachable Postgres connection.
+Migrations: `listings/migrations/0001_initial.py` creates the `Property`
+table, `0002_propertyimage.py` creates `PropertyImage`. Both apply
+automatically the next time the `backend` container starts (the Dockerfile
+runs `migrate` on boot - see "Quick start" above); outside Docker, run
+`python manage.py migrate` from `backend/` with a reachable Postgres
+connection.
 
 ## Environment variables
 
@@ -189,7 +219,7 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 ## Next steps (per the build plan)
 
-The scaffold, three-way connectivity check, and the `Property` model are
-done. Still pending from the data layer: `PropertyImage`, `Profile`, and
-`Booking` models and migrations, registering everything in Django Admin,
-and the Faker seed script - then DRF serializers/viewsets and JWT auth.
+The scaffold, three-way connectivity check, and the `Property` /
+`PropertyImage` models are done. Still pending from the data layer:
+`Profile` and `Booking` models and migrations - then DRF
+serializers/viewsets, JWT auth, and the Faker seed script.
