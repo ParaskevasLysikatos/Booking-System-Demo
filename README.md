@@ -1,0 +1,155 @@
+# Booking System Demo
+
+Django + Angular booking/property-management demo, running side by side in
+Docker with a Postgres database. See `Booking System Demo - Build Plan.md`
+for the full project plan (models, API design, day-by-day schedule).
+
+**Status:** scaffold complete and verified working end-to-end (Angular <->
+Django <-> Postgres, plus pgAdmin for DB inspection). No booking features
+yet - see "Next steps" at the bottom.
+
+## Prerequisites
+
+- Docker Desktop (with the WSL2 backend), running.
+
+## Quick start
+
+```bash
+docker compose up --build
+```
+
+First run pulls base images and runs `npm install` / `pip install`, so it
+takes a few minutes. After that, `docker compose up` is fast, and editing
+files under `backend/` or `frontend/` hot-reloads inside the containers
+(no rebuild needed for code changes - only for new dependencies).
+
+Stop everything with `docker compose down` (add `-v` to also wipe the
+Postgres data volume for a clean slate - you'll lose any data in the DB).
+
+## How it fits together
+
+Four containers, defined in `docker-compose.yml`:
+
+| Service | Image / build | Port (host) | Role |
+| --- | --- | --- | --- |
+| `frontend` | built from `frontend/Dockerfile` (Node 22) | 4200 | Angular dev server (`ng serve`) |
+| `backend` | built from `backend/Dockerfile` (Python 3.12) | 8000 | Django + DRF dev server |
+| `db` | `postgres:16-alpine` | 5432 | The actual database |
+| `pgadmin` | `dpage/pgadmin4` | 5050 | Web GUI for browsing `db` |
+
+Request flow when you load `localhost:4200`:
+
+1. Angular serves the page. Its root component (`app.ts`) renders the
+   `ApiStatusComponent`, which immediately calls `ApiHealthService.check()`.
+2. That service does `GET http://localhost:8000/api/health/` (the base
+   URL comes from `frontend/src/environments/environment.ts`).
+3. Django's `core/views.py:health_check` runs `SELECT 1` against Postgres
+   and returns `{"status": "ok", "database": "connected"}` (or an error
+   string if the query fails).
+4. The card on screen shows "Backend: connected" / "Database: connected" -
+   that green result is proof all three pieces are wired together, not
+   just that each container happens to be running.
+
+Cross-origin requests from `localhost:4200` to `localhost:8000` are allowed
+via `django-cors-headers`, configured in `backend/config/settings.py`
+(`CORS_ALLOWED_ORIGINS`, read from `.env`).
+
+Inside the Docker network, containers reach each other by **service name**,
+not `localhost`: the backend's `DATABASES` setting points at host `db`
+(the Postgres service), and pgAdmin also needs to be told to connect to
+host `db` (see the pgAdmin section below). Only the browser, running on
+your actual machine outside Docker, uses `localhost:<port>`.
+
+## Project layout
+
+```
+backend/
+  Dockerfile           Python 3.12 image; runs migrate then runserver on boot
+  requirements.txt     Django, DRF, django-cors-headers, django-environ, psycopg2
+  manage.py
+  config/              Django project settings
+    settings.py        Reads DB/secret/CORS config from env vars
+    urls.py            / admin/ -> Django admin, /api/ -> core.urls
+    wsgi.py / asgi.py
+  core/                Small app - currently just the health-check endpoint
+    views.py           GET /api/health/ - queries Postgres, returns status
+    urls.py
+
+frontend/
+  Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
+  src/environments/environment.ts   apiUrl the frontend calls the backend at
+  src/app/
+    app.ts / app.html / app.config.ts   Root shell + providers (HttpClient, animations, router)
+    core/api-health.service.ts          Wraps the /api/health/ call
+    api-status/                         Card component showing connectivity status
+
+docker-compose.yml   Wires the four services together
+.env                 Local dev secrets (gitignored) - real values, ready to use
+.env.example         Committed template for .env
+```
+
+## Environment variables
+
+Real values already live in `.env` (gitignored, working local-dev
+defaults). `.env.example` is the committed template - copy it to `.env` if
+you ever need to regenerate it.
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `DJANGO_SECRET_KEY` | backend | Django's cryptographic signing key |
+| `DJANGO_DEBUG` | backend | Debug mode (verbose error pages) |
+| `DJANGO_ALLOWED_HOSTS` | backend | Hostnames Django will respond to |
+| `CORS_ALLOWED_ORIGINS` | backend | Origins allowed to call the API (the Angular dev server) |
+| `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
+| `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
+
+## Using pgAdmin
+
+1. Open http://localhost:5050 and log in with `PGADMIN_DEFAULT_EMAIL` /
+   `PGADMIN_DEFAULT_PASSWORD` from `.env`.
+2. Right-click **Servers** -> **Register** -> **Server**.
+3. **General tab**: Name can be anything (e.g. `booking-demo`) - it's just
+   a label, not used for the connection.
+4. **Connection tab** (this is the part that trips people up - the values
+   here are *not* the same as the name you just chose):
+   - Host name/address: **`db`** (the Docker service name - not
+     `localhost`, and not whatever you typed in the Name field)
+   - Port: `5432`
+   - Maintenance database: `booking_demo`
+   - Username: `booking_demo` (from `POSTGRES_USER` - not `admin` or
+     the pgAdmin login email)
+   - Password: from `POSTGRES_PASSWORD` in `.env`
+5. Save. You should see the `booking_demo` database with 10 tables, all
+   of them Django's built-ins (`auth_user`, `auth_group`,
+   `django_migrations`, `django_session`, etc.) - created automatically
+   by the `migrate` step that runs when the backend container boots. No
+   app-specific tables yet since there are no models beyond the two
+   built-in Django apps (`auth`, `admin`) enabled so far.
+
+pgAdmin's own settings (including this server registration) are stored in
+a named Docker volume (`pgadmin_data`), so they survive `docker compose
+down` / `up` - only `docker compose down -v` wipes them.
+
+## Troubleshooting
+
+- **pgAdmin: "failed to resolve host"** - you put the connection's display
+  name (or `localhost`) in the Host field instead of `db`. See the pgAdmin
+  section above.
+- **Frontend doesn't hot-reload on file changes**: can happen with Windows
+  bind mounts into a Linux container. The frontend container already runs
+  `ng serve` with `--poll 1000` to cover this; if it's still not picking
+  up changes, try increasing the poll interval or restarting the
+  `frontend` container.
+- **`backend` keeps restarting on first boot**: check `docker compose logs
+  backend` - usually means Postgres wasn't ready yet or a migration
+  failed. `depends_on` + the Postgres healthcheck should prevent the first
+  case; if you see it anyway, share the log output and it can be fixed.
+- **Ports already in use**: something else on your machine is using 4200,
+  8000, 5432, or 5050. Either stop it or change the left-hand side of the
+  port mapping in `docker-compose.yml` (e.g. `"4300:4200"`).
+
+## Next steps (per the build plan)
+
+The scaffold and three-way connectivity check are done and verified. Next
+chunk: the `Property` / `Booking` / `Profile` / `PropertyImage` models and
+migrations, DRF serializers/viewsets, JWT auth, and the Faker seed script.

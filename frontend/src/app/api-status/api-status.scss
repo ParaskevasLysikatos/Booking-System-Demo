@@ -1,0 +1,19 @@
+.status-card {
+  max-width: 420px;
+  margin: 2rem auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.ok {
+  color: #2e7d32;
+}
+
+.error {
+  color: #c62828;
+}
