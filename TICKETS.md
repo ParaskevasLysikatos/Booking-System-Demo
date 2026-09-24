@@ -78,10 +78,11 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - For quick DB inspection during development only — not the demo-facing admin UI (that's Epic 4).
   - Done: mostly a verification pass, since each model got its admin registration as it shipped (TICKET-005–009). Confirmed against the live admin registry (`admin.site._registry`), not just assumed: `Property`, `PropertyImage`, `Profile`, `Booking`, `Review`, and the built-in `User` (customized with a `Profile` inline) are all registered. Added one small polish in the spirit of the ticket: `core/admin.py` (that app has no models of its own) relabels the admin site itself — header "Booking System Demo — Dev DB Inspection" — so it's unmistakable at a glance that this is the dev tool, not the demo-facing UI. README gets a new consolidated "Django Admin" section instead of repeating the same note per model.
 
-- [ ] **TICKET-011** — Faker seed script
+- [x] **TICKET-011** — Faker seed script
   - Priority: P0
   - Depends on: TICKET-005–008
   - A management command (e.g. `seed_demo_data`) that generates realistic properties, images (stock URLs are fine per the cut list), and bookings so the demo doesn't look empty.
+  - Done: `core/management/commands/seed_demo_data.py` (`python manage.py seed_demo_data`), built with Faker. Generates 14 properties (Greek locations, curated adjective/noun titles, realistic price/capacity/amenities), 2-5 images each (picsum.photos URLs, first flagged as cover), 10 guest users (`guest_<n>_<name>` / `...@example.com`, shared password `DemoPass123!`), 0-5 bookings per property (reusing `Booking.objects.overlapping()` so seeded bookings never conflict, mix of past/future and pending/confirmed/cancelled), and reviews only from guests with a genuine past non-cancelled booking (skewed-positive ratings, realistic per-rating comments instead of lorem-ipsum). `--clear` (wipes only seeded data — reviews/bookings/images/properties plus `guest_*`/`@example.com` users, real/admin accounts untouched), `--properties`, `--guests`, and `--seed` flags. Whole command wrapped in one `transaction.atomic()`. Verified against a throwaway SQLite DB: correct counts, exactly one cover image per property, zero overlap violations, every review traces to a real past booking, ratings in range, a manually-created superuser survives `--clear`, and repeated `--clear` + reseed runs cleanly. README gets a new "Seeding demo data" section.
 
 ---
 

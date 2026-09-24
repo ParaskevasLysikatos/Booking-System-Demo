@@ -4,10 +4,11 @@ Django + Angular booking/property-management demo, running side by side in
 Docker with a Postgres database. See `Booking System Demo - Build Plan.md`
 for the full project plan (models, API design, day-by-day schedule).
 
-**Status:** scaffold verified end-to-end (Angular <-> Django <-> Postgres,
-plus pgAdmin for DB inspection). The `Property` model now exists (first
-piece of the data layer) - see "Next steps" at the bottom for what's still
-missing.
+**Status:** Epic 1 (the data layer) is complete - all five models
+(`Property`, `PropertyImage`, `Profile`, `Booking`, `Review`), migrations,
+Django Admin registration, and a Faker seed script for realistic demo data
+are all in place and verified. See "Next steps" at the bottom for what's
+next (Epic 2: DRF API + JWT auth).
 
 ## Prerequisites
 
@@ -66,7 +67,7 @@ your actual machine outside Docker, uses `localhost:<port>`.
 ```
 backend/
   Dockerfile           Python 3.12 image; runs migrate then runserver on boot
-  requirements.txt     Django, DRF, django-cors-headers, django-environ, psycopg2
+  requirements.txt     Django, DRF, django-cors-headers, django-environ, psycopg2, Faker
   manage.py
   config/              Django project settings
     settings.py        Reads DB/secret/CORS config from env vars
@@ -76,6 +77,7 @@ backend/
     views.py           GET /api/health/ - queries Postgres, returns status
     urls.py
     admin.py           No models of its own - just the admin site's global branding (dev-DB-inspection labeling)
+    management/commands/seed_demo_data.py   Faker-based demo data generator (see "Seeding demo data" below)
   listings/            Data layer for bookable properties
     models.py          Property + PropertyImage models
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
@@ -284,6 +286,59 @@ unmistakably as a dev tool wherever it's opened, not the product: header
 "Booking System Demo — Dev DB Inspection". This is **not** the demo-facing
 admin UI - that's the separate custom Angular app planned for Epic 4.
 
+## Seeding demo data
+
+`core/management/commands/seed_demo_data.py` is a Django management
+command (`python manage.py seed_demo_data`) that fills the database with
+realistic-looking data using [Faker](https://faker.readthedocs.io/), so
+the demo never starts out empty:
+
+- **Properties** - 14 by default, titled from curated adjective/noun/city
+  combinations (e.g. "Cozy Studio in Thessaloniki") across a dozen Greek
+  locations, with a realistic nightly price, capacity, and a random subset
+  of amenities.
+- **Images** - 2-5 per property, deterministic `picsum.photos` URLs (free,
+  no API key), with the first one flagged as the cover image.
+- **Guest users** - 10 by default, usernames `guest_<n>_<fakename>`,
+  emails `...@example.com`, all sharing one known password so you can log
+  in as any of them while testing: **`DemoPass123!`**.
+- **Bookings** - 0-5 per property, spread from 60 days in the past to 300
+  days in the future, reusing `Booking.objects.overlapping()` (the same
+  helper `POST /api/bookings/` will use later) so seeded bookings never
+  conflict for the same property. Past stays are mostly `confirmed` with a
+  few `cancelled`; future ones are a mix of `pending`/`confirmed`/
+  `cancelled`.
+- **Reviews** - only generated for a guest who actually had a past,
+  non-cancelled booking for that property (mirrors the real-world rule the
+  API will eventually enforce), with a rating distribution skewed positive
+  (mostly 4-5 stars) and realistic per-rating comment text rather than
+  Faker's default lorem-ipsum, so it looks authentic in front of an
+  audience.
+
+Usage:
+
+```bash
+docker compose exec backend python manage.py seed_demo_data
+```
+
+Options:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--clear` | off | Delete previously seeded data first (reviews, bookings, images, properties, and `guest_*`/`@example.com` users) before re-seeding. Real/admin accounts are never touched. |
+| `--properties N` | 14 | How many properties to create |
+| `--guests N` | 10 | How many guest users to create |
+| `--seed N` | none | Fix the random seed for reproducible output |
+
+The whole command runs inside one `transaction.atomic()` block, so a
+failure partway through leaves the database untouched rather than
+half-seeded. Verified against a throwaway SQLite DB: correct counts, every
+property ends up with exactly one cover image, no overlapping
+non-cancelled bookings per property, every review traces back to a real
+past booking, ratings stay in range, `--clear` wipes only seeded data
+(confirmed a manually-created superuser survives it), and re-running
+`--clear` plus reseeding works repeatedly without errors.
+
 ## Environment variables
 
 Real values already live in `.env` (gitignored, working local-dev
@@ -346,8 +401,8 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 ## Next steps (per the build plan)
 
-Epic 1 (the data layer) is essentially done: `Property`, `PropertyImage`,
-`Profile`, `Booking`, `Review`, all migrations, and a verified-complete
-Django Admin (see above) are all in place. The one thing left there is the
-Faker seed script (TICKET-011), so the demo doesn't start out empty. After
-that: DRF serializers/viewsets and JWT auth in Epic 2.
+Epic 1 (the data layer) is complete: all five models, migrations, Django
+Admin registration, and the Faker seed script (see "Seeding demo data"
+above) are all in place and verified. Next up: Epic 2 - DRF serializers/
+viewsets and JWT auth (TICKET-012 onward), including the concurrency/
+payment-safety constraints already scoped into TICKET-015 and TICKET-029.
