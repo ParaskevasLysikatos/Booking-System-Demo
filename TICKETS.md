@@ -49,12 +49,14 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Acceptance: a property can have multiple images, exactly one flagged `is_cover` (validate or document the convention).
   - Done: added to the `listings` app alongside `Property`. `image` is a `URLField` (stock photo URLs for now — TICKET-036 swaps in real uploads later). "Exactly one cover" is enforced both ways: `PropertyImage.save()` un-covers any sibling when one is flagged `is_cover=True`, and a partial `UniqueConstraint` (`unique_cover_image_per_property`) backstops it at the DB level against bulk `.update()` calls that skip `save()`. `Property.cover_image` falls back to the earliest-added image when none is flagged. Verified with a real migrate + ORM exercise against a throwaway SQLite DB (cover hand-off, DB-constraint rejection, fallback ordering all passed) since Postgres isn't reachable from this environment. Registered in Django Admin with an inline on the Property page plus a standalone list. README's "Data model" section and "Next steps" updated.
 
-- [ ] **TICKET-007** — `Profile` model + migration
+- [x] **TICKET-007** — `Profile` model + migration
   - Priority: P0
   - Depends on: TICKET-001 (built-in `User`)
   - Fields: `user` (OneToOne → User), `role` (`guest`/`admin`), `phone`.
   - Acceptance: a `Profile` is auto-created on user signup (signal or `get_or_create` in the register view) so every user has a role.
   - Note: build plan allows substituting `is_staff` for admin instead of `Profile.role` — pick one and use it consistently across TICKET-013/014.
+  - Decision: went with `Profile.role` (not `is_staff`) — kept independent of Django's built-in admin-site access; TICKET-013/014 should check `Profile.role == 'admin'` (`Profile.is_admin` convenience property added).
+  - Done: new `accounts` app (sibling to `listings`, per the TICKET-005 plan). `Profile` has `role` (TextChoices guest/admin, default guest) and `phone`. A `post_save` signal on `User` (`accounts/signals.py`, wired via `AccountsConfig.ready()`) auto-creates a Profile on every user-creation path — not just a future register view — seeding `role='admin'` for staff/superuser accounts and `'guest'` otherwise; `role` stays independently editable afterwards. Migration `accounts/migrations/0001_initial.py` generated and verified with `manage.py check` + `makemigrations --check`. Behavior verified against a throwaway SQLite DB: regular user → guest, superuser → admin, no duplicate Profile on re-save, editing `role` doesn't touch `is_staff`. Registered in Django Admin as an inline on the built-in User page plus its own list. README's "Data model" section and "Next steps" updated.
 
 - [ ] **TICKET-008** — `Booking` model + migration
   - Priority: P0
@@ -212,7 +214,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 
 - [ ] **TICKET-036** — Real photo uploads
   - Priority: P2 · Depends on: TICKET-006
-  - Replaces the fallback of fixed stock photo URLs.
+  - Replaces the fallback of fixed stock photo URLs. ( i want to add my S3 aws bucket)
 
 ---
 

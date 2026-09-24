@@ -25,6 +25,7 @@ INSTALLED_APPS = [
 
     'core',
     'listings',
+    'accounts',
 ]
 
 MIDDLEWARE = [

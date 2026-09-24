@@ -79,6 +79,11 @@ backend/
     models.py          Property + PropertyImage models
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
     migrations/        0001_initial.py (Property), 0002_propertyimage.py (PropertyImage)
+  accounts/            Adds a role/phone Profile on top of Django's built-in User
+    models.py          Profile model (role: guest/admin, phone)
+    signals.py         post_save on User auto-creates a Profile (any creation path)
+    admin.py           Profile inline on the User admin page, plus its own list
+    migrations/        0001_initial.py creates the profiles table
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -145,13 +150,44 @@ properties. This is **not** the demo-facing admin UI (that's the custom
 Angular admin dashboard planned for Epic 4) - just a fast way to eyeball
 the tables while building.
 
+**`Profile`** (new `accounts` app, `accounts/models.py`) - the
+app-specific bits Django's built-in `User` doesn't have:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `user` | `OneToOneField -> User` | `related_name="profile"`, `on_delete=CASCADE` |
+| `role` | `CharField` (choices) | `"guest"` or `"admin"` (`Profile.Role` TextChoices), default `"guest"` |
+| `phone` | `CharField` | Optional |
+
+`role` is deliberately **separate** from Django's own `is_staff` /
+`is_superuser`: those gate the built-in `/admin/` site (dev-only DB
+inspection), while `Profile.role` gates the app's own admin dashboard/API
+(TICKET-013/014 onward will check `Profile.role == "admin"`, not
+`is_staff`). A `Profile.is_admin` convenience property wraps that check.
+
+Every `User` gets a `Profile` automatically via a `post_save` signal
+(`accounts/signals.py`, wired up in `AccountsConfig.ready()`) - this covers
+every way a user can come into existence (`createsuperuser`, the Django
+Admin "Add user" form, and the future `/api/auth/register/` endpoint from
+TICKET-012), not just one code path. Staff/superuser accounts are seeded
+with role `"admin"` since they're administrative by definition; that's
+just the initial value; `role` can be changed independently afterwards
+without touching `is_staff`. Verified against a throwaway SQLite DB:
+regular user -> guest, superuser -> admin, no duplicate Profile on a
+plain re-save, and editing `role` doesn't touch `is_staff`.
+
+Registered in Django Admin as an inline on the built-in User page (role and
+phone show up right where you'd edit any other user) plus its own
+standalone list for browsing/filtering by role.
+
 Domain models live in their own apps rather than in `core` (which stays
-infrastructure-only): `listings` now holds `Property` and `PropertyImage`.
-Later tickets are expected to add sibling apps the same way (e.g.
-`accounts` for the `Profile` model, `bookings` for `Booking`).
+infrastructure-only): `listings` holds `Property`/`PropertyImage`,
+`accounts` holds `Profile`. A `bookings` app is expected to follow the
+same pattern for the `Booking` model.
 
 Migrations: `listings/migrations/0001_initial.py` creates the `Property`
-table, `0002_propertyimage.py` creates `PropertyImage`. Both apply
+table, `0002_propertyimage.py` creates `PropertyImage`, and
+`accounts/migrations/0001_initial.py` creates `Profile`. All apply
 automatically the next time the `backend` container starts (the Dockerfile
 runs `migrate` on boot - see "Quick start" above); outside Docker, run
 `python manage.py migrate` from `backend/` with a reachable Postgres
@@ -220,6 +256,6 @@ down` / `up` - only `docker compose down -v` wipes them.
 ## Next steps (per the build plan)
 
 The scaffold, three-way connectivity check, and the `Property` /
-`PropertyImage` models are done. Still pending from the data layer:
-`Profile` and `Booking` models and migrations - then DRF
-serializers/viewsets, JWT auth, and the Faker seed script.
+`PropertyImage` / `Profile` models are done. Still pending from the data
+layer: the `Booking` model and migration - then DRF serializers/viewsets,
+JWT auth, and the Faker seed script.
