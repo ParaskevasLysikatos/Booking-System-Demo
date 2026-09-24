@@ -72,10 +72,11 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Fields: `property` (FK), `guest` (FK), `rating`, `comment`, `created_at`.
   - Done: new `reviews` app (same one-app-per-model pattern as `listings`/`accounts`/`bookings`). `property` uses `on_delete=PROTECT` (same reasoning as `Booking` — use `Property.is_active` to retire a property instead of deleting review history); `guest` uses `CASCADE`. `rating` is a `PositiveSmallIntegerField` validated 1–5. Two invariants added beyond the bare fields, each enforced at both the application and DB layer (matching `PropertyImage`/`Booking`'s pattern): rating in range 1–5 (field validators + a DB `CheckConstraint` backstop), and one review per guest per property (`full_clean()`'s built-in uniqueness check + a DB `UniqueConstraint` backstop — a guest updates their existing review rather than duplicating). Verified against a throwaway SQLite DB: valid reviews from different guests, out-of-range ratings and duplicate (property, guest) pairs rejected at the application level, and both DB constraints rejecting the same via a bulk `.create()` that bypasses `clean()`. Registered in Django Admin (filterable by rating). README's "Data model" section and "Next steps" updated.
 
-- [ ] **TICKET-010** — Register all models in Django Admin
+- [x] **TICKET-010** — Register all models in Django Admin
   - Priority: P0
   - Depends on: TICKET-005–008
   - For quick DB inspection during development only — not the demo-facing admin UI (that's Epic 4).
+  - Done: mostly a verification pass, since each model got its admin registration as it shipped (TICKET-005–009). Confirmed against the live admin registry (`admin.site._registry`), not just assumed: `Property`, `PropertyImage`, `Profile`, `Booking`, `Review`, and the built-in `User` (customized with a `Profile` inline) are all registered. Added one small polish in the spirit of the ticket: `core/admin.py` (that app has no models of its own) relabels the admin site itself — header "Booking System Demo — Dev DB Inspection" — so it's unmistakable at a glance that this is the dev tool, not the demo-facing UI. README gets a new consolidated "Django Admin" section instead of repeating the same note per model.
 
 - [ ] **TICKET-011** — Faker seed script
   - Priority: P0

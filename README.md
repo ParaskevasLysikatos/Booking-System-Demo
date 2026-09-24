@@ -75,6 +75,7 @@ backend/
   core/                Small app - currently just the health-check endpoint
     views.py           GET /api/health/ - queries Postgres, returns status
     urls.py
+    admin.py           No models of its own - just the admin site's global branding (dev-DB-inspection labeling)
   listings/            Data layer for bookable properties
     models.py          Property + PropertyImage models
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
@@ -263,6 +264,26 @@ runs `migrate` on boot - see "Quick start" above); outside Docker, run
 `python manage.py migrate` from `backend/` with a reachable Postgres
 connection.
 
+## Django Admin (dev-only)
+
+Every model has a working admin registration, verified against the live
+admin registry (`admin.site._registry`), not just assumed from having
+written the code:
+
+| Model | Registered in | Notable admin config |
+| --- | --- | --- |
+| `Property` | `listings/admin.py` | Inline `PropertyImage` editor on the property page |
+| `PropertyImage` | `listings/admin.py` | Also has its own standalone list |
+| `Profile` | `accounts/admin.py` | Inline on the built-in `User` admin page |
+| `Booking` | `bookings/admin.py` | Filterable by status, date-hierarchy on `check_in` |
+| `Review` | `reviews/admin.py` | Filterable by rating |
+
+The admin site itself is relabeled (`core/admin.py` - `core` has no models
+of its own, so that's just where the site-wide branding lives) so it reads
+unmistakably as a dev tool wherever it's opened, not the product: header
+"Booking System Demo — Dev DB Inspection". This is **not** the demo-facing
+admin UI - that's the separate custom Angular app planned for Epic 4.
+
 ## Environment variables
 
 Real values already live in `.env` (gitignored, working local-dev
@@ -325,8 +346,8 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 ## Next steps (per the build plan)
 
-The scaffold, three-way connectivity check, the full P0 data layer
-(`Property`, `PropertyImage`, `Profile`, `Booking`), and the nice-to-have
-`Review` model are all done. Next up: a pass confirming everything's
-registered in Django Admin and the Faker seed script (Epic 1's remaining
-tickets), then DRF serializers/viewsets and JWT auth in Epic 2.
+Epic 1 (the data layer) is essentially done: `Property`, `PropertyImage`,
+`Profile`, `Booking`, `Review`, all migrations, and a verified-complete
+Django Admin (see above) are all in place. The one thing left there is the
+Faker seed script (TICKET-011), so the demo doesn't start out empty. After
+that: DRF serializers/viewsets and JWT auth in Epic 2.
