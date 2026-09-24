@@ -84,6 +84,10 @@ backend/
     signals.py         post_save on User auto-creates a Profile (any creation path)
     admin.py           Profile inline on the User admin page, plus its own list
     migrations/        0001_initial.py creates the profiles table
+  bookings/            A guest's reservation of a Property for a date range
+    models.py          Booking model + the overlap-query manager (no separate Availability model)
+    admin.py           Filterable/searchable Booking list (dev-only DB inspection)
+    migrations/        0001_initial.py creates the bookings table
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -180,14 +184,52 @@ Registered in Django Admin as an inline on the built-in User page (role and
 phone show up right where you'd edit any other user) plus its own
 standalone list for browsing/filtering by role.
 
+**`Booking`** (new `bookings` app, `bookings/models.py`) - one guest's
+reservation of a `Property` for a date range:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `property` | `ForeignKey -> Property` | `related_name="bookings"`, `on_delete=PROTECT` - a property with booking history can't be hard-deleted; use `Property.is_active` to retire it instead |
+| `guest` | `ForeignKey -> User` | `related_name="bookings"`, `on_delete=CASCADE` |
+| `check_in` / `check_out` | `DateField` | Whole-day stays, no time-of-day |
+| `total_price` | `DecimalField` | Decimal, like `Property.price_per_night` |
+| `status` | `CharField` (choices) | `Booking.Status`: `pending` (default) / `confirmed` / `cancelled` |
+| `created_at` | `DateTimeField` | Auto-managed |
+
+There's deliberately **no separate `Availability` model** (per the build
+plan) - a date range is free exactly when no non-cancelled `Booking`
+overlaps it. That query is the model's own manager method,
+`Booking.objects.overlapping(property, check_in, check_out)`: two ranges
+overlap when each starts before the other ends (the standard interval-
+overlap test), a touching-but-not-overlapping range (checkout day == next
+check-in day) doesn't count as a conflict, and cancelled bookings are
+excluded by default since cancelling frees the dates back up (pass
+`exclude_cancelled=False` for a full history view instead). TICKET-015's
+`POST /api/bookings/` will call this directly to validate a new booking
+before creating it.
+
+`check_out` must be after `check_in`, enforced twice: `Booking.clean()`
+raises a friendly `ValidationError` (what forms/admin/serializers will
+surface), backstopped by a DB `CheckConstraint`
+(`booking_check_out_after_check_in`) for anything that bypasses `clean()`
+(e.g. a bulk operation). Verified against a throwaway SQLite DB: overlap
+detection, adjacent-range non-overlap, per-property isolation, cancelled-
+booking exclusion (and opt-in inclusion), `clean()`'s `ValidationError`,
+and the DB constraint all behave as intended.
+
+Registered in Django Admin with a filterable/searchable list
+(status, date-hierarchy on `check_in`).
+
 Domain models live in their own apps rather than in `core` (which stays
 infrastructure-only): `listings` holds `Property`/`PropertyImage`,
-`accounts` holds `Profile`. A `bookings` app is expected to follow the
-same pattern for the `Booking` model.
+`accounts` holds `Profile`, `bookings` holds `Booking`. That's the full
+set from the build plan's Data Models table (`Review` is a separate,
+nice-to-have ticket).
 
-Migrations: `listings/migrations/0001_initial.py` creates the `Property`
-table, `0002_propertyimage.py` creates `PropertyImage`, and
-`accounts/migrations/0001_initial.py` creates `Profile`. All apply
+Migrations: `listings/migrations/0001_initial.py` creates `Property`,
+`0002_propertyimage.py` creates `PropertyImage`,
+`accounts/migrations/0001_initial.py` creates `Profile`, and
+`bookings/migrations/0001_initial.py` creates `Booking`. All apply
 automatically the next time the `backend` container starts (the Dockerfile
 runs `migrate` on boot - see "Quick start" above); outside Docker, run
 `python manage.py migrate` from `backend/` with a reachable Postgres
@@ -255,7 +297,7 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 ## Next steps (per the build plan)
 
-The scaffold, three-way connectivity check, and the `Property` /
-`PropertyImage` / `Profile` models are done. Still pending from the data
-layer: the `Booking` model and migration - then DRF serializers/viewsets,
-JWT auth, and the Faker seed script.
+The scaffold, three-way connectivity check, and the full P0 data layer
+(`Property`, `PropertyImage`, `Profile`, `Booking`) are done. Next up: DRF
+serializers/viewsets, JWT auth, and the Faker seed script (Epic 1's
+remaining tickets), then the API layer in Epic 2.
