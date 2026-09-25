@@ -7,7 +7,8 @@ for the full project plan (models, API design, day-by-day schedule).
 **Status:** Epic 1 (the data layer) is complete - all five models
 (`Property`, `PropertyImage`, `Profile`, `Booking`, `Review`), migrations,
 Django Admin registration, and a Faker seed script for realistic demo data
-are all in place and verified. Epic 2 (the DRF API) is under way: JWT
+are all in place and verified. On the frontend, users can register, log
+in and out (TICKET-017). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -124,9 +125,17 @@ frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
   src/environments/environment.ts   apiUrl the frontend calls the backend at
   src/app/
-    app.ts / app.html / app.config.ts   Root shell + providers (HttpClient, animations, router)
+    app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
+    app.routes.ts                       / (home), /login, /register (lazy-loaded)
     core/api-health.service.ts          Wraps the /api/health/ call
+    core/api-errors.ts                  DRF error response -> per-field + general messages for forms
+    core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
+                                        guestOnlyGuard, TokenStorage (localStorage), jwt.ts (exp reader), models
+    layout/toolbar/                     Top bar: brand, Log in / Sign up or email + Log out
+    pages/home/                         Temporary landing page (TICKET-018 replaces it with /listings)
+    pages/login/, pages/register/       Auth forms (Angular Material)
     api-status/                         Card component showing connectivity status
+    testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
 docker-compose.yml   Wires the four services together
 .env                 Local dev secrets (gitignored) - real values, ready to use
@@ -883,6 +892,143 @@ hand-built data with every number worked out by hand:
 - `401`/`403`
 - a constant query count
 
+## Frontend auth (Angular)
+
+TICKET-017 adds login and registration to the Angular app, plus the
+plumbing every later page relies on. It uses standalone components and
+signals (the app is zoneless) and **no extra npm packages**, so the
+`frontend` container picks it up without a rebuild.
+
+### Pages and routes (`src/app/app.routes.ts`)
+
+| Route | Page | Notes |
+| --- | --- | --- |
+| `/` | `pages/home/` | Temporary landing page (title, "Logged in as ...", connectivity card). TICKET-018 makes `/listings` the real home |
+| `/login` | `pages/login/` | Email + password (show/hide toggle) |
+| `/register` | `pages/register/` | Email, password + confirm (must match), optional first/last name and phone |
+
+The pages are lazy-loaded, so each is its own small chunk. `/login` and
+`/register` use `guestOnlyGuard`: a user who is already logged in is sent
+to `/`. Any unknown URL redirects to `/`.
+
+**Forms** use Angular Material outline fields, and the shared styling is
+in `pages/auth-page.scss`.
+
+- **Checks as you type:** each field shows its problem as the user types,
+  e.g. "Enter a valid email address.", "At least 8 characters.",
+  "Passwords don't match." (re-checked when the first password changes).
+- **The backend's own messages** appear under the matching field, e.g.
+  `{"email": ["An account with this email already exists."]}` or
+  "This password is too common.". Editing that field clears the message.
+  Errors not tied to a field (e.g. "No active account found with the
+  given credentials", or "Can't reach the server") show in a banner
+  above the form. `core/api-errors.ts:parseApiErrors` does the mapping
+  for every form.
+- **While submitting** the button is disabled and shows a spinner, so a
+  double-click can't send two requests.
+- **Afterwards** the user goes to `?returnUrl=` if it's a same-app path
+  (anything else, like `//evil.com`, is ignored), otherwise to `/`.
+  Registering logs the user in straight away, because the API returns
+  tokens.
+
+### Toolbar (`src/app/layout/toolbar/`)
+
+A minimal top bar shows the brand (a link home) on the left. On the right
+it shows either **Log in / Sign up**, or the user's email and **Log out**.
+TICKET-022 turns it into the role-aware navbar with the Admin link. On
+phones the brand text and email collapse to icons.
+
+### `AuthService` (`src/app/core/auth/auth.service.ts`)
+
+- **Signals:** `currentUser`, `isLoggedIn`, `isAdmin`. The toolbar reads
+  them now, and the guards (TICKET-021/022) will too.
+- **Methods:**
+  - `login()` and `register()` save the session.
+  - `loadMe()` calls `GET /api/auth/me/`.
+  - `logout()` clears the session and goes home. There's no server call,
+    because tokens aren't blacklisted in this demo.
+  - `expireSession()` logs out and goes to `/login?returnUrl=...&reason=expired`,
+    where the page shows "Your session expired. Please log in again.".
+- **Storage** (`token-storage.ts`) is **localStorage**, under the keys
+  `bsd.access`, `bsd.refresh` and `bsd.user`. The user stays logged in
+  across reloads and tabs until the 1-day refresh token expires. Every
+  read and write is wrapped in try/catch: in private mode or with blocked
+  site data the app still works, it just won't remember the session. The
+  trade-off with localStorage is XSS exposure. Angular escapes template
+  output by default, which is the main defence here.
+- **App start** (`provideAppInitializer` → `init()`), before the first
+  render:
+  - No refresh token, or an expired one: the session is cleared silently,
+    with no API call.
+  - Otherwise it calls `GET /api/auth/me/`, so the **role always comes
+    from the server**. The cached user is only there so the toolbar
+    renders instantly. The `role` claim inside the JWT is never trusted
+    for anything.
+  - If the server rejects the session, it's cleared. If the backend is
+    simply unreachable, the cached session is kept until it's back.
+- **Reading tokens:** `core/auth/jwt.ts` is a ~20-line base64url decoder,
+  used only to read `exp`. There's no `jwt-decode` dependency and no
+  signature check; checking the signature is the server's job.
+
+### `authInterceptor` (`src/app/core/auth/auth.interceptor.ts`)
+
+Registered with `provideHttpClient(withInterceptors([authInterceptor]))`.
+
+1. **Adds the token only where it belongs.** Requests to our API
+   (`environment.apiUrl + '/'`) get `Authorization: Bearer <access>`.
+   Third-party URLs (e.g. picsum image hosts) and look-alike prefixes
+   never do. `login/`, `register/` and `refresh/` are left untouched.
+2. **Refreshes when the token has expired.** If the API answers **401**
+   and a refresh token exists, the interceptor calls `POST /api/auth/refresh/`
+   **once** and replays the original request with the new access token.
+   The user never notices.
+3. **One refresh for many requests.** If several requests get a 401 at
+   the same time, they all wait for the **same** refresh call
+   (`refreshAccessToken()` shares one in-flight request). They don't each
+   fire their own.
+4. **No loops.** If the refresh fails, the session is over:
+   `expireSession()` runs, and the caller receives the original 401. The
+   replayed request goes straight to the next handler rather than back
+   through this interceptor, so a second 401 can never trigger another
+   refresh. Errors other than 401 (400, 409, 500 and so on) pass through
+   untouched.
+
+The refresh is reactive (on 401) rather than on a timer. It has fewer
+moving parts, and it behaves correctly after a laptop wakes from sleep.
+
+### Frontend tests
+
+The frontend uses Vitest through the Angular CLI (`npx ng test --watch=false`,
+or `docker compose exec frontend npx ng test --watch=false`). There are
+34 tests:
+
+- **`jwt.spec.ts`:** decoding, including unicode, and the expiry checks
+  with skew.
+- **`api-errors.spec.ts`:** field errors, `detail`/`non_field_errors`,
+  and network or server failures.
+- **`auth.service.spec.ts`:**
+  - login and register save the session; a failed login leaves none;
+    logout clears everything
+  - on `init()`: with no session nothing happens; an expired refresh
+    token is dropped with no API call; the role is re-read from `/me/`
+    (a cached guest who was promoted becomes admin); an unreachable
+    backend keeps the cached session; a rejected session is cleared
+  - `safeReturnUrl` blocks open redirects
+- **`auth.interceptor.spec.ts`:**
+  - the header is sent to our API only, never to login/register/refresh,
+    and not when logged out
+  - on a 401 it refreshes and retries with the new token saved
+  - three simultaneous 401s produce **one** refresh
+  - a failed refresh logs out and redirects with `returnUrl`
+  - no loop when the retried request also gets a 401; no refresh without
+    a refresh token; 409s pass through
+- **`login.spec.ts` / `register.spec.ts`:** invalid forms don't submit;
+  the request body is trimmed and optional fields are only sent when
+  filled in; server errors appear under the right fields; a successful
+  submit redirects.
+- **`app.spec.ts`:** the toolbar shows Log in / Sign up when logged out,
+  and the email / Log out when a session is stored.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -1041,9 +1187,11 @@ above) are all in place and verified. Epic 2 is under way: JWT auth
 (TICKET-012), the admin permission classes (TICKET-014) and the
 Properties API (TICKET-013) and the Bookings API with its double-booking
 guarantees (TICKET-015) and the admin stats endpoint (TICKET-016) are
-done, so **Epic 2 (the backend API) is complete**. Next up is the
-frontend: TICKET-017 (`AuthService`, JWT interceptor, login/register),
+done, so **Epic 2 (the backend API) is complete**. On the frontend,
+TICKET-017 (login/register pages, `AuthService`, the JWT interceptor with
+refresh-on-401, and a minimal toolbar) is done; see "Frontend auth". Next up:
 TICKET-018 (listings grid + filters), then TICKET-019/020/021 (detail,
-booking form, My Bookings), and the admin screens (TICKET-022 onward,
-with TICKET-023's dashboard reading `/api/admin/stats/`). Deploying the
-backend skeleton to Render (TICKET-026) is also due early.
+booking form, My Bookings with the `AuthGuard`), and the admin screens
+(TICKET-022 onward, with TICKET-023's dashboard reading
+`/api/admin/stats/`). Deploying the backend skeleton to Render
+(TICKET-026) is also due early.

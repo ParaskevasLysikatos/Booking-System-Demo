@@ -1,0 +1,18 @@
+<mat-toolbar class="toolbar">
+  <a class="brand" routerLink="/">
+    <mat-icon>holiday_village</mat-icon>
+    <span>Booking System Demo</span>
+  </a>
+  <span class="spacer"></span>
+
+  @if (auth.currentUser(); as user) {
+    <span class="user" [title]="user.email">
+      <mat-icon>account_circle</mat-icon>
+      <span class="email">{{ user.email }}</span>
+    </span>
+    <button mat-stroked-button type="button" (click)="auth.logout()">Log out</button>
+  } @else {
+    <a mat-button routerLink="/login">Log in</a>
+    <a mat-flat-button routerLink="/register">Sign up</a>
+  }
+</mat-toolbar>

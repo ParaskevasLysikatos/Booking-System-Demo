@@ -1,14 +1,12 @@
 import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
-import { ApiStatusComponent } from './api-status/api-status';
+import { ToolbarComponent } from './layout/toolbar/toolbar';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, ApiStatusComponent],
+  imports: [RouterOutlet, ToolbarComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
-export class App {
-  protected readonly title = 'Booking System Demo';
-}
+export class App {}

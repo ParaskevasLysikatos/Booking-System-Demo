@@ -177,10 +177,38 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 
 ## Epic 3 — Frontend: Customer Experience
 
-- [ ] **TICKET-017** — `AuthService` + JWT interceptor + login/register pages
+- [x] **TICKET-017** — `AuthService` + JWT interceptor + login/register pages
   - Priority: P0
   - Depends on: TICKET-012
   - Attaches the access token to outgoing requests, handles refresh on expiry, `/login` and `/register` routes.
+  - Decisions (agreed before building):
+    - tokens in **localStorage**
+    - **reactive refresh** (on 401: refresh once and retry, no timer)
+    - a **minimal toolbar** now (Log in / Sign up, or email + Log out); TICKET-022 adds the role-aware Admin link
+    - no new npm packages
+  - Done:
+    - **`core/auth/`:**
+      - `AuthService`: signals `currentUser` / `isLoggedIn` / `isAdmin`; `login`, `register` (logs in straight away), `loadMe`, `logout`, `expireSession`
+      - `init()` runs through `provideAppInitializer`: it drops an expired refresh token without calling the API and re-reads the user and role from `/auth/me/`; the JWT role claim is never trusted
+      - `TokenStorage`: localStorage with try/catch everywhere
+      - `jwt.ts`: a tiny `exp` reader
+      - `guestOnlyGuard` on `/login` and `/register`
+      - `safeReturnUrl()` to block open redirects
+    - **`authInterceptor`:**
+      - adds the Bearer token to our API URLs only (never third-party or look-alike URLs), and not to login/register/refresh
+      - on a 401: **one** refresh, shared by concurrent 401s, then a replay with the new token
+      - a failed refresh → `expireSession()` → `/login?returnUrl=…&reason=expired`, with a "session expired" banner
+      - no refresh loops; non-401 errors pass through
+    - **`core/api-errors.ts`** maps DRF errors to per-field and general messages.
+    - **Pages** (`pages/login`, `pages/register`, lazy-loaded Material forms):
+      - checks as the user types; password confirmation re-checked when the first password changes
+      - backend messages shown under the matching field
+      - spinner and disabled button while submitting
+      - redirect to `returnUrl` afterwards
+    - **Home and toolbar:** the temporary `pages/home` (connectivity card) and `layout/toolbar`.
+    - **Tests:** 34 Vitest tests (jwt, api-errors, service incl. `init()` cases, interceptor incl. 3 concurrent 401s → 1 refresh and no loop, login/register forms, toolbar states), all passing. `ng build` (production) is clean.
+    - **Browser check:** the pages render and validate in the running app via Chrome; I did not submit real credentials.
+    - **README:** new "Frontend auth" section; layout, status and next steps updated.
 
 - [ ] **TICKET-018** — `PropertyService` + `PropertyListComponent` (`/listings`)
   - Priority: P0
