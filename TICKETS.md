@@ -389,10 +389,38 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Checked in Chrome** against the seeded data: This month and Last 12 months, the comparisons, and the breakdown.
     - **README:** new "Admin dashboard" section; admin routes table, layout, status and next steps updated.
 
-- [ ] **TICKET-024** — `AdminPropertyListComponent` + `PropertyFormComponent` (`/admin/properties`, `/admin/properties/:id/edit`)
+- [x] **TICKET-024** — `AdminPropertyListComponent` + `PropertyFormComponent` (`/admin/properties`, `/admin/properties/:id/edit`)
   - Priority: P0
   - Depends on: TICKET-013, TICKET-022
   - CRUD table for properties — this is the real demo-facing admin UI, not Django Admin.
+  - Decisions (agreed before building):
+    - amenities as a **checklist + custom** field
+    - photos as a **drag & drop** list (URLs; S3 uploads come in TICKET-036)
+    - a small backend **`?search=`** over title or location
+    - an **unsaved-changes warning**
+  - Done:
+    - **Backend:** `GET /api/properties/?search=` (case-insensitive, title OR location; blank ignored); 2 new tests; 96 backend tests pass on Postgres.
+    - **`core/`:**
+      - `AdminPropertiesService` (list all with status/search/sort/page, get, create, update, retire = soft DELETE, reactivate = PATCH `is_active`)
+      - `unsaved-changes.guard.ts` (canDeactivate dialog)
+      - `shared/confirm-dialog.ts` (generic, danger variant)
+      - `KNOWN_AMENITIES` + `toAmenityKey()`
+    - **`/admin/properties` table:**
+      - `mat-table` with thumbnail, title → edit, location, €/night, sleeps, rating, Active/Retired chip (retired rows greyed)
+      - ⋮ menu: View public page, Retire… (confirm dialog explaining the soft delete), Reactivate
+      - snackbars + refresh; status toggle / debounced search / sort / page all in the URL
+      - skeleton, empty and error states
+    - **`/admin/properties/new` and `/:id/edit` form:**
+      - details with validation and an Active switch
+      - `amenities-picker` (CVA: icon checklist + custom keys as chips, stable order)
+      - `images-editor` (CVA: add URL with validation and duplicate check, CDK drag & drop reorder, exactly one ★ cover, remove, broken-URL warning)
+      - save = POST / PATCH (full image list → the backend replaces the set), spinner and double-submit block
+      - server 400s mapped to fields, including nested image errors
+      - snackbar + back to the list; canDeactivate "Discard unsaved changes?" + `beforeunload`
+      - not-found and error states
+    - **Tests:** 23 new Vitest tests (149 total), all passing; the production build is clean.
+    - **Checked in Chrome** as the admin: table incl. the retired property, search, the edit form (amenities, 5 photos, cover), a drag reorder, and the discard dialog. Nothing was saved or retired without the user's OK.
+    - **README:** new "Admin properties" section; the API filter table, admin routes, layout, status and next steps updated.
 
 - [ ] **TICKET-025** — `AdminBookingsComponent` (`/admin/bookings`)
   - Priority: P0

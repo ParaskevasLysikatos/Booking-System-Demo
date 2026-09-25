@@ -1,0 +1,42 @@
+<div class="add">
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Photo URL</mat-label>
+    <input matInput type="url" [formControl]="url" placeholder="https://…" (keydown.enter)="$event.preventDefault(); add()" [readonly]="disabled()" />
+  </mat-form-field>
+  <button mat-stroked-button type="button" (click)="add()" [disabled]="disabled() || !url.value.trim()"><mat-icon>add_photo_alternate</mat-icon>Add photo</button>
+</div>
+@if (addError(); as e) {
+  <p class="err" role="alert">{{ e }}</p>
+}
+
+@if (images().length) {
+  <p class="hint">Drag to reorder · ★ marks the cover photo shown on cards.</p>
+  <ol class="list" cdkDropList (cdkDropListDropped)="drop($event)" [cdkDropListDisabled]="disabled()">
+    @for (img of images(); track img.image; let i = $index) {
+      <li class="item" cdkDrag [class.cover]="img.is_cover">
+        <span class="handle" cdkDragHandle aria-label="Drag to reorder" matTooltip="Drag to reorder"><mat-icon>drag_indicator</mat-icon></span>
+        @if (!failed().has(img.image)) {
+          <img [src]="img.image" alt="" (error)="markFailed(img.image)" />
+        } @else {
+          <span class="broken" matTooltip="This URL didn't load an image"><mat-icon>broken_image</mat-icon></span>
+        }
+        <span class="url" [title]="img.image">
+          {{ img.image }}
+          @if (failed().has(img.image)) { <em class="err">Couldn't load this image - check the URL.</em> }
+        </span>
+        <button mat-icon-button type="button" (click)="setCover(i)" [attr.aria-pressed]="img.is_cover"
+                [matTooltip]="img.is_cover ? 'Cover photo' : 'Make cover photo'" [attr.aria-label]="img.is_cover ? 'Cover photo' : 'Make cover photo'" [disabled]="disabled()">
+          <mat-icon>{{ img.is_cover ? 'star' : 'star_outline' }}</mat-icon>
+        </button>
+        <button mat-icon-button type="button" (click)="remove(i)" matTooltip="Remove" aria-label="Remove photo" [disabled]="disabled()">
+          <mat-icon>delete_outline</mat-icon>
+        </button>
+      </li>
+    }
+  </ol>
+} @else {
+  <p class="empty"><mat-icon>photo_library</mat-icon>No photos yet - add at least one so the listing looks good.</p>
+}
+@if (error(); as e) {
+  <p class="err" role="alert">{{ e }}</p>
+}

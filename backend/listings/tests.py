@@ -102,6 +102,18 @@ class PropertyListTests(PropertyAPITestBase):
         self.assertEqual(self.ids(self.client.get(LIST_URL, {"location": "greece"})),
                          {self.thess.id, self.athens.id})
 
+    def test_search_matches_title_or_location_case_insensitively(self):
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "loft"})), {self.thess.id})       # title
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "CRETE"})), {self.villa.id})     # location
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "greece"})), {self.thess.id, self.athens.id})
+        self.assertEqual(len(self.ids(self.client.get(LIST_URL, {"search": "  "}))), 3)                 # blank = no filter
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "atlantis"})), set())
+
+    def test_admin_search_includes_retired_when_asked(self):
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "retired"})), {self.hidden.id})
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "retired", "is_active": "true"})), set())
+
     def test_filter_guests(self):
         self.assertEqual(self.ids(self.client.get(LIST_URL, {"guests": 4})), {self.athens.id, self.villa.id})
         self.assertEqual(self.ids(self.client.get(LIST_URL, {"guests": 9})), set())

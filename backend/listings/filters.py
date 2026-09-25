@@ -8,7 +8,7 @@ same clean 400 {"field": ["message"]} errors as the rest of the API.
 
 from decimal import Decimal
 
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -52,6 +52,8 @@ class DateRangeQuerySerializer(serializers.Serializer):
 
 class PropertyFilterSerializer(DateRangeQuerySerializer):
     location = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    # Free-text search over title OR location (TICKET-024 - the admin table's search box).
+    search = serializers.CharField(required=False, allow_blank=True, max_length=255)
     guests = serializers.IntegerField(required=False, min_value=1)
     min_price = serializers.DecimalField(
         required=False, max_digits=10, decimal_places=2, min_value=Decimal("0")
@@ -97,6 +99,9 @@ def apply_property_filters(queryset, params, *, is_admin=False):
 
     if f.get("location"):
         queryset = queryset.filter(location__icontains=f["location"].strip())
+    if f.get("search", "").strip():
+        term = f["search"].strip()
+        queryset = queryset.filter(Q(title__icontains=term) | Q(location__icontains=term))
     if f.get("guests") is not None:
         queryset = queryset.filter(capacity__gte=f["guests"])
     if f.get("min_price") is not None:

@@ -1,0 +1,88 @@
+<a mat-button routerLink="/admin/properties" class="back"><mat-icon>arrow_back</mat-icon> All properties</a>
+
+@switch (status()) {
+  @case ('loading') {
+    <div class="message" aria-busy="true"><mat-spinner diameter="36" /></div>
+  }
+  @case ('notFound') {
+    <div class="message">
+      <mat-icon>search_off</mat-icon>
+      <p>This property doesn't exist.</p>
+      <a mat-stroked-button routerLink="/admin/properties">Back to properties</a>
+    </div>
+  }
+  @case ('error') {
+    <div class="message" role="alert">
+      <mat-icon>cloud_off</mat-icon>
+      <p>Couldn't load this property.</p>
+      <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+    </div>
+  }
+  @case ('ready') {
+    <header class="head">
+      <h1>{{ id === null ? 'New property' : 'Edit ' + originalTitle() }}</h1>
+      @if (id !== null) {
+        <a mat-button [routerLink]="['/listings', id]" target="_blank"><mat-icon>open_in_new</mat-icon>View public page</a>
+      }
+    </header>
+
+    <form [formGroup]="form" (ngSubmit)="save()" novalidate>
+      @if (error(); as e) {
+        <p class="banner" role="alert"><mat-icon>error</mat-icon>{{ e }}</p>
+      }
+
+      <section class="card">
+        <h2>Details</h2>
+        <mat-form-field appearance="outline">
+          <mat-label>Title</mat-label>
+          <input matInput formControlName="title" placeholder="e.g. Harbour Loft" required />
+          @if (controlError('title'); as e) { <mat-error>{{ e }}</mat-error> }
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Location</mat-label>
+          <input matInput formControlName="location" placeholder="e.g. Chania, Greece" required />
+          @if (controlError('location'); as e) { <mat-error>{{ e }}</mat-error> }
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Description</mat-label>
+          <textarea matInput formControlName="description" rows="4"></textarea>
+          @if (controlError('description'); as e) { <mat-error>{{ e }}</mat-error> }
+        </mat-form-field>
+        <div class="row">
+          <mat-form-field appearance="outline">
+            <mat-label>Price per night</mat-label>
+            <span matTextPrefix>€&nbsp;</span>
+            <input matInput type="number" min="0.01" step="0.01" formControlName="price" required />
+            @if (controlError('price'); as e) { <mat-error>{{ e }}</mat-error> }
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Sleeps (guests)</mat-label>
+            <input matInput type="number" min="1" step="1" formControlName="capacity" required />
+            @if (controlError('capacity'); as e) { <mat-error>{{ e }}</mat-error> }
+          </mat-form-field>
+        </div>
+        <mat-slide-toggle formControlName="isActive">
+          {{ form.controls.isActive.value ? 'Active - visible and bookable' : 'Retired - hidden from guests' }}
+        </mat-slide-toggle>
+      </section>
+
+      <section class="card">
+        <h2>Amenities</h2>
+        <app-amenities-picker formControlName="amenities" />
+        @if (controlError('amenities'); as e) { <p class="err">{{ e }}</p> }
+      </section>
+
+      <section class="card">
+        <h2>Photos</h2>
+        <app-images-editor formControlName="images" [error]="controlError('images')" />
+      </section>
+
+      <div class="actions">
+        <a mat-button routerLink="/admin/properties">Cancel</a>
+        <button mat-flat-button type="submit" class="save" [disabled]="saving()">
+          @if (saving()) { <mat-spinner diameter="20" /> } @else { {{ id === null ? 'Create property' : 'Save changes' }} }
+        </button>
+      </div>
+    </form>
+  }
+}

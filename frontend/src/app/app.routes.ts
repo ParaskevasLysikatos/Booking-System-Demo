@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { adminGuard, authGuard, guestOnlyGuard } from './core/auth/auth.guards';
+import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
 export const routes: Routes = [
   // Listings are the home page (TICKET-018).
@@ -44,13 +45,17 @@ export const routes: Routes = [
       {
         path: 'properties',
         title: 'Properties · Admin · Booking System Demo',
-        loadComponent: () => import('./pages/admin/admin-placeholder').then((m) => m.AdminPlaceholderPage),
-        data: {
-          heading: 'Properties',
-          icon: 'holiday_village',
-          ticket: 'TICKET-024',
-          description: 'Create, edit and retire properties (table + form with photos).',
-        },
+        loadComponent: () => import('./pages/admin/properties/admin-property-list').then((m) => m.AdminPropertyListPage),
+      },
+      {
+        path: 'properties/new',
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () => import('./pages/admin/properties/property-form').then((m) => m.PropertyFormPage),
+      },
+      {
+        path: 'properties/:id/edit',
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () => import('./pages/admin/properties/property-form').then((m) => m.PropertyFormPage),
       },
       {
         path: 'bookings',

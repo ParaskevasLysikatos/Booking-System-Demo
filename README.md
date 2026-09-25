@@ -142,7 +142,10 @@ frontend/
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
                                         authGuard + adminGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts, models
     core/bookings/                      BookingService (create/get/list/cancel), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
-    core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas)
+    core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas),
+                                        AdminPropertiesService (list all / create / update / retire / reactivate)
+    core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
+    shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
@@ -152,7 +155,8 @@ frontend/
                                         409/400 handling, confirmation screen
     pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog
     pages/admin/                        Admin shell (side nav), dashboard/ (stat cards + breakdown table),
-                                        placeholder pages for properties/bookings
+                                        properties/ (table + form with amenities picker and drag-drop photos),
+                                        placeholder page for bookings
     pages/forbidden/                    403 "Admins only" page
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
@@ -484,6 +488,7 @@ message (e.g. `{"check_out": ["check_out must be after check_in."]}`).
 | Param | Example | Meaning |
 | --- | --- | --- |
 | `location` | `thessaloniki` | Case-insensitive "contains" match on `location` |
+| `search` | `loft` | Case-insensitive match on **title or location** (TICKET-024, used by the admin table) |
 | `guests` | `3` | `capacity >= guests` (must be at least 1) |
 | `min_price` / `max_price` | `50` / `150` | Price per night range, inclusive (`min_price <= max_price`) |
 | `check_in` + `check_out` | `2026-10-10` + `2026-10-14` | Only properties **free** for that stay. Both are required together; `check_out` must be after `check_in`; `check_in` can't be in the past |
@@ -1505,7 +1510,7 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 | --- | --- | --- |
 | `/admin` | → `/admin/dashboard` | The whole `/admin` group is lazy-loaded and guarded **once** by `adminGuard` |
 | `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, per-property table; see "Admin dashboard" |
-| `/admin/properties` | placeholder | Property table and form in TICKET-024 |
+| `/admin/properties` | `pages/admin/properties/` | Table of all properties; `/new` and `/:id/edit` form (unsaved-changes guard); see "Admin properties" |
 | `/admin/bookings` | placeholder | All guests' bookings (Upcoming / Past / Cancelled) in TICKET-025 |
 | `/forbidden` | `pages/forbidden/` | The friendly 403 page |
 
@@ -1675,6 +1680,132 @@ and expected revenue from pending bookings.
 Also checked in Chrome against the seeded data: This month (€78, 0.5%
 occupancy ▼ 5.5 pts vs August) and Last 12 months (€2,283, 6 stays,
 €84.56 per night), with the breakdown table.
+
+## Admin properties (Angular)
+
+TICKET-024 replaces the Properties placeholder with the real admin UI:
+a table of every property, and one form for creating and editing. The
+backend's `IsAdminOrReadOnly` is what actually allows the writes;
+`adminGuard` only controls navigation.
+
+### Table: `/admin/properties` (`pages/admin/properties/admin-property-list.ts`)
+
+- **Everything an admin can see:** active **and** retired properties
+  (`AdminPropertiesService.list()`). Unlike the public listings, it
+  doesn't force `is_active=true`.
+- **Columns:** cover thumbnail, title (links to Edit), location, €/night,
+  sleeps, rating ("★ 4.5 (2)" or "New"), a **status chip** (Active /
+  Retired, with retired rows greyed), and actions.
+- **Filters, all in the URL** (`?status=retired&search=corfu&ordering=-price&page=2`):
+  - status **All / Active / Retired**
+  - search box over **title or location**, applied 300 ms after you stop
+    typing
+  - sort (newest, price ↑/↓, most guests)
+  - paginator, 12 per page
+- **Actions per row:** **Edit** (pencil), and a ⋮ menu with **View
+  public page** and **Retire…** or **Reactivate**.
+  - **Retire** asks first, in a red confirm dialog: "It will be hidden
+    from guests and can't be booked any more. Existing bookings, reviews
+    and stats are kept…". It then calls `DELETE`, which the backend
+    treats as a soft delete (`is_active=false`, since bookings use
+    `on_delete=PROTECT`).
+  - **Reactivate** sends `PATCH {"is_active": true}`.
+  - Both show a snackbar and refresh the table. The row's menu is
+    disabled while its request runs.
+- **+ New property** button; skeleton rows; "No properties match." and
+  an error with Try again.
+
+### Form: `/admin/properties/new` and `/admin/properties/:id/edit` (`property-form.ts`)
+
+- **Details:**
+  - title (required, ≤ 200 characters) and location (required)
+  - description
+  - price per night (€, > 0)
+  - sleeps (whole number ≥ 1)
+  - an **Active** switch ("Active - visible and bookable" / "Retired -
+    hidden from guests")
+- **Amenities** (`amenities-picker.ts`, a form control):
+  - a checklist of the 13 known amenities with icons
+    (`core/amenities.ts:KNOWN_AMENITIES`)
+  - an **Other amenity** field: "Hot tub" is stored as `hot_tub` and
+    shown as "Hot tub" everywhere, like the built-in keys
+    (`toAmenityKey()`); custom ones appear as removable chips
+  - the order is stable: known amenities first, then custom ones
+- **Photos** (`images-editor.ts`, a form control):
+  - paste a URL → **Add photo**. The URL must start with
+    `http(s)://`, and duplicates are refused.
+  - **drag to reorder** (Angular CDK drag & drop, using the handle)
+  - **★ to choose the cover**. There's always exactly one cover: the
+    first photo you add, or the next one if you remove the cover.
+  - **remove**
+  - broken URLs show a "Couldn't load this image" warning
+  - URLs only for now. Real uploads to S3 are TICKET-036, which only
+    needs to replace the "add" part of this component.
+- **Saving:**
+  - new properties are `POST`ed; edits are `PATCH`ed with the full body.
+    The backend then **replaces** the image set with the list as shown,
+    in this order.
+  - the button shows a spinner and blocks double-submits
+  - the server's 400 messages land under the right fields, including
+    nested ones like `images: [{image: ["Enter a valid URL."]}]`
+  - on success: a snackbar "Saved "Harbour Loft"." and back to the table
+- **Unsaved changes:** `core/unsaved-changes.guard.ts` (`canDeactivate`)
+  asks **"Discard unsaved changes?"** (Keep editing / Discard changes)
+  if you navigate away with edits. Closing or reloading the tab triggers
+  the browser's own "Leave site?" prompt (`beforeunload`).
+- **States:** loading, "This property doesn't exist." for an unknown id,
+  and an error with Try again. Edit mode has a **View public page**
+  link.
+
+### Backend addition
+
+`GET /api/properties/?search=` is a case-insensitive match on the
+**title or location**, backward compatible. A blank value is ignored.
+It works together with `is_active` for admins. There are 2 new backend
+tests (96 in total, all passing on Postgres).
+
+### Tests
+
+149 frontend tests (23 new):
+
+- **Service:**
+  - list params per status, search, sort and page (nothing forced by
+    default)
+  - create → POST, update → PATCH, retire → DELETE, reactivate → PATCH
+    `is_active`
+- **Unsaved-changes guard:** a clean form leaves freely; Discard →
+  leave; Keep editing or Esc → stay.
+- **Images editor:**
+  - the first photo becomes the cover; URL and duplicate validation
+  - exactly one cover, including after removing it
+  - drag reorder, and fixing up the cover when loading data
+- **Amenities picker:** stable ordering and de-duplication;
+  checkbox toggles; custom keys.
+- **Table:**
+  - retired properties are listed
+  - URL ↔ status, search (debounced) and sort
+  - retire: confirm → DELETE → snackbar → refresh; declining does
+    nothing
+  - reactivate → PATCH
+  - empty and error states
+- **Form:**
+  - nested error flattening
+  - new: an invalid form is blocked, then the exact POST body, then back
+    to the list with nothing marked unsaved
+  - edit: loads into the form, then PATCH with the price as `99.00`
+    and the ordered images
+  - server errors land under price and photos
+  - 404 → not found
+
+Also checked in Chrome as the admin:
+
+- the table with the retired property
+- search "corfu" (2 results)
+- the edit form for property 42: amenities ticked, 5 photos with the
+  cover starred
+- a photo dragged to the top
+- "All properties" → the "Discard unsaved changes?" dialog → Discard,
+  so **nothing was saved**
 
 ## Django Admin (dev-only)
 
@@ -1847,8 +1978,10 @@ too; see "Property detail page", "Booking form" and "My Bookings page".
 started: TICKET-022 (the `/admin` shell with side nav, `adminGuard` + 403
 page, role-aware navbar with account menu) and TICKET-023 (the admin
 dashboard: period presets, stat cards with changes vs the previous period,
-per-property breakdown) are done; see "Admin area" and "Admin dashboard".
-Next up: the remaining admin screens
+per-property breakdown) and TICKET-024 (the properties table + create/edit
+form with amenities checklist and drag & drop photos) are done; see "Admin
+area", "Admin dashboard" and "Admin properties". Next up: the remaining
+admin screen
 (TICKET-022 onward, with TICKET-023's dashboard reading
 `/api/admin/stats/`). Deploying the backend skeleton to Render
 (TICKET-026) is also due early.
