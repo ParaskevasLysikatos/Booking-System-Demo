@@ -1,6 +1,18 @@
 from django.conf import settings
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
+
+
+class DateRange(models.Func):
+    """Postgres `daterange(check_in, check_out)` - default bounds '[)', i.e.
+    check_out is exclusive, exactly like Booking.objects.overlapping(): a
+    stay ending on the 10th and one starting on the 10th don't overlap."""
+
+    function = "DATERANGE"
+    output_field = DateRangeField()
 
 
 class BookingQuerySet(models.QuerySet):
@@ -42,6 +54,11 @@ class Booking(models.Model):
     )
     check_in = models.DateField()
     check_out = models.DateField()
+    guests = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Number of people staying. Must not exceed the property's capacity (checked on booking).",
+    )
     total_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -63,10 +80,44 @@ class Booking(models.Model):
                 check=models.Q(check_out__gt=models.F("check_in")),
                 name="booking_check_out_after_check_in",
             ),
+            models.CheckConstraint(
+                check=models.Q(guests__gte=1),
+                name="booking_guests_at_least_one",
+            ),
+            # TICKET-015: the real double-booking guarantee. overlapping() is
+            # only a friendly pre-check - two simultaneous requests can both
+            # pass it (check-then-act race). This makes two overlapping
+            # non-cancelled bookings for the same property impossible at the
+            # DB level regardless of timing. Needs the btree_gist extension
+            # (for `property WITH =` inside a GiST index) - created in
+            # migration 0002. Postgres-only, like the rest of the stack.
+            ExclusionConstraint(
+                name="booking_no_overlap_per_property",
+                expressions=[
+                    ("property", RangeOperators.EQUAL),
+                    (DateRange("check_in", "check_out"), RangeOperators.OVERLAPS),
+                ],
+                condition=~models.Q(status="cancelled"),
+            ),
         ]
 
     def __str__(self):
         return f"{self.property.title}: {self.check_in} → {self.check_out} ({self.status})"
+
+    # Status transitions allowed through the API (TICKET-015). Cancelled is
+    # final - a cancelled stay is never revived (the guest books again), so
+    # no overlap re-check is ever needed on a status change.
+    ADMIN_TRANSITIONS = {
+        Status.PENDING: {Status.CONFIRMED, Status.CANCELLED},
+        Status.CONFIRMED: {Status.CANCELLED},
+        Status.CANCELLED: set(),
+    }
+    # Guests can only cancel their own booking, and only before check-in.
+    GUEST_TRANSITIONS = {
+        Status.PENDING: {Status.CANCELLED},
+        Status.CONFIRMED: {Status.CANCELLED},
+        Status.CANCELLED: set(),
+    }
 
     def clean(self):
         # Mirrors the DB CheckConstraint so a bad date range is rejected
@@ -74,6 +125,15 @@ class Booking(models.Model):
         # just an opaque IntegrityError from the database.
         if self.check_in and self.check_out and self.check_out <= self.check_in:
             raise ValidationError("check_out must be after check_in.")
+        if self.property_id and self.guests and self.guests > self.property.capacity:
+            raise ValidationError(
+                f"This property sleeps at most {self.property.capacity} guests."
+            )
+
+    def get_nights(self):
+        # A plain method, not @property: the `property` FK field above shadows
+        # the builtin inside this class body.
+        return (self.check_out - self.check_in).days
 
     def overlaps_with(self, other_check_in, other_check_out):
         return self.check_in < other_check_out and self.check_out > other_check_in

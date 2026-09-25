@@ -10,8 +10,10 @@ Django Admin registration, and a Faker seed script for realistic demo data
 are all in place and verified. Epic 2 (the DRF API) is under way: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
-detail with availability, admin-only create/edit/soft-delete) are done.
-See "Authentication (JWT)", "Permissions" and "Properties API". See "Next
+detail with availability, admin-only create/edit/soft-delete) and the
+Bookings API (race-proof booking creation, locked status changes) are done.
+See "Authentication (JWT)", "Permissions", "Properties API" and
+"Bookings API". See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -106,7 +108,11 @@ backend/
   bookings/            A guest's reservation of a Property for a date range
     models.py          Booking model + the overlap-query manager (no separate Availability model)
     admin.py           Filterable/searchable Booking list (dev-only DB inspection)
-    migrations/        0001_initial.py creates the bookings table
+    serializers.py     Read shape, create (server-side price/status), status-only PATCH
+    views.py           BookingViewSet - /api/bookings/ (own vs all, 409 on overlap, locked status changes)
+    urls.py            Router for /api/bookings/
+    tests.py           API + DB-constraint + real concurrency tests (Postgres)
+    migrations/        0001_initial.py creates the bookings table; 0002 adds guests + btree_gist + no-overlap constraint
   reviews/             A guest's rating/comment on a Property (nice-to-have)
     models.py          Review model (rating 1-5, one review per guest per property)
     admin.py           Filterable/searchable Review list (dev-only DB inspection)
@@ -215,6 +221,7 @@ reservation of a `Property` for a date range:
 | `property` | `ForeignKey -> Property` | `related_name="bookings"`, `on_delete=PROTECT` - a property with booking history can't be hard-deleted; use `Property.is_active` to retire it instead |
 | `guest` | `ForeignKey -> User` | `related_name="bookings"`, `on_delete=CASCADE` |
 | `check_in` / `check_out` | `DateField` | Whole-day stays, no time-of-day |
+| `guests` | `PositiveSmallIntegerField` | Number of people staying (default 1, at least 1 via a DB `CheckConstraint`; no more than the property's `capacity`, checked in `clean()` and the booking API). Added in TICKET-015 |
 | `total_price` | `DecimalField` | Decimal, like `Property.price_per_night` |
 | `status` | `CharField` (choices) | `Booking.Status`: `pending` (default) / `confirmed` / `cancelled` |
 | `created_at` | `DateTimeField` | Auto-managed |
@@ -227,9 +234,11 @@ overlap when each starts before the other ends (the standard interval-
 overlap test), a touching-but-not-overlapping range (checkout day == next
 check-in day) doesn't count as a conflict, and cancelled bookings are
 excluded by default since cancelling frees the dates back up (pass
-`exclude_cancelled=False` for a full history view instead). TICKET-015's
-`POST /api/bookings/` will call this directly to validate a new booking
-before creating it.
+`exclude_cancelled=False` for a full history view instead).
+`POST /api/bookings/` calls it as a friendly pre-check. The actual
+guarantee against double bookings is a Postgres **exclusion constraint**
+(`booking_no_overlap_per_property`, TICKET-015); see "Bookings API"
+below.
 
 `check_out` must be after `check_in`, enforced twice: `Booking.clean()`
 raises a friendly `ValidationError` (what forms/admin/serializers will
@@ -275,7 +284,9 @@ infrastructure-only): `listings` holds `Property`/`PropertyImage`,
 Migrations: `listings/migrations/0001_initial.py` creates `Property`,
 `0002_propertyimage.py` creates `PropertyImage`,
 `accounts/migrations/0001_initial.py` creates `Profile`,
-`bookings/migrations/0001_initial.py` creates `Booking`, and
+`bookings/migrations/0001_initial.py` creates `Booking`,
+`bookings/migrations/0002_booking_guests_no_overlap.py` adds `guests`, the
+`btree_gist` extension and the no-overlap exclusion constraint, and
 `reviews/migrations/0001_initial.py` creates `Review`. All apply
 automatically the next time the `backend` container starts (the Dockerfile
 runs `migrate` on boot - see "Quick start" above); outside Docker, run
@@ -562,6 +573,194 @@ everything with:
 docker compose exec backend python manage.py test
 ```
 
+## Bookings API
+
+`/api/bookings/` (TICKET-015): `bookings/views.py:BookingViewSet`,
+routed in `bookings/urls.py`. Every endpoint needs a logged-in user
+(`Authorization: Bearer <access>`); anonymous callers get `401`.
+
+| Method + path | Guest | Admin |
+| --- | --- | --- |
+| `GET /api/bookings/` | Own bookings only | All bookings |
+| `GET /api/bookings/{id}/` | Own only (someone else's is `404`) | Any |
+| `POST /api/bookings/` | Book for themselves | Same |
+| `PATCH /api/bookings/{id}/` | Cancel own booking, before check-in | Change status (see transitions) |
+| `PUT` / `DELETE` | `405`: bookings are cancelled, never deleted or rewritten | same |
+
+### Creating a booking
+
+```json
+POST /api/bookings/
+{"property": 3, "check_in": "2026-11-02", "check_out": "2026-11-06", "guests": 2}
+```
+
+The server decides everything else. Any of these fields sent by the client
+is ignored:
+
+- `total_price` = nights × the property's current `price_per_night`.
+- `status` always starts as **`pending`**. For now an admin confirms it;
+  TICKET-029's Stripe webhook will confirm it once payment succeeds.
+- `guest` is the logged-in user.
+
+Validation (`bookings/serializers.py:BookingCreateSerializer`) gives a `400`
+with a per-field message:
+
+- the property exists and is active
+- `check_in` is today or later, and at most 365 days ahead
+- `check_out` is after `check_in`, and the stay is at most 30 nights
+- `guests` is at least 1 and no more than the property's `capacity`
+
+Response (`201`, the same shape every endpoint returns):
+
+```json
+{"id": 41, "property": {"id": 3, "title": "Loft", "location": "Thessaloniki",
+   "price_per_night": "80.00", "cover_image": "https://..."},
+ "check_in": "2026-11-02", "check_out": "2026-11-06", "nights": 4, "guests": 2,
+ "total_price": "320.00", "status": "pending", "can_cancel": true,
+ "guest_email": null, "created_at": "..."}
+```
+
+`guest_email` is only filled in for admins. `can_cancel` tells the
+frontend whether the *current caller* may cancel right now, so it can
+show or hide a Cancel button without repeating the rules.
+
+### No double bookings, even under a race
+
+Two layers:
+
+1. **Friendly pre-check.** `Booking.objects.overlapping()` runs first. If
+   the dates clash with a pending or confirmed booking, the API returns
+   **`409`** `{"detail": "These dates are no longer available...", "code": "dates_unavailable"}`.
+   On its own this is *not* race-proof. Two requests arriving together
+   can both pass the check before either one saves (check-then-act).
+2. **The real guarantee: a Postgres exclusion constraint.** This is
+   `booking_no_overlap_per_property`, added in
+   `bookings/migrations/0002_booking_guests_no_overlap.py`:
+
+   ```sql
+   EXCLUDE USING gist (property_id WITH =, daterange(check_in, check_out) WITH &&)
+   WHERE (status <> 'cancelled')
+   ```
+
+   The database itself refuses a second overlapping non-cancelled booking
+   for the same property, however the timing works out. `daterange(...)`
+   uses `[check_in, check_out)` bounds, so check-out day is exclusive,
+   the same rule as `overlapping()`. Combining a plain `=` on
+   `property_id` with a range overlap in one GiST index needs the
+   `btree_gist` extension. The same migration enables it
+   (`BtreeGistExtension()`, a trusted extension, so no superuser is
+   needed). The insert runs inside `transaction.atomic()`. When
+   Postgres raises the exclusion violation (SQLSTATE `23P01`, checked by
+   constraint name), the view turns it into a clean **`409`** "These
+   dates were just booked by someone else" instead of a 500. Any other
+   database error still surfaces as a real error.
+
+Before adding the constraint, the migration checks your existing data. If
+you already have overlapping non-cancelled bookings, it stops with a list
+of the clashing pairs (instead of a cryptic Postgres error). Cancel one
+from each pair and migrate again. Data from `seed_demo_data` never
+overlaps.
+
+### Status changes (`PATCH`)
+
+The body is `{"status": "..."}` and nothing else. Sending any other field
+(dates, price) is a `400`.
+
+| From → To | Guest (own booking) | Admin |
+| --- | --- | --- |
+| `pending` → `confirmed` | ✗ | ✓ |
+| `pending` → `cancelled` | ✓ if check-in is still in the future | ✓ |
+| `confirmed` → `cancelled` | ✓ if check-in is still in the future | ✓ (even after check-in) |
+| anything → `pending` | ✗ | ✗ |
+| `cancelled` → anything | ✗ | ✗ (**cancelled is final**: the guest books again) |
+
+Anything not allowed gets a `400` with the reason, e.g. "Booking is
+already cancelled.". Because cancelled is final, a status change never
+needs an overlap re-check. The exclusion constraint would block
+reviving a cancelled booking into taken dates anyway.
+
+**No lost updates.** The change is one atomic read-modify-write. Inside
+`transaction.atomic()`, the booking row is loaded with
+`select_for_update()` (locking only the booking row, not the joined
+property or user). The transition is validated against that locked,
+current state before saving. So if a guest cancels just as an admin
+confirms or cancels, the second request waits for the first. It is then
+judged against the first one's result instead of silently overwriting
+it.
+
+### Listing and filters
+
+Paginated like properties (12 per page, `?page=`, `?page_size=` up to 50).
+Query params, with bad values giving a `400`:
+
+| Param | Values | Meaning |
+| --- | --- | --- |
+| `when` | `upcoming` | Not checked out yet (stays in progress count), soonest first. Used by My Bookings (TICKET-021) |
+| `when` | `past` | Already checked out, most recent first |
+| `status` | `pending` / `confirmed` / `cancelled` | Filter by status |
+| `property` | property id | **Admin only**, ignored for guests |
+
+Default order is most recent check-in first. The property summary and
+cover image are fetched with `select_related`/`prefetch_related`, so a
+page doesn't cost one query per booking.
+
+### Trying it with curl
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login/ -H "Content-Type: application/json" \
+  -d '{"email":"admin_demo@example.com","password":"AdminPass123!"}' | python -c "import sys,json;print(json.load(sys.stdin)['access'])")
+
+# Book 4 nights for 2 guests
+curl -X POST http://localhost:8000/api/bookings/ -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"property": 3, "check_in": "2026-11-02", "check_out": "2026-11-06", "guests": 2}'
+
+# My upcoming bookings
+curl "http://localhost:8000/api/bookings/?when=upcoming" -H "Authorization: Bearer $TOKEN"
+
+# Confirm (admin) / cancel
+curl -X PATCH http://localhost:8000/api/bookings/41/ -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"status": "confirmed"}'
+```
+
+### Tests
+
+`backend/bookings/tests.py` has 26 tests. They **must run on Postgres**,
+because the exclusion constraint is Postgres-only. That's what
+`docker compose exec backend python manage.py test` uses. They cover:
+
+- **The constraint itself:** overlap rejected with SQLSTATE `23P01`;
+  back-to-back stays, a different property and cancelled bookings all
+  allowed; reviving a cancelled booking into taken dates rejected.
+- **Create:**
+  - price is computed on the server and any client-sent price, status or
+    guest is ignored
+  - the pre-check returns `409`
+  - with the pre-check switched off, the constraint alone still gives a
+    `409`, not a 500
+  - every validation rule, and the limits are inclusive (30 nights,
+    365 days ahead)
+- **List and detail:** a guest sees only their own bookings; the admin
+  sees all, with emails; `upcoming`/`past` filters and ordering, status
+  filter, `property` filter is admin-only, `can_cancel`, and `405` for
+  `PUT`/`DELETE`.
+- **Transitions:**
+  - guest cancel before and after check-in
+  - a guest can't confirm or touch someone else's booking
+  - the admin transition table, and cancelled is final
+  - only `status` is editable
+  - cancelling frees the dates up again
+- **Real concurrency**, using separate threads and database connections
+  with committed data:
+  - two requests are held until *both* have passed the pre-check and then
+    insert together: exactly one `201` and one `409`, with one booking
+    saved
+  - six users booking the same dates at once: exactly one `201` and five
+    `409`s
+  - a guest cancel and an admin cancel on the same booking at the same
+    moment: one `200` and one `400` "already cancelled" (the row lock
+    prevents a lost update)
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -699,6 +898,14 @@ down` / `up` - only `docker compose down -v` wipes them.
   backend` - usually means Postgres wasn't ready yet or a migration
   failed. `depends_on` + the Postgres healthcheck should prevent the first
   case; if you see it anyway, share the log output and it can be fixed.
+- **After pulling new code: `ModuleNotFoundError`, or the backend won't
+  start**: a ticket added a Python package (e.g. `djangorestframework-simplejwt`
+  in TICKET-012). Rebuild the image with `docker compose up --build backend`.
+- **After pulling new code: "relation/column does not exist"**: a ticket
+  added a migration (e.g. TICKET-015's `bookings/0002`). The container runs
+  `migrate` only when it starts, and hot reload doesn't. Either restart it
+  (`docker compose restart backend`) or run
+  `docker compose exec backend python manage.py migrate`.
 - **Ports already in use**: something else on your machine is using 4200,
   8000, 5432, or 5050. Either stop it or change the left-hand side of the
   port mapping in `docker-compose.yml` (e.g. `"4300:4200"`).
@@ -709,9 +916,8 @@ Epic 1 (the data layer) is complete: all five models, migrations, Django
 Admin registration, and the Faker seed script (see "Seeding demo data"
 above) are all in place and verified. Epic 2 is under way: JWT auth
 (TICKET-012), the admin permission classes (TICKET-014) and the
-Properties API (TICKET-013) are done. Next up: the Booking API
-(TICKET-015), which should use `IsAdminRole`/`is_app_admin` for its
-admin-only parts and includes the concurrency constraints already scoped
-into it, then the admin stats endpoint (TICKET-016). On the frontend,
-TICKET-017 (auth) and TICKET-018 (listings grid + filters) can now be
-built against these endpoints.
+Properties API (TICKET-013) and the Bookings API with its double-booking
+guarantees (TICKET-015) are done. Next up: the admin stats endpoint
+(TICKET-016), which completes Epic 2. On the frontend, TICKET-017 (auth),
+TICKET-018 (listings grid + filters) and then TICKET-020/021 (booking
+form, My Bookings) can now be built against these endpoints.

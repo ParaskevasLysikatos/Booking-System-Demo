@@ -277,6 +277,7 @@ class Command(BaseCommand):
                     guest=random.choice(guests),
                     check_in=check_in,
                     check_out=check_out,
+                    guests=random.randint(1, prop.capacity),
                     total_price=total_price,
                     status=status,
                 )

@@ -112,7 +112,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - A DRF permission class checking `Profile.role == 'admin'` (or `is_staff`, per the choice made in TICKET-007) — applied to every admin-only endpoint.
   - Done (built together with TICKET-013): `accounts/permissions.py` has `is_app_admin(user)` (active + authenticated + `Profile.role == 'admin'`; a missing Profile counts as not-admin instead of raising), `IsAdminRole` (admins only) and `IsAdminOrReadOnly` (public reads, admin writes). The role is read from the DB on every request, never from the JWT's `role` claim, so promotions and demotions apply on the next request. `is_staff` is deliberately ignored in both directions. Anonymous → 401, non-admin → 403. Applied to `/api/properties/` now; TICKET-015/016 should use `IsAdminRole` / `is_app_admin` for their admin-only parts. 5 unit tests in `accounts/tests.py`, plus an end-to-end test in `listings/tests.py` that promotes and demotes a user holding a real token. README has a new "Permissions (admin vs guest)" section.
 
-- [ ] **TICKET-015** — Booking serializer + viewset
+- [x] **TICKET-015** — Booking serializer + viewset
   - Priority: P0
   - Depends on: TICKET-008, TICKET-014
   - `GET /api/bookings/` (own bookings for a guest, all bookings for admin), `POST /api/bookings/` (create, with overlap validation against existing non-cancelled bookings), `PATCH /api/bookings/{id}/` (guest can cancel their own; admin can change status).
@@ -120,6 +120,35 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - `POST /api/bookings/`: `Booking.objects.overlapping()` alone is not race-proof (check-then-act). Add a Postgres `ExclusionConstraint` on `Booking` (needs the `btree_gist` extension — `django.contrib.postgres.operations.BtreeGistExtension` in a new `bookings` migration): `(property WITH =, daterange(check_in, check_out) WITH &&) WHERE status <> 'cancelled'`. This makes two overlapping non-cancelled bookings for the same property impossible at the DB level regardless of request timing — the real backstop, not just the pre-check.
     - Wrap booking creation in `transaction.atomic()`; catch the `IntegrityError` the constraint raises on a genuine race and return a clean 409/400 ("these dates were just booked by someone else") instead of a 500. Keep calling `overlapping()` first as a fast, friendly pre-check for the non-race case — just don't rely on it alone.
     - `PATCH /api/bookings/{id}/` (cancel/status-change): treat as a single atomic read-modify-write — `select_for_update()` the specific `Booking` row inside `transaction.atomic()` — so a guest's cancel and an admin's status change landing at nearly the same time can't produce a lost update. Validate the status transition explicitly (e.g. reject cancelling an already-cancelled booking, or confirming one that's cancelled) instead of blindly overwriting `status`.
+  - Decisions (agreed before building): added a **`Booking.guests`** field (validated ≤ `Property.capacity`); guests may cancel their own booking (pending or confirmed) **only before check-in**; admin transitions are **strict**: `pending→confirmed`, `pending→cancelled`, `confirmed→cancelled`, and **cancelled is final**; stay limits are **1–30 nights**, check-in from today up to **365 days** ahead.
+  - Done:
+    - **Migration `bookings/0002_booking_guests_no_overlap.py`:**
+      - adds `guests` (default 1, plus a DB `CheckConstraint` ≥ 1)
+      - enables `BtreeGistExtension`
+      - checks existing data first (`RunPython`): stops with a readable list of clashing booking pairs instead of a cryptic Postgres error
+      - adds the `ExclusionConstraint` `booking_no_overlap_per_property`: `(property WITH =, daterange(check_in, check_out) WITH &&) WHERE status <> 'cancelled'`, with `[)` bounds so check-out day is exclusive, the same rule as `overlapping()`
+      - `django.contrib.postgres` added to `INSTALLED_APPS`
+    - **`bookings/serializers.py`:**
+      - read serializer: property summary with cover, `nights`, `can_cancel` for the current caller, `guest_email` for admins only
+      - create serializer: server-computed `total_price`, always `pending`, guest = the logged-in user; any client-sent price, status or guest is ignored; validation for an active property, the date rules above and capacity
+      - status-only PATCH serializer: any other field is a 400
+    - **`bookings/views.py:BookingViewSet`:**
+      - guests see only their own bookings (someone else's is a 404), admins see all
+      - filters: `?when=upcoming|past`, `?status=`, `?property=` (admin only); paginated
+      - `POST`: the `overlapping()` pre-check returns 409, then the insert runs in `transaction.atomic()`; an `IntegrityError` for the exclusion constraint (SQLSTATE `23P01` + constraint name) becomes a clean 409 "just booked by someone else", while any other `IntegrityError` still raises
+      - `PATCH`: `select_for_update(of=("self",))` inside `transaction.atomic()` plus the explicit transition tables (`Booking.ADMIN_TRANSITIONS` / `GUEST_TRANSITIONS`) → 400 with a reason
+      - `PUT`/`DELETE` → 405
+    - **Seed script:** now sets a random `guests` (1..capacity).
+    - **Tests** (`bookings/tests.py`, 26):
+      - DB-constraint tests
+      - create, list and transition tests
+      - **real concurrency tests** with threads, separate DB connections and committed data:
+        - a barrier forces two requests past the pre-check before either inserts → exactly one 201 and one 409
+        - a 6-request burst → one 201 and five 409s
+        - a simultaneous guest cancel and admin cancel → one 200 and one 400 (no lost update)
+    - **Verification:** all 77 backend tests pass on real Postgres. That was **Postgres 14** with contrib in the sandbox; the sandbox Postgres 16 build lacks the `btree_gist` extension, and the Docker `postgres:16-alpine` image does include it. `makemigrations --check` is clean. Smoke-tested after `seed_demo_data --clear`: admin list with emails, 409 on booking seeded dates, all seeded `guests` within capacity.
+    - **README:** new "Bookings API" section (endpoints, create rules, the two-layer race protection, transition table, filters, curl, tests), data model, layout, status and next steps updated, and two new Troubleshooting entries (rebuild after new packages, migrate after new migrations).
+  - To apply locally: `docker compose restart backend`. The container runs `migrate` on start, which creates the extension and the constraint.
 
 - [ ] **TICKET-016** — Admin stats endpoint
   - Priority: P1
