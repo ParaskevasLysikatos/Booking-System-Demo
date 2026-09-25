@@ -1,0 +1,76 @@
+.head h1 { margin: 0; font-size: 26px; font-weight: 500; }
+.range { margin: 4px 0 0; }
+.muted { color: var(--mat-sys-on-surface-variant); }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 20px;
+}
+.custom { width: 280px; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 150px;
+  padding: 16px 18px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 16px;
+  background: var(--mat-sys-surface);
+
+  &.skeleton { background: var(--mat-sys-surface-container-high); border-color: transparent; }
+}
+
+p { margin: 0; }
+.label { font-size: 14px; color: var(--mat-sys-on-surface-variant); }
+.value { font-size: 32px; font-weight: 600; line-height: 1.15; }
+.value.hero { font-size: 44px; }
+
+/* Direction is carried by ▲/▼ + words, colour only reinforces it. */
+.delta { font-size: 13px; font-weight: 500; }
+.delta.good { color: #2e7d32; }
+.delta.bad { color: var(--mat-sys-error); }
+.delta .muted { font-weight: 400; }
+
+.sub { margin-top: auto; font-size: 13px; color: var(--mat-sys-on-surface-variant); }
+.sub + .sub { margin-top: 0; }
+
+/* Meter: fill + a lighter step of the same hue as the track. */
+.meter { display: block; height: 8px; margin: 6px 0 4px; border-radius: 999px; background: var(--mat-sys-primary-container); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: 999px; background: var(--mat-sys-primary); }
+
+.split { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0; padding: 0; list-style: none; font-size: 13px; }
+.split li { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot.confirmed { background: #2e7d32; }
+.dot.pending { background: #b26a00; }
+.dot.cancelled { background: var(--mat-sys-outline); }
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  mat-icon { font-size: 18px; width: 18px; height: 18px; }
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  color: var(--mat-sys-on-surface-variant);
+  mat-icon { font-size: 40px; width: 40px; height: 40px; }
+}

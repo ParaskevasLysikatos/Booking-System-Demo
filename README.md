@@ -142,6 +142,7 @@ frontend/
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
                                         authGuard + adminGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts, models
     core/bookings/                      BookingService (create/get/list/cancel), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
+    core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas)
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
@@ -150,7 +151,8 @@ frontend/
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
     pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog
-    pages/admin/                        Admin shell (side nav) + placeholder pages for dashboard/properties/bookings
+    pages/admin/                        Admin shell (side nav), dashboard/ (stat cards + breakdown table),
+                                        placeholder pages for properties/bookings
     pages/forbidden/                    403 "Admins only" page
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
@@ -1502,7 +1504,7 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 | URL | Page | Notes |
 | --- | --- | --- |
 | `/admin` | → `/admin/dashboard` | The whole `/admin` group is lazy-loaded and guarded **once** by `adminGuard` |
-| `/admin/dashboard` | placeholder | Stat cards arrive in TICKET-023 (`/api/admin/stats/`) |
+| `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, per-property table; see "Admin dashboard" |
 | `/admin/properties` | placeholder | Property table and form in TICKET-024 |
 | `/admin/bookings` | placeholder | All guests' bookings (Upcoming / Past / Cancelled) in TICKET-025 |
 | `/forbidden` | `pages/forbidden/` | The friendly 403 page |
@@ -1575,6 +1577,104 @@ The production bundle-size warning threshold in `angular.json` was
 raised from 500 kB to 700 kB. The toolbar's Material menu pushed the
 initial bundle to about 523 kB (about 127 kB over the wire). The hard
 error limit stays at 1 MB.
+
+## Admin dashboard (Angular)
+
+`/admin/dashboard` (TICKET-023) is `pages/admin/dashboard/`
+(`AdminDashboardPage`). It replaces the placeholder and reads
+`GET /api/admin/stats/?from=&to=` (TICKET-016) through
+`core/admin/admin-stats.service.ts`. All definitions (only nights inside
+the period count, occupancy = confirmed nights of active properties,
+revenue spread per night) come from the backend; see "Admin stats API".
+
+### Choosing the period
+
+The buttons are **This month** (the default), **Last month**, **Next
+month**, **Next 30 days**, **Last 12 months** and **Custom…**. Custom
+opens a date range picker limited to 366 days, the API's maximum, and
+applies as soon as both dates are picked.
+
+- **The period lives in the URL**, e.g. `?period=last-12` or
+  `?period=custom&from=2026-07-10&to=2026-08-08`. Reloads and shared
+  links keep it. Invalid or too-long ranges fall back to This month.
+- **The header** shows the range and length, e.g. "1 – 30 Sept 2026 ·
+  30 nights · changes shown vs August".
+- **What it's compared with:** a whole calendar month is compared with
+  the previous calendar month (September vs August, even though August
+  has an extra day). Any other range is compared with the equally long
+  window right before it ("vs previous 30 days"). "Last 12 months" is 12
+  whole calendar months and never exceeds 366 days, even across a leap
+  year.
+- **Two requests:** each period loads its stats and the comparison
+  period's stats in parallel (`forkJoin`). If the comparison request
+  fails, the numbers still show, just without the changes.
+
+### Stat cards
+
+| Card | Main value | Also shows |
+| --- | --- | --- |
+| **Revenue** (the one large "hero" figure) | Confirmed revenue for nights in the period | Change vs the previous period; "+ €X expected from pending bookings" |
+| **Occupancy** | e.g. 26.7% | Change in **percentage points**; a meter bar; "8 of 30 nights booked · 3 active properties"; "+ N nights pending confirmation" |
+| **Stays in period** | Confirmed + pending stays | Change; the confirmed / pending / cancelled split; "N new bookings made in this period" |
+| **Avg. revenue per booked night** | Confirmed revenue ÷ confirmed nights, across all properties that earned something (retired ones included, to match the revenue figure) | Change |
+
+- **Changes are never colour-only.** They're written as **▲ / ▼ + a
+  number + "vs August"**, and colour (green = better, red = worse) only
+  reinforces that. Screen readers hear "(better)" / "(worse)".
+  - "No change" appears below 0.5% (or 0.05 points).
+  - "New" appears when the previous period was zero.
+  - The change is hidden when there's nothing to compare.
+- **Meter bars** use the theme's primary colour for the filled part and
+  a lighter shade of the same colour for the track.
+- **Big numbers** use normal proportional digits. Table columns use
+  aligned `tabular-nums` digits.
+
+### Per-property breakdown
+
+A table under the cards, "By property · sorted by revenue", with one row
+per property: booked nights, **occupancy** (a small meter + %), revenue,
+and expected revenue from pending bookings.
+
+- Every active property is listed, including ones with zero bookings.
+  Retired properties that still earned something are marked
+  **Retired**.
+- Property names link to their public page. The admin property editor
+  arrives in TICKET-024.
+- The table scrolls sideways on narrow screens.
+
+### States
+
+- Skeleton cards while loading.
+- "No bookings in this period." when the period is empty.
+- "Couldn't load the stats." with **Try again**.
+
+### Tests
+
+126 frontend tests (14 new):
+
+- **Presets:** month and year edges, and "Last 12 months" fitting in 366
+  days across a leap year.
+- **Comparison periods:** calendar month vs same-length window,
+  including February in a leap year.
+- **URL ↔ period:** with fallbacks for reversed, too-long and garbage
+  ranges.
+- **Range formatting.**
+- **Changes:** % and points, better/worse, and the "No change" / "New" /
+  none cases.
+- **Stats service:** request params.
+- **Every card value from a fixed response:** €626.67, €300 expected,
+  ▲ 25%, 26.7%, ▲ 6.7 pts, 6 stays (▼ 25%), and €62.67 per night from
+  626.67 ÷ 10 nights.
+- **The page:**
+  - the current and comparison requests, and the rendered cards and
+    table, including the Retired badge
+  - preset → URL
+  - a failed comparison still shows the numbers
+  - the error state with Try again, and the empty-period hint
+
+Also checked in Chrome against the seeded data: This month (€78, 0.5%
+occupancy ▼ 5.5 pts vs August) and Last 12 months (€2,283, 6 stays,
+€84.56 per night), with the breakdown table.
 
 ## Django Admin (dev-only)
 
@@ -1745,8 +1845,10 @@ screen) and TICKET-021 (My Bookings with tabs and cancelling) are done
 too; see "Property detail page", "Booking form" and "My Bookings page".
 **Epic 3 (the customer experience) is complete.** The admin area has
 started: TICKET-022 (the `/admin` shell with side nav, `adminGuard` + 403
-page, role-aware navbar with account menu) is done; see "Admin area".
-Next up: the admin screens that fill it in
+page, role-aware navbar with account menu) and TICKET-023 (the admin
+dashboard: period presets, stat cards with changes vs the previous period,
+per-property breakdown) are done; see "Admin area" and "Admin dashboard".
+Next up: the remaining admin screens
 (TICKET-022 onward, with TICKET-023's dashboard reading
 `/api/admin/stats/`). Deploying the backend skeleton to Render
 (TICKET-026) is also due early.

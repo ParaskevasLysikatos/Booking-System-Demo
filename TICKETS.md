@@ -364,10 +364,30 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Checked in Chrome** as the admin: the redirect, the side nav, the active Admin link, the account menu. The guest 403 is covered by tests.
     - **README:** new "Admin area" section; layout, status and next steps updated.
 
-- [ ] **TICKET-023** — `AdminDashboardComponent` (`/admin/dashboard`)
+- [x] **TICKET-023** — `AdminDashboardComponent` (`/admin/dashboard`)
   - Priority: P1
   - Depends on: TICKET-016, TICKET-022
   - Stat cards: bookings, occupancy, revenue.
+  - Decisions (agreed before building):
+    - **presets + custom** period (in the URL)
+    - a **per-property breakdown table** under the cards
+    - **changes vs the previous period** on each card
+  - Done:
+    - **`core/admin/`:**
+      - `AdminStatsService.getStats(from, to)`
+      - `periods.ts`: presets This/Last/Next month, Next 30 days, Last 12 months (always ≤ 366 days); the comparison period (previous calendar month for whole months, else the same-length window before); URL parse/serialize with fallbacks; compact range labels; % and percentage-point changes flagged better/worse
+    - **`pages/admin/dashboard/`:**
+      - button-toggle presets + a Custom date range (max 366 days)
+      - current + comparison stats loaded in parallel (`forkJoin`); a failed comparison degrades to no changes
+      - 4 stat cards: Revenue (hero figure, + expected from pending), Occupancy (meter, booked/available nights, active properties, pending nights), Stays in period (confirmed/pending/cancelled split, new bookings made), Avg. revenue per booked night
+      - changes shown as ▲/▼ + text + "vs August", colour only reinforcing, with better/worse in the screen-reader label
+      - `property-breakdown.ts` table (booked nights, occupancy meter %, revenue, expected; Retired badge; tabular numbers; links to the property)
+      - states: skeletons, empty-period hint, error with Try again
+      - replaces the placeholder route
+    - Built following the dataviz guidance: stat-tile contract, one hero figure, same-colour meter tracks, never colour-only changes, tabular digits only in columns.
+    - **Tests:** 14 new Vitest tests (126 total), all passing; the production build is clean.
+    - **Checked in Chrome** against the seeded data: This month and Last 12 months, the comparisons, and the breakdown.
+    - **README:** new "Admin dashboard" section; admin routes table, layout, status and next steps updated.
 
 - [ ] **TICKET-024** — `AdminPropertyListComponent` + `PropertyFormComponent` (`/admin/properties`, `/admin/properties/:id/edit`)
   - Priority: P0

@@ -39,13 +39,7 @@ export const routes: Routes = [
       {
         path: 'dashboard',
         title: 'Dashboard · Admin · Booking System Demo',
-        loadComponent: () => import('./pages/admin/admin-placeholder').then((m) => m.AdminPlaceholderPage),
-        data: {
-          heading: 'Dashboard',
-          icon: 'dashboard',
-          ticket: 'TICKET-023',
-          description: 'Stat cards for bookings, occupancy and revenue (from /api/admin/stats/).',
-        },
+        loadComponent: () => import('./pages/admin/dashboard/dashboard').then((m) => m.AdminDashboardPage),
       },
       {
         path: 'properties',
