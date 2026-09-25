@@ -176,6 +176,9 @@ frontend/
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
 docker-compose.yml   Wires the four services together
+scripts/hosted-check.sh           Wakes the hosted demo and smoke-checks it (TICKET-028)
+.github/workflows/hosted-check.yml  "Hosted demo check" - runs that script from a Run workflow button
+docs/booking-demo-qr.png          QR code of the hosted site, for the meetup
 render.yaml          Render Blueprint: free Postgres + the API web service (TICKET-026) + the Angular static site (TICKET-027)
 .python-version      Python version Render uses (3.12, same as the Docker image)
 .env                 Local dev secrets (gitignored) - real values, ready to use
@@ -2214,6 +2217,65 @@ idle for 15 minutes.
 - **`AuthService.init()`:** with `/me/` hanging, it resolves after 3 s with
   the cached user, and the late answer still updates it.
 
+## Demo day (TICKET-028)
+
+The TechPro Academy Tech Meetup is on **Oct 1, 18:00-20:30**. The plan:
+show the app **locally** (fast, doesn't depend on the venue wifi), and give
+recruiters the **hosted link** to try afterwards.
+
+### Before leaving home
+
+- [ ] TICKET-041 (simple demo logins) and TICKET-038 (final redeploy +
+      smoke test) are done
+- [ ] The local app runs from scratch, since the venue may have no
+      internet: `docker compose up -d`, then open http://localhost:4200.
+      The footer dot is green ("API & database connected"). Log in once as
+      the admin and once as a guest.
+- [ ] The QR code is ready: `docs/booking-demo-qr.png`, on your phone or
+      printed. It opens https://booking-demo-g4aw.onrender.com.
+- [ ] The backup video (TICKET-039) is on the laptop, in case the laptop
+      demo itself has problems.
+
+### A few minutes before showing the hosted link
+
+The free API sleeps after 15 minutes without visitors, and the first
+visit then takes about a minute. Wake it up first. Either way works:
+
+1. **GitHub → Actions → "Hosted demo check" → Run workflow**. This also
+   works in the GitHub mobile app. It wakes the API, waits for it (up to
+   ~3 minutes), then checks the whole chain and shows a green list on the
+   run's summary page:
+   - the API's health reports the database as `connected`
+   - the API lists properties
+   - the site serves the Angular app, deep links included
+   - CORS allows the site
+   - the security headers are present
+
+   If anything is wrong the run turns red with the reason (for example
+   "CORS: the API doesn't allow …"), and GitHub emails you.
+2. Or just open the site and wait for the listings. While the API wakes
+   up, the site shows the amber **"Waking up the demo server"** banner,
+   so a visitor knows it's loading, not broken.
+
+After that, it stays awake for about 15 minutes after the last visitor.
+If a recruiter opens the link days later, the banner explains the wait.
+
+The same check runs anywhere with bash, curl and python3:
+`bash scripts/hosted-check.sh` (`API_URL` and `SITE_URL` override the
+addresses). It was tested against a local copy of the production setup
+(gunicorn plus the built site with the same rewrite and headers). It
+passes there, and it fails on the CORS step, with the message above, when
+the site address is wrong.
+
+### Dates to remember
+
+- **~Oct 25:** Render's free Postgres expires 30 days after creation
+  (Sep 25), then has a 14-day grace period. Upgrade it or recreate it
+  (the Blueprint seeds a new empty database on the next deploy) before
+  sharing the link again after that.
+- Free web services get 750 hours a month per workspace. One API that
+  sleeps when idle uses far less.
+
 ## Environment variables
 
 Real values already live in `.env` (gitignored, working local-dev
@@ -2317,5 +2379,5 @@ and "Admin bookings". **Epic 4 (the admin area) is complete.** Hosting
 has started: TICKET-026 (the API + Postgres on Render from `render.yaml`)
 is live at https://booking-demo-api.onrender.com, and TICKET-027 adds the
 Angular site at https://booking-demo-g4aw.onrender.com; see "Deploying to Render"
-and "Frontend on Render". Next up: the pre-demo hosted-URL check
-(TICKET-028).
+and "Frontend on Render". TICKET-028 adds the "Hosted demo check" button
+and the meetup plan; see "Demo day".

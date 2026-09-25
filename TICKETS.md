@@ -457,6 +457,8 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Priority: P0
   - Depends on: TICKET-027
   - Free services spin down after ~15 min idle (30–60s cold start). Ping the hosted URL a few minutes before demoing; plan to run **locally** as the primary during the pitch and hand out the hosted URL as a leave-behind link.
+  - Decisions (agreed): a **manual "Run workflow" button only**, with no scheduled keep-alive; plus a **QR code** of the site link.
+  - Done: `scripts/hosted-check.sh` wakes the API (retries for ~3 min while it cold-starts), then checks: health `connected`, properties listed, the site serving the Angular app on `/`, `/listings/1` and `/admin/bookings`, CORS allowing the site, and `X-Frame-Options`. It writes a ✅/❌ list to the GitHub run summary and fails with a clear reason. `.github/workflows/hosted-check.yml` runs it via `workflow_dispatch` (also from the GitHub mobile app). Tested offline against a local copy of the production setup: passes, and fails on CORS with a wrong site origin. `docs/booking-demo-qr.png` (verified to decode to https://booking-demo-g4aw.onrender.com). README "Demo day": checklist, warm-up, dates (DB expires ~Oct 25).
 
 ---
 

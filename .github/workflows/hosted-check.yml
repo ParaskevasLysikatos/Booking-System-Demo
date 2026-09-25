@@ -1,0 +1,19 @@
+# TICKET-028: one button that wakes the free Render API and checks the whole
+# hosted demo (site, API, database, CORS). GitHub -> Actions -> "Hosted demo
+# check" -> Run workflow (also works from the GitHub mobile app).
+name: Hosted demo check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wake up and check the hosted demo
+        run: bash scripts/hosted-check.sh
