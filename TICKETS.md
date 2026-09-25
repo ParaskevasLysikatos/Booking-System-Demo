@@ -443,6 +443,8 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Priority: P0
   - Depends on: TICKET-004
   - Managed Postgres (free tier) + Web Service for the Django/DRF API, auto-deploy from GitHub. Do this early, not the night before.
+  - Decisions (agreed): Render **Blueprint** (`render.yaml`) in Frankfurt; demo data **seeded once automatically** on the first deploy (`seed_demo_data --if-empty`, skipped once properties exist); the hosted admin keeps the **same demo password** as locally (the repo is public, so this was a deliberate choice for the demo).
+  - Status: code ready and pushed, **waiting for the first deploy in the Render dashboard** (New → Blueprint). Done so far: gunicorn + WhiteNoise, `DATABASE_URL` support, `RENDER_EXTERNAL_HOSTNAME` → allowed hosts/CSRF origins, production hardening with `DEBUG=False` (proxy HTTPS header, secure cookies, HSTS, errors logged to stdout, refuses the dev secret key), `build.sh` (install, collectstatic, migrate, first-deploy seed), health check hides DB details in production, `.python-version` 3.12. Verified locally in production mode against a fresh database (build twice, gunicorn, static files, admin login, stats, 400 for foreign hosts). 103 backend tests passing. README: "Deploying to Render".
 
 - [ ] **TICKET-027** — Deploy Angular build to Render Static Site
   - Priority: P0

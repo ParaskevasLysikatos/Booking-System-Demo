@@ -98,6 +98,15 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--if-empty",
+            action="store_true",
+            help=(
+                "Do nothing if any property already exists. Used by the Render "
+                "build (build.sh) so only the very first deploy seeds, and later "
+                "deploys never wipe or duplicate data."
+            ),
+        )
+        parser.add_argument(
             "--properties",
             type=int,
             default=14,
@@ -117,6 +126,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options["if_empty"] and Property.objects.exists():
+            self.stdout.write("Properties already exist - skipping the demo seed (--if-empty).")
+            return
+
         if options["seed"] is not None:
             random.seed(options["seed"])
             Faker.seed(options["seed"])

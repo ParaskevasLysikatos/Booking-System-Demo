@@ -14,7 +14,8 @@ and an availability calendar (TICKET-019), and book it in two steps
 (TICKET-020), then see and cancel their bookings under My bookings
 (TICKET-021). Admins have their own area (TICKET-022 to 025): a
 dashboard, the properties table and form, and every guest's bookings
-with confirm/cancel, which completes Epic 4. Epic 2 (the DRF API) is complete: JWT
+with confirm/cancel, which completes Epic 4. The API is ready to deploy to
+Render from `render.yaml` (TICKET-026, see "Deploying to Render"). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -80,15 +81,19 @@ your actual machine outside Docker, uses `localhost:<port>`.
 
 ```
 backend/
-  Dockerfile           Python 3.12 image; runs migrate then runserver on boot
-  requirements.txt     Django, DRF, simplejwt, django-cors-headers, django-environ, psycopg2, Faker
+  Dockerfile           Python 3.12 image; runs migrate then runserver on boot (local dev)
+  requirements.txt     Django, DRF, simplejwt, django-cors-headers, django-environ, psycopg2, Faker,
+                       gunicorn + whitenoise (production server and static files, TICKET-026)
+  build.sh             Render build: pip install, collectstatic, migrate, first-deploy seed
   manage.py
   config/              Django project settings
-    settings.py        Reads DB/secret/CORS/JWT config from env vars; JWT is the API's default auth
+    settings.py        Reads DB/secret/CORS/JWT config from env vars (DATABASE_URL on Render); JWT is the
+                       API's default auth; production hardening when DJANGO_DEBUG=False
     urls.py            admin/ -> Django admin, api/ -> core.urls + listings.urls, api/auth/ -> accounts.urls
     wsgi.py / asgi.py
   core/                Small app - currently just the health-check endpoint
-    views.py           GET /api/health/ - queries Postgres, returns status
+    views.py           GET /api/health/ - queries Postgres, returns status (error details only in DEBUG)
+    tests.py           Health check + seed --if-empty tests
     urls.py
     pagination.py      StandardPagination - 12 per page, ?page_size= up to 50
     admin.py           No models of its own - just the admin site's global branding (dev-DB-inspection labeling)
@@ -165,6 +170,8 @@ frontend/
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
 docker-compose.yml   Wires the four services together
+render.yaml          Render Blueprint: free Postgres + the API web service (TICKET-026)
+.python-version      Python version Render uses (3.12, same as the Docker image)
 .env                 Local dev secrets (gitignored) - real values, ready to use
 .env.example         Committed template for .env
 ```
@@ -1955,6 +1962,8 @@ the demo never starts out empty:
   Django Admin and the app's own admin-only checks once those land.
   Idempotent: re-running the command without `--clear` leaves an existing
   `admin_demo` untouched instead of erroring on the duplicate username.
+  The same password is used on the hosted Render copy (a deliberate choice
+  for the demo, see "Deploying to Render").
 - **Bookings** - 0-5 per property, spread from 60 days in the past to 300
   days in the future, reusing `Booking.objects.overlapping()` (the same
   helper `POST /api/bookings/` will use later) so seeded bookings never
@@ -1992,6 +2001,110 @@ past booking, ratings stay in range, `--clear` wipes only seeded data
 (confirmed a manually-created superuser survives it), and re-running
 `--clear` plus reseeding works repeatedly without errors.
 
+## Deploying to Render
+
+TICKET-026 puts the API (Django + Postgres) online on
+[Render](https://render.com). The whole setup is written down in
+`render.yaml` (a Render **Blueprint**), so there's nothing to configure
+by hand except the first click. The Angular site follows in TICKET-027.
+
+### What gets created
+
+| Resource | Name | Plan / region | Notes |
+| --- | --- | --- | --- |
+| Postgres 16 | `booking-demo-db` | free, Frankfurt | Same major version as `docker-compose.yml`. Render's free Postgres **expires 30 days after it's created** (then a 14-day grace period), so upgrade or recreate it after the meetup |
+| Web service (Python) | `booking-demo-api` | free, Frankfurt | Frankfurt is the closest region to Greece. `rootDir: backend`. **Sleeps after 15 min without traffic**, and the first request then takes about a minute |
+
+Per deploy (every push to `master`, `autoDeployTrigger: commit`):
+
+1. **Build** (`bash build.sh`, in `backend/`):
+   - `pip install -r requirements.txt`
+   - `collectstatic` → `backend/staticfiles/` (gitignored), which WhiteNoise serves
+   - `migrate`. Free services have no shell, so migrations run here. The
+     first one creates the `btree_gist` extension the no-double-booking
+     constraint needs; Render supports it.
+   - `seed_demo_data --if-empty` when `SEED_DEMO_DATA=true`: the **first**
+     deploy fills the empty database with the same demo data as locally.
+     Every later deploy sees properties already exist and skips it, so
+     nothing is wiped or duplicated.
+2. **Start:** `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`, with
+   2 workers (`WEB_CONCURRENCY=2`, since the free instance has 512 MB).
+   Django's `runserver` is for development only.
+3. **Health check:** Render calls `/api/health/`, which round-trips through
+   Postgres, before switching traffic to the new version.
+
+### Environment variables on Render
+
+| Variable | Where it comes from |
+| --- | --- |
+| `DATABASE_URL` | Filled in by Render from `booking-demo-db` (internal connection string). When set, `settings.py` uses it instead of the `POSTGRES_*` variables |
+| `DJANGO_SECRET_KEY` | Generated by Render (random). It also signs the JWTs. With `DEBUG` off, the app **refuses to start** if it's missing |
+| `DJANGO_DEBUG` | `false` |
+| `SEED_DEMO_DATA` | `true` (only matters while the database is empty) |
+| `WEB_CONCURRENCY` | `2` gunicorn workers |
+| `RENDER_EXTERNAL_HOSTNAME` | Set by Render itself (e.g. `booking-demo-api.onrender.com`). Added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically |
+| `CORS_ALLOWED_ORIGINS` | Added in TICKET-027: the Angular site's URL |
+
+### What changes when `DJANGO_DEBUG=False`
+
+- **HTTPS:** Render handles HTTPS (and redirects `http://` to `https://`) at
+  its proxy and passes on `X-Forwarded-Proto`. With
+  `SECURE_PROXY_SSL_HEADER`, Django knows the request was HTTPS, so e.g.
+  pagination `next` links are `https://…`.
+- **Headers and cookies:** secure cookies (Django Admin session and CSRF),
+  and HSTS for an hour (`DJANGO_HSTS_SECONDS`).
+- **Static files:** stored with a content hash in the name
+  (`base.96c479cedf7a.css`) and compressed, so browsers can cache them
+  safely. Dev and tests keep Django's plain storage, so nothing has to be
+  collected first.
+- **Hosts:** requests for any other host name get a `400`.
+- **Error pages:** no debug pages. Server errors and their tracebacks go to
+  stdout, which is Render's **Logs** tab (`LOGGING`, level
+  `DJANGO_LOG_LEVEL`, default `ERROR`).
+- **Health check:** it only says `"database": "error"` publicly; the real
+  reason is in the logs.
+
+Local Docker is unchanged: no `DATABASE_URL` and `DEBUG` on.
+
+### First deploy (one time, in the browser)
+
+1. Sign in to render.com with **GitHub**, and allow Render access to the
+   `Booking-System-Demo` repo.
+2. **New → Blueprint**, pick the repo (branch `master`). Render reads
+   `render.yaml` and lists the database and the web service. Click
+   **Apply**.
+3. Wait for the database, then the build (a few minutes; the log shows
+   the migrations and "Seeded 14 properties and 10 guests.").
+4. Open `https://<service>.onrender.com/api/health/`. It should show
+   `{"status":"ok","database":"connected"}`.
+
+**Logins on the hosted copy:** the same demo accounts as locally
+(`admin_demo@example.com` / `AdminPass123!`, guests `DemoPass123!`). The
+repo is public, so anyone who reads it can log in as the admin there.
+That's accepted for a demo; to lock it down later, change the password in
+Django Admin on the hosted site.
+
+### Trying the production setup locally
+
+`build.sh` and gunicorn were run locally before the first deploy, against a
+fresh Postgres database with only `DATABASE_URL`, `DJANGO_DEBUG=false`
+and `RENDER_EXTERNAL_HOSTNAME` set:
+
+- the build migrated and seeded; a second build skipped the seed
+- health reported `connected`
+- the Django Admin CSS came back hashed through WhiteNoise
+- admin login and `/api/admin/stats/` worked
+- a foreign `Host` got a `400`, and HSTS and `nosniff` headers were present
+
+### Tests
+
+`backend/core/tests.py` (5 new, 103 backend tests in total):
+
+- `--if-empty` seeds an empty database and leaves an existing one
+  untouched
+- the health check reports `connected`; it shows the database error in
+  DEBUG, but in production only says `error` and logs the details
+
 ## Environment variables
 
 Real values already live in `.env` (gitignored, working local-dev
@@ -2004,6 +2117,9 @@ you ever need to regenerate it.
 | `DJANGO_DEBUG` | backend | Debug mode (verbose error pages) |
 | `DJANGO_ALLOWED_HOSTS` | backend | Hostnames Django will respond to |
 | `CORS_ALLOWED_ORIGINS` | backend | Origins allowed to call the API (the Angular dev server) |
+| `DATABASE_URL` | backend (Render) | One connection string; when set it replaces the `POSTGRES_*` variables. See "Deploying to Render" |
+| `CSRF_TRUSTED_ORIGINS` | backend | Optional extra `https://…` origins for Django Admin's login form (Render's own hostname is added automatically) |
+| `SEED_DEMO_DATA` / `WEB_CONCURRENCY` / `DJANGO_LOG_LEVEL` / `DJANGO_HSTS_SECONDS` | backend (Render) | First-deploy seed, gunicorn workers, log level (default `ERROR`), HSTS seconds (default 3600) |
 | `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` | backend | Optional token lifetimes (defaults 30 minutes / 1 day) |
 | `BOOKING_CHECK_IN_TIME` / `BOOKING_GUEST_CANCELLATION_HOURS` | backend | Optional: check-in time used for the guest cancellation deadline, and how many hours before it guests can still cancel (defaults `15:00` / `48`) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
@@ -2052,7 +2168,8 @@ down` / `up` - only `docker compose down -v` wipes them.
   case; if you see it anyway, share the log output and it can be fixed.
 - **After pulling new code: `ModuleNotFoundError`, or the backend won't
   start**: a ticket added a Python package (e.g. `djangorestframework-simplejwt`
-  in TICKET-012). Rebuild the image with `docker compose up --build backend`.
+  in TICKET-012, or gunicorn + whitenoise in TICKET-026). Rebuild the image
+  with `docker compose up -d --build backend`.
 - **After pulling new code: "relation/column does not exist"**: a ticket
   added a migration (e.g. TICKET-015's `bookings/0002`). The container runs
   `migrate` only when it starts, and hot reload doesn't. Either restart it
@@ -2087,5 +2204,7 @@ per-property breakdown) and TICKET-024 (the properties table + create/edit
 form with amenities checklist and drag & drop photos) and TICKET-025
 (every guest's bookings with tabs, filters, confirm/cancel and a pending
 badge) are done; see "Admin area", "Admin dashboard", "Admin properties"
-and "Admin bookings". **Epic 4 (the admin area) is complete.** Next up:
-deploying the backend to Render (TICKET-026).
+and "Admin bookings". **Epic 4 (the admin area) is complete.** Hosting
+has started: TICKET-026 (the API + Postgres on Render from `render.yaml`)
+is ready; see "Deploying to Render". Next up: the Angular site on Render
+(TICKET-027).

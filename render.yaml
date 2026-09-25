@@ -1,0 +1,37 @@
+# Render Blueprint (TICKET-026): the API and its database, as code.
+# In Render: New -> Blueprint -> pick this repo -> Apply.
+# See the README's "Deploying to Render".
+
+databases:
+  - name: booking-demo-db
+    plan: free              # expires 30 days after creation (Render's free-tier rule)
+    region: frankfurt       # keep it next to the API
+    postgresMajorVersion: "16"   # same as docker-compose
+    databaseName: booking_demo
+    user: booking_demo
+
+services:
+  - type: web
+    name: booking-demo-api
+    runtime: python
+    plan: free              # sleeps after 15 min idle, ~1 min to wake up
+    region: frankfurt       # closest to Greece
+    rootDir: backend
+    buildCommand: bash build.sh
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health/
+    autoDeployTrigger: commit   # every push to master redeploys
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: booking-demo-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true     # random, also signs the JWTs
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: SEED_DEMO_DATA
+        value: "true"           # first deploy only, see build.sh
+      - key: WEB_CONCURRENCY
+        value: "2"              # gunicorn workers; the free instance has 512 MB
+      # CORS_ALLOWED_ORIGINS (the Angular site's URL) is added in TICKET-027.

@@ -1,6 +1,8 @@
 from datetime import timedelta
 from pathlib import Path
+
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -9,9 +11,24 @@ env_file = BASE_DIR / '.env'
 if env_file.exists():
     environ.Env.read_env(env_file)
 
-SECRET_KEY = env('DJANGO_SECRET_KEY', default='dev-only-insecure-secret-key-change-me')
+DEV_SECRET_KEY = 'dev-only-insecure-secret-key-change-me'
+SECRET_KEY = env('DJANGO_SECRET_KEY', default=DEV_SECRET_KEY)
 DEBUG = env.bool('DJANGO_DEBUG', default=True)
+if not DEBUG and SECRET_KEY == DEV_SECRET_KEY:
+    # Tokens are signed with SECRET_KEY: never run in production with the
+    # well-known dev key (render.yaml generates a random one).
+    raise ImproperlyConfigured('Set DJANGO_SECRET_KEY when DJANGO_DEBUG is False.')
+
 ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'backend'])
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
+
+# Render sets this to the service's public hostname
+# (e.g. booking-demo-api.onrender.com), so it never has to be typed in.
+RENDER_EXTERNAL_HOSTNAME = env('RENDER_EXTERNAL_HOSTNAME', default='')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+    # Django Admin's login form (a normal POST with a CSRF cookie) over HTTPS.
+    CSRF_TRUSTED_ORIGINS.append(f'https://{RENDER_EXTERNAL_HOSTNAME}')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -34,6 +51,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Serves collected static files (Django Admin / DRF CSS) under gunicorn,
+    # where Django itself doesn't serve them (TICKET-026).
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -62,16 +82,24 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': env('POSTGRES_DB', default='booking_demo'),
-        'USER': env('POSTGRES_USER', default='booking_demo'),
-        'PASSWORD': env('POSTGRES_PASSWORD', default=''),
-        'HOST': env('POSTGRES_HOST', default='db'),
-        'PORT': env('POSTGRES_PORT', default='5432'),
+if env('DATABASE_URL', default=''):
+    # Hosting (Render): one connection string, e.g.
+    # postgresql://user:password@host/dbname
+    DATABASES = {'default': env.db('DATABASE_URL')}
+    DATABASES['default']['CONN_MAX_AGE'] = env.int('DB_CONN_MAX_AGE', default=60)
+    DATABASES['default']['CONN_HEALTH_CHECKS'] = True
+else:
+    # Local Docker / tests: separate POSTGRES_* variables (see .env.example).
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': env('POSTGRES_DB', default='booking_demo'),
+            'USER': env('POSTGRES_USER', default='booking_demo'),
+            'PASSWORD': env('POSTGRES_PASSWORD', default=''),
+            'HOST': env('POSTGRES_HOST', default='db'),
+            'PORT': env('POSTGRES_PORT', default='5432'),
+        }
     }
-}
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -86,10 +114,24 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+# `collectstatic` (build.sh) copies every app's static files here, and
+# WhiteNoise serves them.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        # Production: compressed files with content hashes in their names
+        # (safe to cache forever). Dev/tests: the plain default, so nothing
+        # needs collecting first.
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
+        else 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:4200'])
+# Blank entries (e.g. a trailing comma) are dropped: corsheaders rejects them.
+CORS_ALLOWED_ORIGINS = [o for o in env.list('CORS_ALLOWED_ORIGINS', default=['http://localhost:4200']) if o]
 
 # Email login for the app (accounts.backends.EmailBackend), with Django's
 # default username backend kept for createsuperuser accounts on /admin/.
@@ -130,4 +172,25 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     # Defaults to SECRET_KEY; spelled out so it's obvious what signs tokens.
     'SIGNING_KEY': SECRET_KEY,
+}
+
+# --- Production (DJANGO_DEBUG=False), TICKET-026 -------------------------------
+if not DEBUG:
+    # Render terminates HTTPS at its proxy (and redirects http -> https there)
+    # and tells Django the original scheme in this header.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = env.int('DJANGO_HSTS_SECONDS', default=3600)
+
+# Server errors (500s, with tracebacks) go to stdout, so they show up in
+# Render's Logs tab. Django's default only prints them while DEBUG is on.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        'django': {'handlers': ['console'], 'level': env('DJANGO_LOG_LEVEL', default='ERROR'), 'propagate': False},
+    },
 }
