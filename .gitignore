@@ -19,3 +19,7 @@ frontend/.angular/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local secrets (never commit)
+github token.txt
+.github-token
