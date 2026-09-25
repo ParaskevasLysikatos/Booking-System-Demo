@@ -3,10 +3,12 @@ import { Routes } from '@angular/router';
 import { guestOnlyGuard } from './core/auth/auth.guards';
 
 export const routes: Routes = [
+  // Listings are the home page (TICKET-018).
+  { path: '', pathMatch: 'full', redirectTo: 'listings' },
   {
-    path: '',
-    title: 'Booking System Demo',
-    loadComponent: () => import('./pages/home/home').then((m) => m.HomePage),
+    path: 'listings',
+    title: 'Stays · Booking System Demo',
+    loadComponent: () => import('./pages/listings/listings').then((m) => m.PropertyListPage),
   },
   {
     path: 'login',
@@ -20,5 +22,5 @@ export const routes: Routes = [
     canActivate: [guestOnlyGuard],
     loadComponent: () => import('./pages/register/register').then((m) => m.RegisterPage),
   },
-  { path: '**', redirectTo: '' },
+  { path: '**', redirectTo: 'listings' },
 ];

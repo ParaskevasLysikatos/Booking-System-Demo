@@ -1,0 +1,48 @@
+<a class="card" [routerLink]="['/listings', property().id]" [queryParams]="linkParams()">
+  <div class="photo">
+    @if (property().cover_image && !imageFailed()) {
+      <img
+        [src]="property().cover_image"
+        [alt]="property().title"
+        loading="lazy"
+        (error)="imageFailed.set(true)"
+      />
+    } @else {
+      <div class="no-photo" aria-hidden="true"><mat-icon>image_not_supported</mat-icon></div>
+    }
+  </div>
+
+  <div class="body">
+    <div class="top">
+      <h3 class="title">{{ property().title }}</h3>
+      <span class="rating" [attr.aria-label]="property().rating_avg ? property().rating_avg + ' out of 5' : 'No reviews yet'">
+        @if (property().rating_avg; as avg) {
+          <mat-icon>star</mat-icon> {{ avg.toFixed(1) }} <span class="muted">({{ property().review_count }})</span>
+        } @else {
+          <span class="new">New</span>
+        }
+      </span>
+    </div>
+
+    <p class="location"><mat-icon>place</mat-icon>{{ property().location }}</p>
+    <p class="meta"><mat-icon>group</mat-icon>Sleeps {{ property().capacity }}</p>
+
+    @if (amenities().length) {
+      <ul class="chips">
+        @for (a of amenities(); track a) {
+          <li>{{ a }}</li>
+        }
+        @if (moreAmenities()) {
+          <li class="more">+{{ moreAmenities() }}</li>
+        }
+      </ul>
+    }
+
+    <p class="price">
+      <strong>{{ nightly() }}</strong><span class="muted">&nbsp;/ night</span>
+      @if (stayTotal(); as total) {
+        <span class="total">{{ total }} for {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</span>
+      }
+    </p>
+  </div>
+</a>

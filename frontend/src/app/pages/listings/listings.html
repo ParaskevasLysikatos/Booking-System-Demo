@@ -1,0 +1,119 @@
+<section class="listings">
+  <form class="search" role="search" [formGroup]="form" (ngSubmit)="search()" novalidate>
+    <div class="main">
+      <mat-form-field appearance="outline" class="dates" subscriptSizing="dynamic">
+        <mat-label>Check-in – check-out</mat-label>
+        <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate">
+          <input matStartDate formControlName="start" placeholder="Check-in" />
+          <input matEndDate formControlName="end" placeholder="Check-out" />
+        </mat-date-range-input>
+        <mat-datepicker-toggle matIconSuffix [for]="picker" />
+        <mat-date-range-picker #picker />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="location" subscriptSizing="dynamic">
+        <mat-label>Where</mat-label>
+        <mat-icon matIconPrefix>place</mat-icon>
+        <input matInput formControlName="location" placeholder="e.g. Chania" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="guests" subscriptSizing="dynamic">
+        <mat-label>Guests</mat-label>
+        <mat-select formControlName="guests">
+          <mat-option [value]="null">Any</mat-option>
+          @for (n of guestOptions; track n) {
+            <mat-option [value]="n">{{ n }} {{ n === 1 ? 'guest' : 'guests' }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <button mat-flat-button type="submit" class="go"><mat-icon>search</mat-icon> Search</button>
+    </div>
+
+    @if (dateError(); as msg) {
+      <p class="form-error" role="alert">{{ msg }}</p>
+    }
+
+    <div class="refine">
+      <mat-form-field appearance="outline" class="price" subscriptSizing="dynamic">
+        <mat-label>Min €/night</mat-label>
+        <input matInput type="number" min="0" formControlName="minPrice" />
+      </mat-form-field>
+      <mat-form-field appearance="outline" class="price" subscriptSizing="dynamic">
+        <mat-label>Max €/night</mat-label>
+        <input matInput type="number" min="0" formControlName="maxPrice" />
+      </mat-form-field>
+      <mat-form-field appearance="outline" class="sort" subscriptSizing="dynamic">
+        <mat-label>Sort by</mat-label>
+        <mat-select formControlName="ordering">
+          @for (o of sortOptions; track o.value) {
+            <mat-option [value]="o.value">{{ o.label }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (hasFilters()) {
+        <button mat-button type="button" (click)="clearFilters()">Clear filters</button>
+      }
+    </div>
+    @if (form.hasError('priceRange')) {
+      <p class="form-error" role="alert">Min price can't be higher than max price.</p>
+    }
+  </form>
+
+  @switch (state().status) {
+    @case ('loading') {
+      <div class="grid" aria-busy="true" aria-label="Loading stays">
+        @for (i of [1, 2, 3, 4, 5, 6, 7, 8]; track i) {
+          <div class="skeleton"><div class="ph-img"></div><div class="ph-line"></div><div class="ph-line short"></div></div>
+        }
+      </div>
+    }
+
+    @case ('error') {
+      <div class="message" role="alert">
+        <mat-icon>cloud_off</mat-icon>
+        <p>{{ $any(state()).message }}</p>
+        @if ($any(state()).badRequest) {
+          <button mat-stroked-button type="button" (click)="clearFilters()">Clear filters</button>
+        } @else {
+          <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+        }
+      </div>
+    }
+
+    @case ('ok') {
+      @let data = $any(state()).data;
+      @if (data.count === 0) {
+        <div class="message">
+          <mat-icon>travel_explore</mat-icon>
+          <p>No stays match your search.</p>
+          @if (hasFilters()) {
+            <button mat-stroked-button type="button" (click)="clearFilters()">Clear filters</button>
+          }
+        </div>
+      } @else {
+        <p class="summary">
+          {{ data.count }} {{ data.count === 1 ? 'stay' : 'stays' }}
+          @if (nights(); as n) {
+            available for {{ n }} {{ n === 1 ? 'night' : 'nights' }}
+          }
+        </p>
+        <div class="grid">
+          @for (p of data.results; track p.id) {
+            <app-property-card [property]="p" [nights]="nights()" [linkParams]="cardLinkParams()" />
+          }
+        </div>
+        @if (data.count > query.page.pageSize) {
+          <mat-paginator
+            [length]="data.count"
+            [pageIndex]="query.page.page - 1"
+            [pageSize]="query.page.pageSize"
+            [pageSizeOptions]="pageSizes"
+            (page)="onPage($event)"
+            aria-label="Choose results page"
+          />
+        }
+      }
+    }
+  }
+</section>

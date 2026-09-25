@@ -210,10 +210,36 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Browser check:** the pages render and validate in the running app via Chrome; I did not submit real credentials.
     - **README:** new "Frontend auth" section; layout, status and next steps updated.
 
-- [ ] **TICKET-018** — `PropertyService` + `PropertyListComponent` (`/listings`)
+- [x] **TICKET-018** — `PropertyService` + `PropertyListComponent` (`/listings`)
   - Priority: P0
   - Depends on: TICKET-013
   - Grid of properties + filters (dates, location, guests, price).
+  - Decisions (agreed before building):
+    - search state in the **URL** (API param names)
+    - dates, location and guests apply on the **Search button**; sort applies instantly and price after a 0.5 s pause
+    - **Material paginator** (12/24/48 per page)
+    - **`/` redirects to `/listings`**; the temporary home page was removed and the connectivity card became a footer status dot
+  - Done:
+    - **`core/properties/`:**
+      - `PropertyService.list()` always sends `is_active=true`, so an admin sees the same active-only list; TICKET-024 lists all
+      - `toPropertyParams()` leaves out empty values and defaults
+    - **`core/dates.ts`:** local `YYYY-MM-DD` formatting with no UTC shift; parsing rejects roll-overs like Feb 30; DST-safe night counts.
+    - **`core/money.ts`:** € formatting in one place.
+    - **`pages/listings/`:**
+      - the URL is the single source of truth (`queryParamMap` → `switchMap` → API, which cancels stale requests); the form is refilled from the URL with `emitEvent: false`
+      - `listing-query.ts` converts both ways and drops junk from hand-edited URLs
+      - Material date range picker (past dates and dates over 365 days ahead disabled, dd/mm/yyyy), location, guests 1–16, min/max €, sort, Clear filters
+      - validation: a lone date or zero nights is blocked; min can't exceed max
+      - states: skeleton, empty, a 400 with the API message humanized ("Check-in can't be in the past.") + Clear filters, a 5xx with Try again
+      - paginator; changing pages updates the URL and scrolls to the top
+    - **`property-card/`:**
+      - cover photo (lazy-loaded, with a fallback), rating or "New", "Sleeps N", 3 amenity chips with readable labels + "+N"
+      - € price / night, plus the stay total when dates are picked
+      - links to `/listings/:id` carrying the dates and guests (the page arrives in TICKET-019)
+    - **`layout/footer/`** has the API/DB status dot.
+    - **Tests:** 20 new Vitest tests (54 total, all passing); the production build is clean.
+    - **Checked in Chrome** against the seeded data: a URL search, typed Search, price refining, Back, a past-date URL and the empty state. This caught two bugs, both fixed: inactive properties were showing for admins (fixed with `is_active=true`), and "€91/ night" was missing its space.
+    - **README:** new "Listings page" section; layout, status and next steps updated.
 
 - [ ] **TICKET-019** — `PropertyDetailComponent` (`/listings/:id`)
   - Priority: P0

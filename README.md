@@ -8,7 +8,8 @@ for the full project plan (models, API design, day-by-day schedule).
 (`Property`, `PropertyImage`, `Profile`, `Booking`, `Review`), migrations,
 Django Admin registration, and a Faker seed script for realistic demo data
 are all in place and verified. On the frontend, users can register, log
-in and out (TICKET-017). Epic 2 (the DRF API) is complete: JWT
+in and out (TICKET-017) and browse and search stays on the listings
+page (TICKET-018). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -126,15 +127,17 @@ frontend/
   src/environments/environment.ts   apiUrl the frontend calls the backend at
   src/app/
     app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
-    app.routes.ts                       / (home), /login, /register (lazy-loaded)
-    core/api-health.service.ts          Wraps the /api/health/ call
+    app.routes.ts                       / -> /listings, /listings, /login, /register (lazy-loaded)
+    core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
     core/api-errors.ts                  DRF error response -> per-field + general messages for forms
+    core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting
+    core/properties/                    PropertyService (public, active-only list), API params builder, models
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
                                         guestOnlyGuard, TokenStorage (localStorage), jwt.ts (exp reader), models
     layout/toolbar/                     Top bar: brand, Log in / Sign up or email + Log out
-    pages/home/                         Temporary landing page (TICKET-018 replaces it with /listings)
+    layout/footer/                      Footer with the API/database connectivity dot
+    pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
     pages/login/, pages/register/       Auth forms (Angular Material)
-    api-status/                         Card component showing connectivity status
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
 docker-compose.yml   Wires the four services together
@@ -903,13 +906,13 @@ signals (the app is zoneless) and **no extra npm packages**, so the
 
 | Route | Page | Notes |
 | --- | --- | --- |
-| `/` | `pages/home/` | Temporary landing page (title, "Logged in as ...", connectivity card). TICKET-018 makes `/listings` the real home |
+| `/` | redirects to `/listings` | The listings page is the home page since TICKET-018; see "Listings page" |
 | `/login` | `pages/login/` | Email + password (show/hide toggle) |
 | `/register` | `pages/register/` | Email, password + confirm (must match), optional first/last name and phone |
 
 The pages are lazy-loaded, so each is its own small chunk. `/login` and
 `/register` use `guestOnlyGuard`: a user who is already logged in is sent
-to `/`. Any unknown URL redirects to `/`.
+to `/`. Any unknown URL redirects to `/listings`.
 
 **Forms** use Angular Material outline fields, and the shared styling is
 in `pages/auth-page.scss`.
@@ -1028,6 +1031,119 @@ or `docker compose exec frontend npx ng test --watch=false`). There are
   submit redirects.
 - **`app.spec.ts`:** the toolbar shows Log in / Sign up when logged out,
   and the email / Log out when a session is stored.
+
+## Listings page (Angular)
+
+`/listings` (TICKET-018) is the **home page**: `/` redirects to it, and
+so does any unknown URL. It shows a searchable, paginated grid of the
+**active** properties. The page is `pages/listings/listings.ts`
+(`PropertyListPage`) and each card is `pages/listings/property-card/`.
+
+### The search lives in the URL
+
+Every search is a URL with the same parameter names as the API, e.g.
+`/listings?location=chania&guests=2&check_in=2026-11-02&check_out=2026-11-07&ordering=price&page=2`.
+So searches can be shared and bookmarked, a reload keeps them, and the
+browser's Back/Forward buttons move between searches.
+
+- **One direction only:** the page's data is driven *only* by the URL
+  (`ActivatedRoute.queryParamMap` → `PropertyService.list()` via
+  `switchMap`, so a newer search cancels an older in-flight one). Form
+  actions just change the URL. On every URL change the form is refilled
+  from the URL (`emitEvent: false`, so it never loops).
+- **Bad values are dropped:** `listing-query.ts` converts both ways and
+  drops junk from a hand-edited URL (`guests=lots`, a lone date, an
+  unknown sort, `page_size=1000`) rather than sending it to the API.
+  Defaults are left out, to keep URLs short.
+
+### Filters and when they apply
+
+| Control | When it applies | Notes |
+| --- | --- | --- |
+| Check-in – check-out (Material date range picker) | **Search** button / Enter | Can't pick past dates or more than 365 days ahead (same as the API). Both dates are required, and check-out must be after check-in; the error shows under the bar. Displayed as dd/mm/yyyy |
+| Where (text) | Search | Case-insensitive "contains", e.g. `thess` |
+| Guests (1–16, or Any) | Search | capacity ≥ guests |
+| Min / Max €/night | **Automatically**, 0.5 s after you stop typing | Refines the current search. Min can't be above max |
+| Sort by (Newest, Price ↑/↓, Most/Fewest guests) | **Immediately** | Refines the current search |
+| Clear filters | — | Shown whenever a filter is active |
+
+Starting a search or changing a filter always goes back to page 1. Sort
+and price refine what was last *searched*: text typed into "Where" but
+not yet searched is not applied by accident.
+
+### Cards
+
+Each card shows:
+
+- the cover photo, lazy-loaded, with a placeholder if it's missing or
+  fails to load
+- title, location, and "Sleeps N"
+- ★ rating (review count), or **New** when there are no reviews
+- up to 3 amenities with readable labels (`sea_view` → "Sea view",
+  `wifi` → "Wi-Fi") and "+N"
+- **price per night**, and the **total for the stay** once dates are
+  picked, e.g. "€455 for 5 nights". This total is an estimate; the
+  backend computes the real price when booking.
+
+Clicking a card opens `/listings/:id` and carries the dates and guests
+along, so the detail page (**TICKET-019**, not built yet) can pre-fill
+the booking. Until then, that link falls back to the listings page.
+
+**Prices are shown in euros** (the API has no currency field). All
+formatting goes through `core/money.ts` (`formatPrice`, `CURRENCY`),
+e.g. `"91.00"` → "€91" and `"95.50"` → "€95.50".
+
+### States
+
+- **Loading:** shimmering skeleton cards.
+- **No results:** "No stays match your search." with **Clear filters**.
+- **The API rejected the search** (a 400, e.g. a hand-typed URL with
+  past dates): the API's message in plain words, "Check-in can't be in
+  the past.", with **Clear filters**.
+- **Server down or 5xx:** the message with **Try again**, which re-runs
+  the same search.
+- **Paginator:** appears once there's more than one page, with page sizes
+  12/24/48. Paging updates the URL and scrolls back to the top.
+
+### Pieces
+
+- `core/properties/`: `PropertyService.list(filters, page)`,
+  `toPropertyParams()` (filters → API params, empty values left out) and
+  the models. `list()` always adds `is_active=true`, so an **admin**
+  browsing the listings sees the same active-only list as everyone else.
+  The admin table (TICKET-024) will list everything.
+- `core/dates.ts`: helpers for date-only values. `toIsoDate()` formats
+  the **local** date. `toISOString()` would convert to UTC and turn
+  midnight in Greece into the *previous* day. `nightsBetween()` counts
+  calendar days, so it's correct across daylight-saving changes.
+- `layout/footer/`: a footer with a small **connectivity dot**: green =
+  "API & database connected", red = "API unreachable". It replaces the
+  old home-page card, which was removed together with the temporary home
+  page.
+
+### Tests
+
+54 frontend tests (20 new for this ticket):
+
+- **Date helpers:** no UTC shift, rejects roll-overs like Feb 30, night
+  counts across DST.
+- **`formatPrice`.**
+- **`PropertyService`:** params, empty values left out, `is_active=true`.
+- **URL ↔ query:** round-trip, and junk dropped.
+- **Property card:** price, rating, amenity chips, stay total, "New",
+  photo fallback, and the detail link carrying dates and guests.
+- **Listings page:**
+  - URL → one API call → cards and totals
+  - Search → URL, back to page 1
+  - a lone date is blocked
+  - sort applies instantly, but not unsearched text
+  - empty state; a 400 with a readable message and Clear filters; a 500
+    with Try again that re-requests
+  - paginator and paging → URL
+
+It was also checked by hand in Chrome against the seeded data: a URL
+search, typing and Search, price refining, Back, a past-date URL and the
+empty state.
 
 ## Django Admin (dev-only)
 
@@ -1188,10 +1304,12 @@ above) are all in place and verified. Epic 2 is under way: JWT auth
 Properties API (TICKET-013) and the Bookings API with its double-booking
 guarantees (TICKET-015) and the admin stats endpoint (TICKET-016) are
 done, so **Epic 2 (the backend API) is complete**. On the frontend,
-TICKET-017 (login/register pages, `AuthService`, the JWT interceptor with
-refresh-on-401, and a minimal toolbar) is done; see "Frontend auth". Next up:
-TICKET-018 (listings grid + filters), then TICKET-019/020/021 (detail,
-booking form, My Bookings with the `AuthGuard`), and the admin screens
+TICKET-017 (login/register, `AuthService`, the JWT interceptor with
+refresh-on-401, and a minimal toolbar) and TICKET-018 (the listings page:
+URL-driven search, filters, cards, paginator) are done; see "Frontend
+auth" and "Listings page". Next up: TICKET-019 (property detail with
+gallery and availability calendar), then TICKET-020/021 (booking form,
+My Bookings with the `AuthGuard`), and the admin screens
 (TICKET-022 onward, with TICKET-023's dashboard reading
 `/api/admin/stats/`). Deploying the backend skeleton to Render
 (TICKET-026) is also due early.
