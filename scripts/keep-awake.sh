@@ -2,11 +2,11 @@
 # Keep the free Render API awake (TICKET-028): it sleeps after 15 minutes
 # without traffic, so ping its health check every 10 minutes for a while.
 # Run hosted-check.sh first (the workflow does) so it starts awake and verified.
-#   KEEP_AWAKE_MINUTES (default 180)   PING_EVERY_SECONDS (default 600)
+#   KEEP_AWAKE_HOURS (default 3) or KEEP_AWAKE_MINUTES, PING_EVERY_SECONDS (default 600)
 set -euo pipefail
 
 API="${API_URL:-https://booking-demo-api.onrender.com}"
-MINUTES="${KEEP_AWAKE_MINUTES:-180}"
+MINUTES="${KEEP_AWAKE_MINUTES:-$(( ${KEEP_AWAKE_HOURS:-3} * 60 ))}"
 EVERY="${PING_EVERY_SECONDS:-600}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
 athens() { TZ=Europe/Athens date '+%H:%M'; }

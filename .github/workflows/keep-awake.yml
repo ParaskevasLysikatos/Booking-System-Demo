@@ -32,5 +32,5 @@ jobs:
         run: bash scripts/hosted-check.sh
       - name: Keep the API awake
         env:
-          KEEP_AWAKE_MINUTES: ${{ fromJSON(inputs.hours) * 60 }}
+          KEEP_AWAKE_HOURS: ${{ inputs.hours }}   # the script turns it into minutes (expressions can't do maths)
         run: bash scripts/keep-awake.sh
