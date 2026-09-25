@@ -352,6 +352,12 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Priority: P0
   - Depends on: TICKET-015, TICKET-022
   - Table of all bookings with status-change actions.
+  - Requirements added after TICKET-021 (agreed):
+    - Admins see **all guests' bookings** here, split like My Bookings: **Upcoming / Past / Cancelled** tabs (tab + page in the URL), so old bookings are separate from upcoming ones.
+    - Columns: reference #, **guest email**, property, dates, nights, guests, total, status, created. Filter by property (`?property=`) and search by guest email.
+    - Status actions per the backend's transition table (Confirm pending, Cancel pending/confirmed; cancelled is final), using the same confirmation-dialog pattern as My Bookings.
+    - Uses the unfiltered `GET /api/bookings/` (no `mine=true`); **"My bookings" stays personal for everyone**, admins included.
+    - Access control stays on the backend (already in place and tested since TICKET-014/015): guests only ever get their own bookings (list filtered server-side, others' ids → 404, `?property=`/`?mine=false` can't widen it); only `Profile.role == 'admin'` (checked in the DB per request) gets everyone's, with emails. The frontend AdminGuard (TICKET-022) is for navigation only, not security.
 
 ---
 
