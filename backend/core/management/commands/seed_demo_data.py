@@ -14,6 +14,9 @@ from listings.models import Property, PropertyImage
 from reviews.models import Review
 
 DEMO_GUEST_PASSWORD = "DemoPass123!"
+DEMO_ADMIN_USERNAME = "admin_demo"
+DEMO_ADMIN_EMAIL = "admin_demo@example.com"
+DEMO_ADMIN_PASSWORD = "AdminPass123!"
 
 # Greek-themed locations, since this demo is explicitly set in Greece rather
 # than Faker's default en_US locale.
@@ -124,6 +127,7 @@ class Command(BaseCommand):
             if options["clear"]:
                 self._clear_demo_data()
 
+            admin_created = self._create_admin()
             guests = self._create_guests(fake, options["guests"])
             properties = self._create_properties(fake, options["properties"])
             self._create_images(properties)
@@ -133,6 +137,14 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"\nSeeded {len(properties)} properties and {len(guests)} guests."
         ))
+        if admin_created:
+            self.stdout.write(
+                f"Demo admin login: {DEMO_ADMIN_USERNAME} / {DEMO_ADMIN_PASSWORD}"
+            )
+        else:
+            self.stdout.write(
+                f"Demo admin '{DEMO_ADMIN_USERNAME}' already existed - left untouched."
+            )
         self.stdout.write(
             f"Demo guest login password (all guest_* accounts): {DEMO_GUEST_PASSWORD}"
         )
@@ -152,6 +164,25 @@ class Command(BaseCommand):
         User.objects.filter(
             username__startswith="guest_", email__endswith="@example.com"
         ).delete()
+        User.objects.filter(username=DEMO_ADMIN_USERNAME).delete()
+
+    # -- admin ------------------------------------------------------------
+
+    def _create_admin(self):
+        """One fixed-credential superuser for testing admin-only flows.
+        Superuser/staff status makes the existing post_save signal
+        (accounts/signals.py) set Profile.role='admin' automatically - the
+        same path a real admin account goes through, so this exercises the
+        actual rule rather than a seed-only shortcut. Idempotent: if it
+        already exists (e.g. re-running the command without --clear), it's
+        left alone rather than raising an IntegrityError on the duplicate
+        username."""
+        if User.objects.filter(username=DEMO_ADMIN_USERNAME).exists():
+            return False
+        User.objects.create_superuser(
+            DEMO_ADMIN_USERNAME, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD
+        )
+        return True
 
     # -- guests ---------------------------------------------------------
 

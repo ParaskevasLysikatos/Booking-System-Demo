@@ -302,6 +302,13 @@ the demo never starts out empty:
 - **Guest users** - 10 by default, usernames `guest_<n>_<fakename>`,
   emails `...@example.com`, all sharing one known password so you can log
   in as any of them while testing: **`DemoPass123!`**.
+- **One demo admin** - a fixed-credential superuser, `admin_demo` /
+  **`AdminPass123!`**. Being a superuser makes the existing signal
+  (`accounts/signals.py`) set `Profile.role="admin"` automatically - the
+  same path a real admin account goes through - so it's ready for both
+  Django Admin and the app's own admin-only checks once those land.
+  Idempotent: re-running the command without `--clear` leaves an existing
+  `admin_demo` untouched instead of erroring on the duplicate username.
 - **Bookings** - 0-5 per property, spread from 60 days in the past to 300
   days in the future, reusing `Booking.objects.overlapping()` (the same
   helper `POST /api/bookings/` will use later) so seeded bookings never
@@ -325,7 +332,7 @@ Options:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--clear` | off | Delete previously seeded data first (reviews, bookings, images, properties, and `guest_*`/`@example.com` users) before re-seeding. Real/admin accounts are never touched. |
+| `--clear` | off | Delete previously seeded data first (reviews, bookings, images, properties, `guest_*`/`@example.com` users, and the demo admin) before re-seeding. Real accounts are never touched. |
 | `--properties N` | 14 | How many properties to create |
 | `--guests N` | 10 | How many guest users to create |
 | `--seed N` | none | Fix the random seed for reproducible output |
