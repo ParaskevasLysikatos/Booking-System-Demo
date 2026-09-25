@@ -2183,6 +2183,21 @@ takes ~50 s. Instead of a page that looks frozen:
   doesn't weaken security: the server still checks every request, and
   `adminGuard` re-reads `/me/` itself.
 
+### Checked live
+
+In Chrome on https://booking-demo-g4aw.onrender.com:
+
+- 13 stays load from the live API, with photos
+- the footer says "API & database connected"
+- `/listings/14` opens directly (the rewrite works)
+- `/admin/bookings` while logged out goes to the login page
+- all three security headers are present
+
+Before the CORS setting reached the API, the page showed "Can't reach the
+server", which is exactly what a wrong or missing `CORS_ALLOWED_ORIGINS`
+looks like. The waking-up banner can only be seen after the API has been
+idle for 15 minutes.
+
 ### Tests
 
 167 frontend tests (8 new):
