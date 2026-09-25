@@ -29,7 +29,8 @@ import { AuthService } from '../../core/auth/auth.service';
 import { addDays, nightsBetween, parseIsoDate, todayLocal, toIsoDate } from '../../core/dates';
 import { formatPrice } from '../../core/money';
 import { BookedNights } from '../../core/properties/availability';
-import { MAX_DAYS_AHEAD, MAX_NIGHTS, PropertyDetail } from '../../core/properties/property.models';
+import { MAX_DAYS_AHEAD, PropertyDetail } from '../../core/properties/property.models';
+import { stayDateFilter, stayProblem } from '../../core/properties/stay-rules';
 import { PropertyService } from '../../core/properties/property.service';
 import { AvailabilityCalendarComponent, DateSelection } from './availability-calendar/availability-calendar';
 import { GalleryComponent } from './gallery/gallery';
@@ -127,19 +128,7 @@ export class PropertyDetailPage {
   });
 
   /** Instant client-side verdict (null = fine so far). */
-  readonly dateProblem = computed((): string | null => {
-    const a = this.checkIn();
-    const b = this.checkOut();
-    if (!a && !b) return null;
-    if (a && !b) return 'Pick a check-out date.';
-    if (!a || !b) return 'Pick a check-in date.';
-    if (this.nights() < 1) return 'Check-out must be after check-in.';
-    if (a < this.minDate) return "Check-in can't be in the past.";
-    if (a > this.maxDate) return `Bookings open at most ${MAX_DAYS_AHEAD} days ahead.`;
-    if (this.nights() > MAX_NIGHTS) return `A stay can be at most ${MAX_NIGHTS} nights.`;
-    if (!this.booked().isFree(a, b)) return 'Some of these nights are already booked.';
-    return null;
-  });
+  readonly dateProblem = computed(() => stayProblem(this.checkIn(), this.checkOut(), this.booked(), this.minDate));
 
   /** Server-confirmed availability for complete, locally-valid dates. */
   readonly availability = signal<AvailabilityStatus>('idle');
@@ -234,16 +223,7 @@ export class PropertyDetailPage {
   }
 
   /** Booked nights can't be chosen in the panel's picker either. */
-  readonly pickerFilter = computed(() => {
-    const booked = this.booked();
-    const start = this.checkIn();
-    const end = this.checkOut();
-    return (d: Date | null): boolean => {
-      if (!d) return false;
-      if (start && !end && d > start) return nightsBetween(start, d) <= MAX_NIGHTS && booked.isFree(start, d);
-      return !booked.isBooked(d);
-    };
-  });
+  readonly pickerFilter = computed(() => stayDateFilter(this.booked(), this.checkIn(), this.checkOut()));
 
   bookNow(): void {
     const p = this.property();

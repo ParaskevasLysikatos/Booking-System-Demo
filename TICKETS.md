@@ -269,10 +269,34 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **README:** new "Property detail page" section; layout, status and next steps updated.
   - Note: Book now links to `/booking/:id?check_in=…&check_out=…&guests=…`, which lands back on the listings page until TICKET-020 adds the booking form.
 
-- [ ] **TICKET-020** — `BookingService` + `BookingFormComponent` (`/booking/:propertyId`)
+- [x] **TICKET-020** — `BookingService` + `BookingFormComponent` (`/booking/:propertyId`)
   - Priority: P0
   - Depends on: TICKET-015, TICKET-019
   - Date picker, live price calculation, confirm → `POST /api/bookings/`.
+  - Decisions (agreed before building):
+    - **`authGuard` built now** (TICKET-021 reuses it)
+    - **two steps** (Your trip → Review & confirm)
+    - a **confirmation screen** after booking
+  - Done:
+    - **`core/bookings/`:**
+      - `BookingService.create/get` + models
+      - `booking-policy.ts`: 15:00 check-in and the 48h cancel-deadline *preview*, mirroring the backend settings; the server's `cancel_deadline` is shown after booking
+    - **`core/properties/stay-rules.ts`:** shared stay validation messages and the picker date filter, now also used by the detail page and its calendar (removes duplicated logic).
+    - **`core/auth/auth.guards.ts:authGuard`:** logged out → `/login?returnUrl=<booking URL>`.
+    - **`pages/booking/`:**
+      - a linear vertical `MatStepper`
+      - step 1: dates (booked nights disabled) and guests pre-filled from and synced to the URL, instant local checks, then an API availability confirmation that gates Continue
+      - step 2: review, the cancellation policy text, "pending, not charged" note, and Confirm booking
+      - side card with photo and live price
+      - Confirm: an in-flight guard (one POST even on a double click)
+      - 409: message + booked nights reloaded (new ones crossed out) + back to step 1, keeping the form
+      - 400: a humanized message
+      - confirmation screen from the server response (#id, Pending, total, server deadline, My bookings / Browse more stays)
+      - states: inactive/404 "can't be booked", error with Try again, bad id → listings; the page sets the tab title (no static route title)
+    - **Tests:** 15 new Vitest tests (91 total), all passing; the production build is clean.
+    - **Checked in Chrome** through steps 1 → 2; this caught a policy-line layout bug, now fixed. A real booking was **not** submitted from the browser without the user's go-ahead.
+    - **README:** new "Booking form" section; layout, status and next steps updated.
+  - Note: the confirmation's "My bookings" button lands on the listings page until TICKET-021 adds `/my-bookings`.
 
 - [ ] **TICKET-021** — `MyBookingsComponent` (`/my-bookings`) + `AuthGuard`
   - Priority: P0

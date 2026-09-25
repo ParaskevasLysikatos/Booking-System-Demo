@@ -1,0 +1,167 @@
+<section class="booking">
+  @switch (loadStatus()) {
+    @case ('loading') {
+      <div class="message" aria-busy="true"><mat-spinner diameter="36" /></div>
+    }
+    @case ('unavailable') {
+      <div class="message">
+        <mat-icon>event_busy</mat-icon>
+        <p>This stay can't be booked - it doesn't exist or is no longer available.</p>
+        <a mat-stroked-button routerLink="/listings">Browse stays</a>
+      </div>
+    }
+    @case ('error') {
+      <div class="message" role="alert">
+        <mat-icon>cloud_off</mat-icon>
+        <p>Couldn't load this stay.</p>
+        <button mat-stroked-button type="button" (click)="loadProperty()">Try again</button>
+      </div>
+    }
+    @case ('ok') {
+      @let p = property()!;
+
+      @if (booking(); as b) {
+        <!-- Confirmation screen, built from the server's response. -->
+        <div class="done">
+          <mat-icon class="big">task_alt</mat-icon>
+          <h1>Booking request sent</h1>
+          <p class="muted">Reference <strong>#{{ b.id }}</strong> · Status <span class="pill">{{ b.status === 'pending' ? 'Pending' : b.status }}</span></p>
+          <p>The host will confirm your stay. You haven't been charged.</p>
+
+          <div class="summary card">
+            <h2>{{ b.property.title }}</h2>
+            <p class="muted">{{ b.property.location }}</p>
+            <dl>
+              <div><dt>Check-in</dt><dd>{{ dateText(b.check_in) }} · from 15:00</dd></div>
+              <div><dt>Check-out</dt><dd>{{ dateText(b.check_out) }}</dd></div>
+              <div><dt>Guests</dt><dd>{{ b.guests }}</dd></div>
+              <div><dt>Nights</dt><dd>{{ b.nights }}</dd></div>
+              <div class="sum"><dt>Total</dt><dd>{{ formatPrice(b.total_price) }}</dd></div>
+            </dl>
+            <p class="policy">
+              <mat-icon>event_available</mat-icon>
+              <span>
+                @if (b.can_cancel) {
+                  Free cancellation until <strong>{{ deadlineText(b.cancel_deadline) }}</strong>.
+                } @else {
+                  Check-in is less than {{ cancellationHours }} hours away, so this booking can't be cancelled online.
+                }
+              </span>
+            </p>
+          </div>
+
+          <div class="actions">
+            <a mat-flat-button routerLink="/my-bookings">My bookings</a>
+            <a mat-stroked-button routerLink="/listings">Browse more stays</a>
+          </div>
+        </div>
+      } @else {
+        <a mat-button class="back" [routerLink]="['/listings', p.id]" [queryParams]="backParams()"><mat-icon>arrow_back</mat-icon> Back to the stay</a>
+        <h1>Book your stay</h1>
+
+        <div class="layout">
+          <mat-stepper [linear]="true" orientation="vertical" class="steps" #stepper>
+            <!-- Step 1 -->
+            <mat-step [completed]="tripReady()" label="Your trip">
+              <form [formGroup]="form" class="trip" (ngSubmit)="tripReady() && stepper.next()">
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Check-in – check-out</mat-label>
+                  <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate" [dateFilter]="pickerFilter()">
+                    <input matStartDate formControlName="start" placeholder="Check-in" />
+                    <input matEndDate formControlName="end" placeholder="Check-out" />
+                  </mat-date-range-input>
+                  <mat-datepicker-toggle matIconSuffix [for]="picker" />
+                  <mat-date-range-picker #picker />
+                </mat-form-field>
+
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Guests</mat-label>
+                  <mat-select formControlName="guests">
+                    @for (n of guestOptions(); track n) {
+                      <mat-option [value]="n">{{ n }} {{ n === 1 ? 'guest' : 'guests' }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+
+                @if (submitError(); as err) {
+                  <p class="status warn" role="alert"><mat-icon>error</mat-icon>{{ err }}</p>
+                }
+                @if (dateProblem(); as problem) {
+                  <p class="status warn" role="alert"><mat-icon>info</mat-icon>{{ problem }}</p>
+                } @else if (!checkIn()) {
+                  <p class="status"><mat-icon>calendar_month</mat-icon>Pick your dates to see the price.</p>
+                } @else {
+                  @switch (availability()) {
+                    @case ('checking') { <p class="status" role="status"><mat-icon>hourglass_top</mat-icon>Checking availability…</p> }
+                    @case ('available') { <p class="status ok" role="status"><mat-icon>check_circle</mat-icon>Available for your dates</p> }
+                    @case ('unavailable') { <p class="status warn" role="alert"><mat-icon>event_busy</mat-icon>Not available for these dates</p> }
+                    @case ('error') { <p class="status warn" role="alert"><mat-icon>cloud_off</mat-icon>Couldn't check availability.</p> }
+                  }
+                }
+
+                <div class="step-actions">
+                  <button mat-flat-button type="submit" [disabled]="!tripReady()">Continue</button>
+                </div>
+              </form>
+            </mat-step>
+
+            <!-- Step 2 -->
+            <mat-step label="Review & confirm">
+              @if (checkIn() && checkOut()) {
+                <dl class="review">
+                  <div><dt>Check-in</dt><dd>{{ dateText(checkIn()!) }} · from 15:00</dd></div>
+                  <div><dt>Check-out</dt><dd>{{ dateText(checkOut()!) }}</dd></div>
+                  <div><dt>Guests</dt><dd>{{ guests() }}</dd></div>
+                </dl>
+                @if (deadline(); as d) {
+                  <p class="policy">
+                    <mat-icon>event_available</mat-icon>
+                    <span>
+                      @if (!d.passed) {
+                        Free cancellation until <strong>{{ d.text }}</strong> ({{ cancellationHours }} hours before check-in). After that, only the host can cancel.
+                      } @else {
+                        Check-in is less than {{ cancellationHours }} hours away - this booking can't be cancelled online.
+                      }
+                    </span>
+                  </p>
+                }
+                <p class="note">Your booking starts as <strong>pending</strong> until the host confirms it. You won't be charged now.</p>
+              }
+              <div class="step-actions">
+                <button mat-button type="button" matStepperPrevious [disabled]="submitting()">Back</button>
+                <button mat-flat-button type="button" class="confirm" (click)="confirm()" [disabled]="submitting() || !tripReady()">
+                  @if (submitting()) {
+                    <mat-spinner diameter="20" />
+                  } @else {
+                    Confirm booking
+                  }
+                </button>
+              </div>
+            </mat-step>
+          </mat-stepper>
+
+          <!-- Stay summary + live price (both steps) -->
+          <aside class="card side">
+            <div class="thumb">
+              @if (cover(); as src) {
+                <img [src]="src" [alt]="p.title" />
+              } @else {
+                <mat-icon>image_not_supported</mat-icon>
+              }
+            </div>
+            <h2>{{ p.title }}</h2>
+            <p class="muted"><mat-icon>place</mat-icon>{{ p.location }} · Sleeps {{ p.capacity }}</p>
+            <p class="price"><strong>{{ nightly() }}</strong>&nbsp;/ night</p>
+            @if (total(); as t) {
+              <dl class="breakdown">
+                <div><dt>{{ nightly() }} × {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</dt><dd>{{ t }}</dd></div>
+                <div class="sum"><dt>Total</dt><dd>{{ t }}</dd></div>
+              </dl>
+              <p class="note">Estimate - the final price is calculated by the server when you confirm.</p>
+            }
+          </aside>
+        </div>
+      }
+    }
+  }
+</section>

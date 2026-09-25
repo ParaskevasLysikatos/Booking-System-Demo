@@ -10,7 +10,8 @@ Django Admin registration, and a Faker seed script for realistic demo data
 are all in place and verified. On the frontend, users can register, log
 in and out (TICKET-017), browse and search stays on the listings page
 (TICKET-018), and open a stay's detail page with its photos, amenities
-and an availability calendar (TICKET-019). Epic 2 (the DRF API) is complete: JWT
+and an availability calendar (TICKET-019), and book it in two steps
+(TICKET-020). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -128,20 +129,24 @@ frontend/
   src/environments/environment.ts   apiUrl the frontend calls the backend at
   src/app/
     app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
-    app.routes.ts                       / -> /listings, /listings, /listings/:id, /login, /register (lazy-loaded)
+    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId (authGuard), /login, /register (lazy)
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
     core/api-errors.ts                  DRF error response -> per-field + general messages for forms
     core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting
     core/properties/                    PropertyService (active-only list + get(id, dates)), params builder, models,
-                                        availability.ts (BookedNights: [check_in, check_out) rules)
+                                        availability.ts (BookedNights: [check_in, check_out) rules),
+                                        stay-rules.ts (shared stay validation messages + picker date filter)
     core/amenities.ts                   Amenity labels + Material icons (cards and detail page)
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
-                                        guestOnlyGuard, TokenStorage (localStorage), jwt.ts (exp reader), models
+                                        authGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts (exp reader), models
+    core/bookings/                      BookingService (create/get), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
     layout/toolbar/                     Top bar: brand, Log in / Sign up or email + Log out
     layout/footer/                      Footer with the API/database connectivity dot
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
                                         calendar, sticky booking panel with live availability + Book now
+    pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
+                                        409/400 handling, confirmation screen
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
@@ -1224,8 +1229,7 @@ version.
 - **Book now** is only enabled when the property is active, the dates are
   complete and valid locally, and the API has confirmed they're free. It
   goes to `/booking/:id?check_in=…&check_out=…&guests=…`, the booking
-  form (**TICKET-020**). Until that exists, the link lands back on the
-  listings page.
+  form (see "Booking form").
 - **Not logged in?** Book now goes to `/login?returnUrl=/booking/…`.
   After logging in (or signing up; the Create one link keeps the
   returnUrl), the user lands on the booking form with the stay
@@ -1274,6 +1278,108 @@ Also checked by hand in Chrome against the seeded data:
 - a calendar pick ending on the 4th (someone's check-in day) → the API
   confirms "Available", €364, and the URL updates
 - the full-screen viewer with ← → and Esc, returning on the last photo
+
+## Booking form (Angular)
+
+`/booking/:propertyId?check_in=…&check_out=…&guests=…` (TICKET-020) is
+`pages/booking/` (`BookingFormPage`), where **Book now** on the detail
+page leads. It is protected by **`authGuard`** (`core/auth/auth.guards.ts`,
+reused by My Bookings in TICKET-021). A logged-out visitor is sent to
+`/login?returnUrl=<the exact booking URL>`, and after logging in or
+signing up lands back here with the stay pre-filled.
+
+### Two steps (Material vertical stepper, linear)
+
+1. **Your trip.** The date range picker (booked nights disabled) and
+   guests (1…capacity), pre-filled from the URL and synced back to it.
+   Problems show instantly using the same shared rules as the detail
+   page (`core/properties/stay-rules.ts`: "Pick a check-out date.",
+   "Some of these nights are already booked.", the 30-night and 365-day
+   limits). Then the API confirms availability. **Continue** is enabled
+   only once it's confirmed.
+2. **Review & confirm.** Check-in (from 15:00) and check-out dates,
+   guests, and the **cancellation policy**: "Free cancellation until
+   Sun 31 Jan, 15:00 (48 hours before check-in). After that, only the
+   host can cancel." A note says the booking starts as **pending** and
+   nothing is charged. Then **Confirm booking**.
+
+A side card, shown in both steps, holds the photo, title, location,
+"Sleeps N", €/night and the **live price**: €182 × 2 nights = €364,
+marked as an estimate because the server calculates the real total.
+
+### Confirming
+
+- `BookingService.create()` (`core/bookings/`) sends
+  `POST /api/bookings/ {property, check_in, check_out, guests}`, only
+  what the API accepts. The server decides the price, the `pending`
+  status and the guest.
+- **No double bookings from double clicks:** while the request is in
+  flight, the button shows a spinner and is disabled, and `confirm()`
+  ignores further calls. A test clicks twice and expects exactly one
+  POST.
+- **409 (dates just taken by someone else):** the server's message is
+  shown, the property's booked nights are **reloaded** (the newly taken
+  nights appear crossed out, and the stay is flagged "Some of these
+  nights are already booked."), and the stepper goes back to step 1. The
+  form keeps its values, so the guest can pick new dates. This is the
+  frontend side of TICKET-015's exclusion-constraint guarantee.
+- **400:** the server's message is shown in plain words, e.g. "This
+  property sleeps at most 3 guests.".
+
+### Confirmation screen
+
+After a successful booking, the page switches to **"Booking request
+sent"**, built from the server's response:
+
+- reference **#id**, status **Pending**
+- stay, dates, guests, nights and the server-calculated **total**
+- the **server's** `cancel_deadline` ("Free cancellation until …")
+- buttons **My bookings** (the page arrives in TICKET-021; until then it
+  lands on the listings page) and **Browse more stays**
+
+### Cancellation policy in one place
+
+`core/bookings/booking-policy.ts` mirrors the backend settings
+`BOOKING_CHECK_IN_TIME` (15:00) and `BOOKING_GUEST_CANCELLATION_HOURS`
+(48): `cancelDeadline(checkIn)` is exactly 48 real hours before
+check-in at 15:00. It is only used for the *preview* before a booking
+exists. Afterwards, the server's own `cancel_deadline` is what's shown.
+If you change the backend settings, update these two constants too.
+
+### States
+
+- **Loading.**
+- **Inactive or unknown property:** "This stay can't be booked" with
+  **Browse stays**.
+- **Other errors:** **Try again**.
+- **Non-numeric property id:** redirects to `/listings`.
+- The tab title follows the page, e.g. "Book Modern Room in
+  Thessaloniki", then "Booking request sent".
+
+### Tests
+
+91 frontend tests (15 new for this ticket):
+
+- **`BookingService`:** the POST body, and get.
+- **Policy:** 15:00 check-in, exactly 48h, the date format.
+- **Stay rules:** every message, and the date filter.
+- **Guards:**
+  - logged out → `/login?returnUrl=/booking/5?…`
+  - logged in → allowed through
+  - `/login` while logged in → home
+- **Booking page:**
+  - pre-fill → live price → the API confirms → step 2 unlocked
+  - Confirm → exactly one POST despite a double click → confirmation
+    with #77, Pending, the total and the deadline
+  - 409 → message, booked nights reloaded, dates blocked, no booking
+    shown
+  - 400 → a readable message
+  - no dates → can't continue or confirm
+  - inactive or 404 → "can't be booked"
+  - bad id → listings
+
+Also checked in Chrome: steps 1 → 2 on property 42 (2–4 Feb 2027, €364,
+"Free cancellation until Sun 31 Jan, 15:00").
 
 ## Django Admin (dev-only)
 
@@ -1439,10 +1545,10 @@ refresh-on-401, and a minimal toolbar) and TICKET-018 (the listings page:
 URL-driven search, filters, cards, paginator) are done; see "Frontend
 auth" and "Listings page"; and TICKET-019 (the property detail page:
 gallery, amenities, availability calendar, live availability check,
-Book now) is done too; see "Property detail page". Next up:
-TICKET-020 (the booking form at `/booking/:propertyId`, which Book now
-already links to), then TICKET-021 (My Bookings + `AuthGuard`), and the
-admin screens
+Book now) and TICKET-020 (the two-step booking form with confirmation
+screen) are done too; see "Property detail page" and "Booking form".
+Next up: TICKET-021 (My Bookings, reusing the existing `authGuard`),
+then the admin screens
 (TICKET-022 onward, with TICKET-023's dashboard reading
 `/api/admin/stats/`). Deploying the backend skeleton to Render
 (TICKET-026) is also due early.

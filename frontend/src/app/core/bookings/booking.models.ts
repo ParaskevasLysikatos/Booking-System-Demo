@@ -1,0 +1,35 @@
+/** Shapes of the Bookings API (backend bookings/serializers.py). */
+
+export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
+
+export interface BookingPropertySummary {
+  id: number;
+  title: string;
+  location: string;
+  price_per_night: string;
+  cover_image: string | null;
+}
+
+/** Read shape returned by every bookings endpoint. */
+export interface Booking {
+  id: number;
+  property: BookingPropertySummary;
+  check_in: string; // YYYY-MM-DD
+  check_out: string;
+  nights: number;
+  guests: number;
+  total_price: string; // computed by the server
+  status: BookingStatus;
+  can_cancel: boolean;
+  cancel_deadline: string; // ISO datetime, local time with offset
+  guest_email: string | null; // admins only
+  created_at: string;
+}
+
+/** POST /api/bookings/ body - price/status/guest are decided by the server. */
+export interface CreateBookingRequest {
+  property: number;
+  check_in: string;
+  check_out: string;
+  guests: number;
+}

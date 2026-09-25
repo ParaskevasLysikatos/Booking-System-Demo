@@ -3,9 +3,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { DateRange, MatCalendarCellClassFunction, MatDatepickerModule } from '@angular/material/datepicker';
 import { MatIconModule } from '@angular/material/icon';
 
-import { nightsBetween } from '../../../core/dates';
 import { BookedNights } from '../../../core/properties/availability';
-import { MAX_NIGHTS } from '../../../core/properties/property.models';
+import { stayDateFilter } from '../../../core/properties/stay-rules';
 
 export interface DateSelection {
   start: Date | null;
@@ -51,21 +50,8 @@ export class AvailabilityCalendarComponent {
 
   readonly selected = computed(() => new DateRange<Date>(this.start(), this.end()));
 
-  /** Which dates are clickable depends on whether we're picking check-in or check-out. */
-  readonly dateFilter = computed(() => {
-    const booked = this.booked();
-    const start = this.start();
-    const pickingEnd = !!start && !this.end();
-    return (d: Date | null): boolean => {
-      if (!d) return false;
-      if (pickingEnd && start && d > start) {
-        // A valid check-out: every night in between is free, within the stay limit.
-        // (d itself may be someone else's check-in day - that's allowed.)
-        return nightsBetween(start, d) <= MAX_NIGHTS && booked.isFree(start, d);
-      }
-      return !booked.isBooked(d); // a check-in night must be free
-    };
-  });
+  /** Which dates are clickable depends on whether we're picking check-in or check-out (shared rules). */
+  readonly dateFilter = computed(() => stayDateFilter(this.booked(), this.start(), this.end()));
 
   readonly dateClass = computed<MatCalendarCellClassFunction<Date>>(() => {
     const booked = this.booked();

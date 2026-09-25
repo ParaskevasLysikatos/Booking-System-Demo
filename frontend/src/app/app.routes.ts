@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { guestOnlyGuard } from './core/auth/auth.guards';
+import { authGuard, guestOnlyGuard } from './core/auth/auth.guards';
 
 export const routes: Routes = [
   // Listings are the home page (TICKET-018).
@@ -15,6 +15,12 @@ export const routes: Routes = [
     // No static `title`: the router would reset it on every query-param
     // change - the page sets the property's own title instead.
     loadComponent: () => import('./pages/property-detail/property-detail').then((m) => m.PropertyDetailPage),
+  },
+  {
+    path: 'booking/:propertyId',
+    // Title set by the page (a static one would be re-applied on every query change).
+    canActivate: [authGuard], // logged out -> /login?returnUrl=... and back here after
+    loadComponent: () => import('./pages/booking/booking').then((m) => m.BookingFormPage),
   },
   {
     path: 'login',
