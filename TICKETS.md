@@ -517,6 +517,16 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 - [ ] **TICKET-037** — UI polish pass + refresh seed data
   - Priority: P0 · Depends on: Epic 3 & 4 complete
 
+- [ ] **TICKET-041** — Simple demo logins in the seeder (admin + guests)
+  - Priority: P0 · Depends on: TICKET-026 · Do before TICKET-038 (requested after TICKET-026)
+  - Goal: logins that are easy to type at the meetup table, for both roles, e.g. `admin@demo.com` / `admin123` and `guest1@demo.com` … `guest10@demo.com` / `guest123` (exact values to agree when the ticket starts).
+  - Seeder (`seed_demo_data`): fixed, numbered guest emails instead of Faker usernames (Faker still provides the first/last names); one shared guest password; simple admin email/password. Keep them as constants in one place so the README and the login page hint can't drift.
+  - Simple passwords are fine here: the seeder uses `set_password()`, which skips Django's password validators. Registration still enforces them for real sign-ups.
+  - `--clear` must also remove the old-style `guest_*@example.com` / `admin_demo` accounts, so re-seeding doesn't leave both sets behind.
+  - **Hosted copy (Render):** `--if-empty` won't re-seed a database that already has data, so plan a one-off re-seed there. There's no shell on the free plan, so e.g. a temporary env var (`SEED_DEMO_DATA=reset`) that makes `build.sh` run `seed_demo_data --clear` once, removed right after that deploy.
+  - Optional: a small "Demo logins" hint on the login page (or the README only), so visitors know which accounts exist.
+  - Update the README (Seeding demo data, Deploying to Render → logins) and the tests for `--clear` / `--if-empty`.
+
 - [ ] **TICKET-038** — Final redeploy + smoke test (local + hosted)
   - Priority: P0 · Depends on: TICKET-026, TICKET-027
 
