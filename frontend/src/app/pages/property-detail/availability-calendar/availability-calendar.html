@@ -1,0 +1,41 @@
+<div class="cal">
+  <div class="bar">
+    <button mat-icon-button type="button" (click)="shift(-1)" [disabled]="!canGoBack()" aria-label="Previous month">
+      <mat-icon>chevron_left</mat-icon>
+    </button>
+    <p class="hint">
+      @if (!start()) {
+        Select a check-in date
+      } @else if (!end()) {
+        Select a check-out date
+      } @else {
+        Selected stay
+        <button mat-button type="button" (click)="clear()">Clear dates</button>
+      }
+    </p>
+    <button mat-icon-button type="button" (click)="shift(1)" [disabled]="!canGoForward()" aria-label="Next month">
+      <mat-icon>chevron_right</mat-icon>
+    </button>
+  </div>
+
+  <div class="months">
+    <!-- Re-created on every month change (tracked by month), so startAt always applies. -->
+    @for (m of months(); track m.getTime(); let second = $index) {
+      <div class="month" [class.second]="second === 1">
+        <h4>{{ m.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) }}</h4>
+        <mat-calendar
+          [headerComponent]="header"
+          [startAt]="m"
+          [minDate]="min()"
+          [maxDate]="max()"
+          [selected]="selected()"
+          [dateFilter]="dateFilter()"
+          [dateClass]="dateClass()"
+          (selectedChange)="pick($event)"
+        />
+      </div>
+    }
+  </div>
+
+  <p class="legend"><span class="swatch"></span> Booked · you can check out on the day someone else checks in</p>
+</div>

@@ -2,7 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { PropertySummary } from '../../../core/properties/property.models';
-import { PropertyCardComponent, amenityLabel } from './property-card';
+import { amenityLabel } from '../../../core/amenities';
+import { PropertyCardComponent } from './property-card';
 
 const property: PropertySummary = {
   id: 5, title: 'Harbour Loft', location: 'Chania, Greece', price_per_night: '91.00', capacity: 3,

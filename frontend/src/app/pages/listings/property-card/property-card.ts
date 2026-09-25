@@ -2,16 +2,9 @@ import { Component, computed, input, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 
+import { amenityLabel } from '../../../core/amenities';
 import { formatPrice } from '../../../core/money';
 import { PropertySummary } from '../../../core/properties/property.models';
-
-/** Pretty label for an amenity key: "sea_view" -> "Sea view", "wifi" -> "Wi-Fi". */
-export function amenityLabel(key: string): string {
-  const special: Record<string, string> = { wifi: 'Wi-Fi', tv: 'TV', air_conditioning: 'Air conditioning' };
-  if (special[key]) return special[key];
-  const text = key.replace(/_/g, ' ');
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
 
 @Component({
   selector: 'app-property-card',

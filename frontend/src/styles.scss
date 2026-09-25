@@ -17,3 +17,25 @@ html, body {
 body {
   font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+
+/* Full-screen photo viewer (pages/property-detail/gallery/gallery-lightbox.ts) */
+.lightbox-panel .mat-mdc-dialog-surface {
+  border-radius: 0;
+  background: #000;
+}
+.lightbox-backdrop {
+  background: rgb(0 0 0 / 90%);
+}
+
+/* Our availability calendar prints its own month titles - hide mat-calendar's in-grid "NOV" label. */
+app-availability-calendar .mat-calendar-body-label {
+  visibility: hidden;
+}
+
+/* Booked nights in the availability calendar (mat-calendar renders outside
+   the component's style scope, hence global). */
+.mat-calendar-body-cell.booked-night:not(.mat-calendar-body-range-end) .mat-calendar-body-cell-content {
+  text-decoration: line-through;
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0.55;
+}

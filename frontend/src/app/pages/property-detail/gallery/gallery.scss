@@ -1,0 +1,80 @@
+.hero {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  max-height: 60vh;
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--mat-sys-surface-container-high);
+}
+
+.hero-btn {
+  all: unset;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+
+  &:focus-visible { outline: 3px solid var(--mat-sys-primary); outline-offset: -3px; }
+}
+
+img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.9;
+  &.prev { left: 12px; }
+  &.next { right: 12px; }
+}
+
+.counter {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+}
+
+.thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.thumb {
+  all: unset;
+  flex: 0 0 96px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  opacity: 0.65;
+  background: var(--mat-sys-surface-container-high);
+  outline: 2px solid transparent;
+
+  &.active { opacity: 1; outline-color: var(--mat-sys-primary); }
+  &:hover { opacity: 1; }
+  &:focus-visible { outline-color: var(--mat-sys-primary); }
+}

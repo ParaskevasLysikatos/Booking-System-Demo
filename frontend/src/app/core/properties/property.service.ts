@@ -4,7 +4,14 @@ import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { toIsoDate } from '../dates';
-import { DEFAULT_PAGE_SIZE, PageRequest, Paginated, PropertyFilters, PropertySummary } from './property.models';
+import {
+  DEFAULT_PAGE_SIZE,
+  PageRequest,
+  Paginated,
+  PropertyDetail,
+  PropertyFilters,
+  PropertySummary,
+} from './property.models';
 
 export const PROPERTIES_URL = `${environment.apiUrl}/properties/`;
 
@@ -42,5 +49,17 @@ export class PropertyService {
   list(filters: PropertyFilters, page: PageRequest): Observable<Paginated<PropertySummary>> {
     const params = toPropertyParams(filters, page).set('is_active', 'true');
     return this.http.get<Paginated<PropertySummary>>(PROPERTIES_URL, { params });
+  }
+
+  /**
+   * One property with images and availability. With `dates`, the API also
+   * answers `availability.is_available` for that exact stay.
+   */
+  get(id: number, dates?: { checkIn: Date; checkOut: Date }): Observable<PropertyDetail> {
+    let params = new HttpParams();
+    if (dates) {
+      params = params.set('check_in', toIsoDate(dates.checkIn)).set('check_out', toIsoDate(dates.checkOut));
+    }
+    return this.http.get<PropertyDetail>(`${PROPERTIES_URL}${id}/`, { params });
   }
 }

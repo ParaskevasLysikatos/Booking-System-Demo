@@ -1,0 +1,132 @@
+<section class="detail">
+  <a mat-button class="back" [routerLink]="backUrl" [attr.href]="backUrl"><mat-icon>arrow_back</mat-icon> Back to results</a>
+
+  @switch (state().status) {
+    @case ('loading') {
+      <div class="skeleton" aria-busy="true" aria-label="Loading stay">
+        <div class="ph title"></div>
+        <div class="ph hero"></div>
+      </div>
+    }
+
+    @case ('notFound') {
+      <div class="message">
+        <mat-icon>search_off</mat-icon>
+        <p>This stay doesn't exist or is no longer available.</p>
+        <a mat-stroked-button routerLink="/listings">Browse stays</a>
+      </div>
+    }
+
+    @case ('error') {
+      <div class="message" role="alert">
+        <mat-icon>cloud_off</mat-icon>
+        <p>Couldn't load this stay.</p>
+        <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      </div>
+    }
+
+    @case ('ok') {
+      @let p = property()!;
+      @if (!p.is_active) {
+        <p class="banner" role="status"><mat-icon>visibility_off</mat-icon> Hidden from guests - this property is inactive, so it can't be booked.</p>
+      }
+
+      <header class="head">
+        <h1>{{ p.title }}</h1>
+        <p class="sub">
+          <span><mat-icon>place</mat-icon>{{ p.location }}</span>
+          <span>
+            @if (p.rating_avg; as avg) {
+              <mat-icon class="star">star</mat-icon>{{ avg.toFixed(1) }} · {{ p.review_count }} {{ p.review_count === 1 ? 'review' : 'reviews' }}
+            } @else {
+              <span class="new">New</span>
+            }
+          </span>
+          <span><mat-icon>group</mat-icon>Sleeps {{ p.capacity }}</span>
+        </p>
+      </header>
+
+      <app-gallery [images]="p.images" [title]="p.title" />
+
+      <div class="layout">
+        <div class="main">
+          @if (p.description) {
+            <section>
+              <h2>About this stay</h2>
+              <p class="description">{{ p.description }}</p>
+            </section>
+          }
+
+          @if (p.amenities.length) {
+            <section>
+              <h2>What this place offers</h2>
+              <ul class="amenities">
+                @for (a of p.amenities; track a) {
+                  <li><mat-icon>{{ amenityIcon(a) }}</mat-icon>{{ amenityLabel(a) }}</li>
+                }
+              </ul>
+            </section>
+          }
+
+          <section>
+            <h2>Availability</h2>
+            <app-availability-calendar
+              [booked]="booked()"
+              [start]="checkIn()"
+              [end]="checkOut()"
+              [min]="minDate"
+              [max]="maxDate"
+              (selectionChange)="onCalendar($event)"
+            />
+          </section>
+        </div>
+
+        <aside class="panel" aria-label="Book this stay">
+          <p class="price"><strong>{{ nightly() }}</strong>&nbsp;/ night</p>
+
+          <form [formGroup]="form" (ngSubmit)="bookNow()">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Check-in – check-out</mat-label>
+              <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate" [dateFilter]="pickerFilter()">
+                <input matStartDate formControlName="start" placeholder="Check-in" />
+                <input matEndDate formControlName="end" placeholder="Check-out" />
+              </mat-date-range-input>
+              <mat-datepicker-toggle matIconSuffix [for]="picker" />
+              <mat-date-range-picker #picker />
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Guests</mat-label>
+              <mat-select formControlName="guests">
+                @for (n of guestOptions(); track n) {
+                  <mat-option [value]="n">{{ n }} {{ n === 1 ? 'guest' : 'guests' }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+
+            @if (dateProblem(); as problem) {
+              <p class="status warn" role="alert"><mat-icon>info</mat-icon>{{ problem }}</p>
+            } @else {
+              @switch (availability()) {
+                @case ('checking') { <p class="status" role="status"><mat-icon>hourglass_top</mat-icon>Checking availability…</p> }
+                @case ('available') { <p class="status ok" role="status"><mat-icon>check_circle</mat-icon>Available for your dates</p> }
+                @case ('unavailable') { <p class="status warn" role="alert"><mat-icon>event_busy</mat-icon>Not available for these dates</p> }
+                @case ('error') { <p class="status warn" role="alert"><mat-icon>cloud_off</mat-icon>Couldn't check availability. Try again.</p> }
+              }
+            }
+
+            @if (total(); as t) {
+              <dl class="breakdown">
+                <div><dt>{{ nightly() }} × {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</dt><dd>{{ t }}</dd></div>
+                <div class="sum"><dt>Total</dt><dd>{{ t }}</dd></div>
+              </dl>
+              <p class="note">Estimate - the final price is confirmed when you book. You won't be charged yet.</p>
+            }
+
+            <button mat-flat-button type="submit" class="book" [disabled]="!canBook()">Book now</button>
+          </form>
+        </aside>
+      </div>
+    }
+  }
+</section>

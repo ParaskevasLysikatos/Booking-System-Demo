@@ -34,4 +34,15 @@ describe('PropertyService', () => {
     expect(req.request.params.get('guests')).toBe('2');
     req.flush({ count: 0, next: null, previous: null, results: [] });
   });
+
+  it('gets one property, optionally asking about specific dates', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    const service = TestBed.inject(PropertyService);
+    const http = TestBed.inject(HttpTestingController);
+    service.get(7).subscribe();
+    expect(http.expectOne(`${PROPERTIES_URL}7/`).request.params.keys()).toEqual([]);
+    service.get(7, { checkIn: new Date(2027, 1, 2), checkOut: new Date(2027, 1, 4) }).subscribe();
+    const req = http.expectOne((r) => r.url === `${PROPERTIES_URL}7/` && r.params.has('check_in'));
+    expect(req.request.params.toString()).toBe('check_in=2027-02-02&check_out=2027-02-04');
+  });
 });

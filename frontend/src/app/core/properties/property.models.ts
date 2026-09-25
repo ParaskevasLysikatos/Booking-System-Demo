@@ -38,3 +38,37 @@ export interface PageRequest {
 }
 
 export const DEFAULT_PAGE_SIZE = 12;
+
+export interface PropertyImage {
+  id: number;
+  image: string;
+  is_cover: boolean;
+}
+
+/** A booked stay: nights check_in .. check_out-1 are taken ([check_in, check_out)). */
+export interface BookedRange {
+  check_in: string; // YYYY-MM-DD
+  check_out: string;
+}
+
+export interface Availability {
+  booked_ranges: BookedRange[];
+  /** Only present when the request included ?check_in=&check_out=. */
+  check_in?: string;
+  check_out?: string;
+  is_available?: boolean;
+}
+
+/** GET /api/properties/{id}/ (backend PropertyDetailSerializer). */
+export interface PropertyDetail extends PropertySummary {
+  description: string;
+  images: PropertyImage[];
+  availability: Availability;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Longest stay the API accepts (backend bookings/serializers.py MAX_NIGHTS). */
+export const MAX_NIGHTS = 30;
+/** How far ahead check-in can be (backend MAX_DAYS_AHEAD). */
+export const MAX_DAYS_AHEAD = 365;

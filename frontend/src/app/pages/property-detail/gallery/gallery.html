@@ -1,0 +1,32 @@
+@if (count()) {
+  <div class="hero">
+    @if (current(); as img) {
+      @if (!failed().has(img.id)) {
+        <button type="button" class="hero-btn" (click)="open()" [attr.aria-label]="'Open photo ' + (index() + 1) + ' of ' + count() + ' full screen'">
+          <img [src]="img.image" [alt]="title() + ' - photo ' + (index() + 1)" (error)="markFailed(img.id)" />
+        </button>
+      } @else {
+        <div class="placeholder"><mat-icon>image_not_supported</mat-icon></div>
+      }
+    }
+    @if (count() > 1) {
+      <button mat-mini-fab class="nav prev" type="button" (click)="go(-1)" aria-label="Previous photo"><mat-icon>chevron_left</mat-icon></button>
+      <button mat-mini-fab class="nav next" type="button" (click)="go(1)" aria-label="Next photo"><mat-icon>chevron_right</mat-icon></button>
+      <span class="counter">{{ index() + 1 }} / {{ count() }}</span>
+    }
+  </div>
+
+  @if (count() > 1) {
+    <div class="thumbs" role="list">
+      @for (img of images(); track img.id; let i = $index) {
+        <button type="button" role="listitem" class="thumb" [class.active]="i === index()" (click)="index.set(i)" [attr.aria-label]="'Show photo ' + (i + 1)" [attr.aria-current]="i === index()">
+          @if (!failed().has(img.id)) {
+            <img [src]="img.image" alt="" (error)="markFailed(img.id)" />
+          }
+        </button>
+      }
+    </div>
+  }
+} @else {
+  <div class="hero"><div class="placeholder"><mat-icon>image_not_supported</mat-icon><span>No photos yet</span></div></div>
+}

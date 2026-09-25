@@ -241,10 +241,33 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Checked in Chrome** against the seeded data: a URL search, typed Search, price refining, Back, a past-date URL and the empty state. This caught two bugs, both fixed: inactive properties were showing for admins (fixed with `is_active=true`), and "€91/ night" was missing its space.
     - **README:** new "Listings page" section; layout, status and next steps updated.
 
-- [ ] **TICKET-019** — `PropertyDetailComponent` (`/listings/:id`)
+- [x] **TICKET-019** — `PropertyDetailComponent` (`/listings/:id`)
   - Priority: P0
   - Depends on: TICKET-018
   - Gallery, amenities, availability calendar, "Book Now" → routes to the booking form.
+  - Decisions (agreed before building):
+    - gallery = **hero + thumbnails + full-screen lightbox**
+    - an **inline 2-month availability calendar** kept in sync with the booking panel
+    - **Book now while logged out → login, then continue** (`/login?returnUrl=/booking/…`)
+  - Done:
+    - **`core/`:**
+      - `PropertyService.get(id, dates?)` and the detail models
+      - `core/properties/availability.ts` (`BookedNights`: `[check_in, check_out)` rules shared by the calendar, picker and validation)
+      - `core/amenities.ts` (labels + icons, now shared with the cards)
+    - **`pages/property-detail/`:**
+      - "Back to results" returns to the exact previous listings search
+      - header (rating/New, Sleeps N); the tab title becomes the property's name
+      - `gallery/`: arrows, counter, thumbnails; the lightbox has ← → keys, swipe, Esc/backdrop to close and keeps the photo you closed on
+      - all amenities with icons
+      - `availability-calendar/`: two months (one on phones), shared ‹ › navigation, booked nights struck through; the check-in/check-out click flow disables invalid dates and allows checking out on someone else's check-in day
+      - sticky booking panel: date range picker (booked nights disabled), guests capped at capacity, instant local checks (booked nights, check-out missing, 30-night and 365-day limits), then an API `is_available` confirmation driven by a single computed signal (glitch-free), a price breakdown estimate, and Book now only when confirmed
+      - dates and guests are synced into the URL (`replaceUrl`)
+      - states: skeleton, 404 "no longer available", Try again, and an admin "Hidden from guests" banner for inactive properties
+    - **Route:** `listings/:id` has no static route title, so the router doesn't overwrite the property's title on every query change.
+    - **Tests:** 22 new Vitest tests (76 total), all passing, including a test that caught and prevented a spurious availability request with half-updated values. The production build is clean.
+    - **Checked in Chrome** against the seeded data: card → detail with the search carried over; booked nights Feb 4–15, 2027 on property 42; the clash message with Book disabled; a calendar pick ending on someone's check-in day → API "Available" / €364 / URL updated; the lightbox with ← → and Esc.
+    - **README:** new "Property detail page" section; layout, status and next steps updated.
+  - Note: Book now links to `/booking/:id?check_in=…&check_out=…&guests=…`, which lands back on the listings page until TICKET-020 adds the booking form.
 
 - [ ] **TICKET-020** — `BookingService` + `BookingFormComponent` (`/booking/:propertyId`)
   - Priority: P0

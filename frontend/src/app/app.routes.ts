@@ -11,6 +11,12 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/listings/listings').then((m) => m.PropertyListPage),
   },
   {
+    path: 'listings/:id',
+    // No static `title`: the router would reset it on every query-param
+    // change - the page sets the property's own title instead.
+    loadComponent: () => import('./pages/property-detail/property-detail').then((m) => m.PropertyDetailPage),
+  },
+  {
     path: 'login',
     title: 'Log in · Booking System Demo',
     canActivate: [guestOnlyGuard],
