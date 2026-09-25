@@ -32,6 +32,7 @@ class BookingSerializer(serializers.ModelSerializer):
     nights = serializers.SerializerMethodField()
     guest_email = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
+    cancel_deadline = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -45,6 +46,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "total_price",
             "status",
             "can_cancel",
+            "cancel_deadline",
             "guest_email",
             "created_at",
         ]
@@ -66,7 +68,13 @@ class BookingSerializer(serializers.ModelSerializer):
             return False
         if self.context.get("is_admin"):
             return True
-        return obj.check_in > timezone.localdate()
+        return obj.guest_can_cancel()
+
+    def get_cancel_deadline(self, obj):
+        """When free guest cancellation ends (48h before check-in at
+        15:00 local by default) - so the UI can say "Free cancellation
+        until Wed 15:00"."""
+        return serializers.DateTimeField().to_representation(obj.cancel_deadline())
 
 
 class BookingCreateSerializer(serializers.Serializer):

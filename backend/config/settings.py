@@ -112,6 +112,13 @@ REST_FRAMEWORK = {
     ],
 }
 
+# Booking rules (TICKET-015). Bookings store only a check-in *date*; the
+# guest cancellation deadline is measured from this check-in time (local
+# time, TIME_ZONE) - e.g. check-in Friday 15:00 -> guests can cancel until
+# Wednesday 15:00. Admins can cancel at any time.
+BOOKING_CHECK_IN_TIME = env('BOOKING_CHECK_IN_TIME', default='15:00')
+BOOKING_GUEST_CANCELLATION_HOURS = env.int('BOOKING_GUEST_CANCELLATION_HOURS', default=48)
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env.int('JWT_ACCESS_MINUTES', default=30)),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=env.int('JWT_REFRESH_DAYS', default=1)),

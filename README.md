@@ -584,7 +584,7 @@ routed in `bookings/urls.py`. Every endpoint needs a logged-in user
 | `GET /api/bookings/` | Own bookings only | All bookings |
 | `GET /api/bookings/{id}/` | Own only (someone else's is `404`) | Any |
 | `POST /api/bookings/` | Book for themselves | Same |
-| `PATCH /api/bookings/{id}/` | Cancel own booking, before check-in | Change status (see transitions) |
+| `PATCH /api/bookings/{id}/` | Cancel own booking, until 48h before check-in | Change status (see transitions) |
 | `PUT` / `DELETE` | `405`: bookings are cancelled, never deleted or rewritten | same |
 
 ### Creating a booking
@@ -617,12 +617,14 @@ Response (`201`, the same shape every endpoint returns):
    "price_per_night": "80.00", "cover_image": "https://..."},
  "check_in": "2026-11-02", "check_out": "2026-11-06", "nights": 4, "guests": 2,
  "total_price": "320.00", "status": "pending", "can_cancel": true,
- "guest_email": null, "created_at": "..."}
+ "cancel_deadline": "2026-10-31T15:00:00+02:00", "guest_email": null, "created_at": "..."}
 ```
 
 `guest_email` is only filled in for admins. `can_cancel` tells the
 frontend whether the *current caller* may cancel right now, so it can
 show or hide a Cancel button without repeating the rules.
+`cancel_deadline` is when free guest cancellation ends, for text like
+"Free cancellation until Sat 31 Oct, 15:00".
 
 ### No double bookings, even under a race
 
@@ -669,10 +671,29 @@ The body is `{"status": "..."}` and nothing else. Sending any other field
 | From → To | Guest (own booking) | Admin |
 | --- | --- | --- |
 | `pending` → `confirmed` | ✗ | ✓ |
-| `pending` → `cancelled` | ✓ if check-in is still in the future | ✓ |
-| `confirmed` → `cancelled` | ✓ if check-in is still in the future | ✓ (even after check-in) |
+| `pending` → `cancelled` | ✓ until the cancellation deadline | ✓ |
+| `confirmed` → `cancelled` | ✓ until the cancellation deadline | ✓ (any time, even after check-in) |
 | anything → `pending` | ✗ | ✗ |
 | `cancelled` → anything | ✗ | ✗ (**cancelled is final**: the guest books again) |
+
+**Guest cancellation deadline: 48 hours before check-in.** Bookings store
+only a check-in *date*, so check-in is taken to be **15:00 local time
+(Europe/Athens)** on that date. A guest can cancel online until exactly
+48 hours before that moment, e.g. check-in Friday → last cancel Wednesday
+15:00. After that the API returns `400` "Online cancellation closed on
+2026-10-28 15:00 (48 hours before check-in). Please contact us.", and only
+an admin can cancel. The 48 hours are real hours: they're subtracted in
+UTC, so across a daylight-saving change the deadline shifts by an hour on
+the clock (e.g. 14:00 instead of 15:00) but is still exactly 48h. Both
+values are settings, overridable in `.env`: `BOOKING_CHECK_IN_TIME`
+(default `15:00`) and `BOOKING_GUEST_CANCELLATION_HOURS` (default `48`).
+The logic lives on the model (`Booking.check_in_datetime()`,
+`cancel_deadline()`, `guest_can_cancel()`), so the API check, the
+`can_cancel` flag and future refund rules all share one definition.
+
+**Refunds are not handled yet.** There are no payments until TICKET-029
+(Stripe). Refunding a cancelled booking is its own ticket, TICKET-040, and
+will build on this deadline.
 
 Anything not allowed gets a `400` with the reason, e.g. "Booking is
 already cancelled.". Because cancelled is final, a status change never
@@ -725,7 +746,7 @@ curl -X PATCH http://localhost:8000/api/bookings/41/ -H "Authorization: Bearer $
 
 ### Tests
 
-`backend/bookings/tests.py` has 26 tests. They **must run on Postgres**,
+`backend/bookings/tests.py` has 29 tests. They **must run on Postgres**,
 because the exclusion constraint is Postgres-only. That's what
 `docker compose exec backend python manage.py test` uses. They cover:
 
@@ -746,6 +767,10 @@ because the exclusion constraint is Postgres-only. That's what
   `PUT`/`DELETE`.
 - **Transitions:**
   - guest cancel before and after check-in
+  - the 48h deadline: one minute before is allowed, at the deadline it's
+    a `400`, and an admin can still cancel after it (time is mocked)
+  - the deadline is exactly 48 real hours across a DST change
+  - both settings are configurable
   - a guest can't confirm or touch someone else's booking
   - the admin transition table, and cancelled is final
   - only `status` is editable
@@ -854,6 +879,7 @@ you ever need to regenerate it.
 | `DJANGO_ALLOWED_HOSTS` | backend | Hostnames Django will respond to |
 | `CORS_ALLOWED_ORIGINS` | backend | Origins allowed to call the API (the Angular dev server) |
 | `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` | backend | Optional token lifetimes (defaults 30 minutes / 1 day) |
+| `BOOKING_CHECK_IN_TIME` / `BOOKING_GUEST_CANCELLATION_HOURS` | backend | Optional: check-in time used for the guest cancellation deadline, and how many hours before it guests can still cancel (defaults `15:00` / `48`) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
 

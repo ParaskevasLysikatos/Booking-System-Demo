@@ -149,6 +149,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Verification:** all 77 backend tests pass on real Postgres. That was **Postgres 14** with contrib in the sandbox; the sandbox Postgres 16 build lacks the `btree_gist` extension, and the Docker `postgres:16-alpine` image does include it. `makemigrations --check` is clean. Smoke-tested after `seed_demo_data --clear`: admin list with emails, 409 on booking seeded dates, all seeded `guests` within capacity.
     - **README:** new "Bookings API" section (endpoints, create rules, the two-layer race protection, transition table, filters, curl, tests), data model, layout, status and next steps updated, and two new Troubleshooting entries (rebuild after new packages, migrate after new migrations).
   - To apply locally: `docker compose restart backend`. The container runs `migrate` on start, which creates the extension and the constraint.
+  - Change after review: guest cancellation now closes **48 hours before check-in**, instead of any time before check-in. Check-in is taken as **15:00 local time** on the check-in date (a setting, `BOOKING_CHECK_IN_TIME`; the hours are `BOOKING_GUEST_CANCELLATION_HOURS`, both overridable in `.env`). The logic is on the model: `Booking.check_in_datetime()` / `cancel_deadline()` / `guest_can_cancel()`, with the 48h subtracted in UTC so it's exact across DST. After the deadline a guest gets a 400 with the exact closing time; admins can still cancel any time. Responses now include `cancel_deadline`, and `can_cancel` uses the same rule. 3 new tests (mocked clock around the deadline, DST, configurable settings), all 80 backend tests passing on Postgres. **Refunds are out of scope here** (no payments exist yet) → **TICKET-040**.
 
 - [ ] **TICKET-016** — Admin stats endpoint
   - Priority: P1
@@ -237,6 +238,22 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - Use a Stripe idempotency key per checkout attempt, derived from the booking id, so a double-click or a network retry never creates two PaymentIntents/charges for the same booking.
     - Only start payment after the booking row has been committed (i.e. it already survived TICKET-015's exclusion-constraint check) — never take payment for a booking that lost the race and was rejected.
     - Drive `Booking.status -> confirmed` from a Stripe webhook confirming payment actually succeeded, not optimistically the moment the client calls confirm — a booking should never read as confirmed before money has actually moved.
+    - Refunds for cancelled bookings are a separate follow-up: see TICKET-040.
+
+- [ ] **TICKET-040** — Refunds on cancellation
+  - Priority: P1 · Depends on: TICKET-029 (payments must exist first), TICKET-015 (cancellation rules)
+  - Raised during TICKET-015: cancelling a paid booking must return the guest's money according to a policy, not ad hoc.
+  - Policy to confirm before building (suggested starting point):
+    - guest cancels **before** the cancellation deadline (`Booking.cancel_deadline()`, 48h before 15:00 check-in): full refund
+    - after the deadline guests can't cancel online at all (TICKET-015); if an **admin** cancels a booking (e.g. the property becomes unavailable): always a full refund
+    - cancelling an unpaid `pending` booking: nothing to refund
+    - decide whether partial refunds or a fee are wanted later
+  - Implementation requirements:
+    - Use the Stripe Refund API against the booking's PaymentIntent, with an **idempotency key derived from the booking id**, so a retried or double-clicked cancel can never refund twice.
+    - Record refund state on the booking (e.g. `refund_status`: `none` / `pending` / `refunded` / `failed`, plus amount and Stripe refund id) via a migration.
+    - Mark it refunded from the Stripe **webhook** (`charge.refunded` / `refund.updated`), not optimistically when the request is sent, the same principle as TICKET-029's confirmation.
+    - The cancel `PATCH` stays the trigger: after the status change commits, start the refund. Never block or roll back the cancellation because Stripe is slow; retry failed refunds instead.
+    - Show refund status in the guest's My Bookings and the admin bookings table.
 
 - [ ] **TICKET-030** — Booking-confirmation email (Brevo or Resend free tier)
   - Priority: P1 · Depends on: TICKET-020

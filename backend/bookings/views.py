@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
@@ -50,7 +51,8 @@ class BookingViewSet(
       ?property= (admin only). Paginated.
     - POST            - any logged-in user books for themselves.
     - PATCH           - status only: guest may cancel their own booking
-                        before check-in; admin: pending->confirmed/cancelled,
+                        until 48h before check-in (15:00 local on the
+                        check-in date); admin: pending->confirmed/cancelled,
                         confirmed->cancelled. Cancelled is final.
     - PUT / DELETE    - not offered (405): cancelling is how a booking ends.
     """
@@ -158,8 +160,13 @@ class BookingViewSet(
         else:
             if new_status != Booking.Status.CANCELLED:
                 raise ValidationError({"status": ["Guests can only cancel a booking."]})
-            if booking.check_in <= timezone.localdate():
-                raise ValidationError({"status": ["This stay has already started - it can no longer be cancelled online."]})
+            if not booking.guest_can_cancel():
+                deadline = timezone.localtime(booking.cancel_deadline())
+                hours = settings.BOOKING_GUEST_CANCELLATION_HOURS
+                raise ValidationError({"status": [
+                    f"Online cancellation closed on {deadline:%Y-%m-%d %H:%M} "
+                    f"({hours} hours before check-in). Please contact us."
+                ]})
             allowed = Booking.GUEST_TRANSITIONS[current]
         if new_status not in allowed:
             raise ValidationError(

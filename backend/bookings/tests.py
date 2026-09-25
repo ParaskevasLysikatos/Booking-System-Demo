@@ -1,12 +1,12 @@
 import threading
 import time
-from datetime import timedelta
+from datetime import date, datetime, time as dt_time, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -250,12 +250,57 @@ class StatusTransitionTests(BookingFixtures, APITestCase):
     def test_guest_rules(self):
         started = self.book(start=0, end=3, status_=Booking.Status.CONFIRMED)
         self.assertEqual(self.patch(started, "cancelled", self.guest).status_code, 400)   # check-in today
+        tomorrow = self.book(prop=self.prop2, start=1, end=2, status_=Booking.Status.CONFIRMED)
+        self.assertEqual(self.patch(tomorrow, "cancelled", self.guest).status_code, 400)  # < 48h away
         pending = self.book(start=10, end=12)
         self.assertEqual(self.patch(pending, "confirmed", self.guest).status_code, 400)   # can't self-confirm
         theirs = self.book(prop=self.prop2, start=10, end=12, guest=self.other)
         self.assertEqual(self.patch(theirs, "cancelled", self.guest).status_code, 404)    # not theirs
         cancelled = self.book(start=20, end=22, status_=Booking.Status.CANCELLED)
         self.assertEqual(self.patch(cancelled, "cancelled", self.guest).status_code, 400)
+
+    def test_guest_cancellation_closes_48h_before_check_in(self):
+        """Check-in day(3) at 15:00 local -> free cancellation ends day(1)
+        at 15:00 local."""
+        b = self.book(start=3, end=5, status_=Booking.Status.CONFIRMED)
+        deadline = timezone.make_aware(datetime.combine(day(1), dt_time(15, 0)))
+        self.assertEqual(b.cancel_deadline(), deadline)
+
+        with mock.patch("django.utils.timezone.now", return_value=deadline - timedelta(minutes=1)):
+            self.client.force_authenticate(self.guest)
+            row = self.client.get(detail_url(b.id)).data
+            self.assertTrue(row["can_cancel"])
+            self.assertEqual(datetime.fromisoformat(row["cancel_deadline"]), deadline)
+
+        with mock.patch("django.utils.timezone.now", return_value=deadline):
+            self.assertFalse(self.client.get(detail_url(b.id)).data["can_cancel"])
+            resp = self.patch(b, "cancelled", self.guest)
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn("48 hours before check-in", resp.data["status"][0])
+            # ...but an admin still can
+            self.client.force_authenticate(self.admin)
+            self.assertTrue(self.client.get(detail_url(b.id)).data["can_cancel"])
+            self.assertEqual(self.patch(b, "cancelled", self.admin).status_code, 200)
+
+        with mock.patch("django.utils.timezone.now", return_value=deadline - timedelta(minutes=1)):
+            fresh = self.book(start=3, end=5)
+            self.assertEqual(self.patch(fresh, "cancelled", self.guest).status_code, 200)
+
+    def test_deadline_is_exactly_48_real_hours_across_dst(self):
+        # EU clocks go forward on 2027-03-28: check-in 29 Mar 15:00 EEST
+        # (12:00 UTC) -> deadline 27 Mar 12:00 UTC = 14:00 EET.
+        b = Booking(property=self.prop, check_in=date(2027, 3, 29), check_out=date(2027, 3, 31))
+        utc = dt_timezone.utc
+        # Compare in UTC: subtracting two datetimes that share a tzinfo is
+        # wall-clock arithmetic in Python, which would hide the DST hour.
+        self.assertEqual(b.check_in_datetime().astimezone(utc) - b.cancel_deadline().astimezone(utc),
+                         timedelta(hours=48))
+        self.assertEqual(timezone.localtime(b.cancel_deadline()).hour, 14)
+
+    @override_settings(BOOKING_CHECK_IN_TIME="14:00", BOOKING_GUEST_CANCELLATION_HOURS=24)
+    def test_rule_is_configurable(self):
+        b = Booking(property=self.prop, check_in=day(3), check_out=day(5))
+        self.assertEqual(b.cancel_deadline(), timezone.make_aware(datetime.combine(day(2), dt_time(14, 0))))
 
     def test_admin_transitions(self):
         b = self.book(start=10, end=12)

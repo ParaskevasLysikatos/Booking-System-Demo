@@ -1,9 +1,12 @@
+from datetime import datetime, time, timedelta, timezone as dt_timezone
+
 from django.conf import settings
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class DateRange(models.Func):
@@ -112,7 +115,8 @@ class Booking(models.Model):
         Status.CONFIRMED: {Status.CANCELLED},
         Status.CANCELLED: set(),
     }
-    # Guests can only cancel their own booking, and only before check-in.
+    # Guests can only cancel their own booking, and only until the
+    # cancellation deadline (see cancel_deadline()).
     GUEST_TRANSITIONS = {
         Status.PENDING: {Status.CANCELLED},
         Status.CONFIRMED: {Status.CANCELLED},
@@ -129,6 +133,25 @@ class Booking(models.Model):
             raise ValidationError(
                 f"This property sleeps at most {self.property.capacity} guests."
             )
+
+    def check_in_datetime(self):
+        """The check-in moment: check_in date at settings.BOOKING_CHECK_IN_TIME,
+        local time (TIME_ZONE), as an aware datetime."""
+        at = time.fromisoformat(settings.BOOKING_CHECK_IN_TIME)
+        return timezone.make_aware(datetime.combine(self.check_in, at))
+
+    def cancel_deadline(self):
+        """Last moment a *guest* may cancel: N real hours (default 48) before
+        the check-in moment. Subtracted in UTC so it's exactly N hours even
+        across a daylight-saving change."""
+        hours = settings.BOOKING_GUEST_CANCELLATION_HOURS
+        utc = self.check_in_datetime().astimezone(dt_timezone.utc) - timedelta(hours=hours)
+        return timezone.localtime(utc)
+
+    def guest_can_cancel(self, now=None):
+        if self.status == self.Status.CANCELLED:
+            return False
+        return (now or timezone.now()) < self.cancel_deadline()
 
     def get_nights(self):
         # A plain method, not @property: the `property` FK field above shadows
