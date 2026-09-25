@@ -11,9 +11,10 @@ are all in place and verified. Epic 2 (the DRF API) is under way: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
-Bookings API (race-proof booking creation, locked status changes) are done.
-See "Authentication (JWT)", "Permissions", "Properties API" and
-"Bookings API". See "Next
+Bookings API (race-proof booking creation, locked status changes) and
+the admin stats endpoint are done, which completes Epic 2.
+See "Authentication (JWT)", "Permissions", "Properties API", "Bookings
+API" and "Admin stats API". See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -109,8 +110,9 @@ backend/
     models.py          Booking model + the overlap-query manager (no separate Availability model)
     admin.py           Filterable/searchable Booking list (dev-only DB inspection)
     serializers.py     Read shape, create (server-side price/status), status-only PATCH
-    views.py           BookingViewSet - /api/bookings/ (own vs all, 409 on overlap, locked status changes)
-    urls.py            Router for /api/bookings/
+    views.py           BookingViewSet - /api/bookings/ (own vs all, 409 on overlap, locked status changes); AdminStatsView
+    stats.py           compute_stats() - counts, occupancy, revenue, per-property breakdown for a period
+    urls.py            Router for /api/bookings/ + /api/admin/stats/
     tests.py           API + DB-constraint + real concurrency tests (Postgres)
     migrations/        0001_initial.py creates the bookings table; 0002 adds guests + btree_gist + no-overlap constraint
   reviews/             A guest's rating/comment on a Property (nice-to-have)
@@ -786,6 +788,101 @@ because the exclusion constraint is Postgres-only. That's what
     moment: one `200` and one `400` "already cancelled" (the row lock
     prevents a lost update)
 
+## Admin stats API
+
+`GET /api/admin/stats/` (TICKET-016) returns the numbers for the admin
+dashboard (TICKET-023). It is **admin only** (`IsAdminRole`): no token →
+`401`, guest → `403`. The view is `bookings/views.py:AdminStatsView` and
+the maths is in `bookings/stats.py:compute_stats`.
+
+### Period
+
+`?from=YYYY-MM-DD&to=YYYY-MM-DD` covers a range of **nights**, both ends
+included. The night of date D is the one starting on D, so a stay from
+the 10th to the 13th occupies the nights of the 10th, 11th and 12th.
+
+- With no params you get the **current calendar month**.
+- `from` and `to` must be given together, `to` can't be before `from`,
+  and the period can be at most 366 days.
+- Bad values get a `400` with a per-field message.
+
+### What the numbers mean
+
+- **Only nights inside the period count**, for both occupancy and revenue.
+  A stay that crosses the period's start or end contributes just the
+  nights that fall inside it. For example, a 10-night stay over month-end
+  is split between the two months.
+- **Occupancy rate** = confirmed nights ÷ (active properties × nights in
+  the period), from 0 to 1, rounded to 4 decimals.
+  - Only **confirmed** nights count as occupied. Pending nights are
+    reported separately as `pending_nights`, the pipeline.
+  - Only **active** properties count. A retired property's nights aren't
+    available any more, so including them would distort the rate.
+  - If there are no active properties, the rate is `null` ("no data")
+    rather than a misleading 0.
+- **Revenue** is spread evenly over a stay's nights (`total_price ÷
+  nights` per night).
+  - `confirmed` is earned revenue and `pending` is expected revenue.
+  - Retired properties' revenue **is** included, because it's still real
+    money.
+  - The sums are exact decimals, rounded to cents once at the end, so
+    thirds don't drift.
+- **Cancelled** bookings never count toward occupancy or revenue. They
+  only appear in the status counts.
+- **`bookings`** counts stays that overlap the period, by status.
+  `created_in_period` counts bookings *made* during the period, whatever
+  their dates.
+
+### Response
+
+```json
+{
+  "period":    {"from": "2026-09-01", "to": "2026-09-30", "nights": 30},
+  "bookings":  {"total": 4, "pending": 0, "confirmed": 4, "cancelled": 0, "created_in_period": 32},
+  "occupancy": {"rate": 0.0545, "booked_nights": 18, "pending_nights": 0,
+                "available_nights": 330, "active_properties": 11},
+  "revenue":   {"confirmed": "776.00", "pending": "0.00"},
+  "properties": [
+    {"id": 42, "title": "Spacious Studio in Thessaloniki", "is_active": true,
+     "booked_nights": 5, "pending_nights": 0, "occupancy_rate": 0.1667,
+     "revenue": "375.00", "pending_revenue": "0.00"}
+  ]
+}
+```
+
+`properties` is the per-property breakdown, sorted by revenue with the
+highest first. It includes every active property, even with zero
+bookings (an empty row is useful to see). It also includes any retired
+property that still earned something in the period. Money values are
+strings, the same as the rest of the API, so no float rounding happens
+in JSON.
+
+The whole thing is a fixed handful of queries however many properties or
+bookings there are: one for the overlapping bookings, one for the
+properties, and one count. A test checks this.
+
+```bash
+curl "http://localhost:8000/api/admin/stats/?from=2026-10-01&to=2026-10-31" -H "Authorization: Bearer $TOKEN"
+```
+
+### Tests
+
+`AdminStatsTests` in `backend/bookings/tests.py` has 10 tests. They use
+hand-built data with every number worked out by hand:
+
+- stays crossing both edges of the period
+- a stay ending exactly when the period starts, and one starting right
+  after it ends (both excluded)
+- a cancelled booking, a retired property (revenue yes, occupancy no),
+  and an empty property
+- a total that divides into thirds (`626.67`)
+- a single-night period
+- the default current month
+- no active properties → `null` rate, and an empty period
+- all the bad-parameter `400`s, and 366 days allowed
+- `401`/`403`
+- a constant query count
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -943,7 +1040,10 @@ Admin registration, and the Faker seed script (see "Seeding demo data"
 above) are all in place and verified. Epic 2 is under way: JWT auth
 (TICKET-012), the admin permission classes (TICKET-014) and the
 Properties API (TICKET-013) and the Bookings API with its double-booking
-guarantees (TICKET-015) are done. Next up: the admin stats endpoint
-(TICKET-016), which completes Epic 2. On the frontend, TICKET-017 (auth),
-TICKET-018 (listings grid + filters) and then TICKET-020/021 (booking
-form, My Bookings) can now be built against these endpoints.
+guarantees (TICKET-015) and the admin stats endpoint (TICKET-016) are
+done, so **Epic 2 (the backend API) is complete**. Next up is the
+frontend: TICKET-017 (`AuthService`, JWT interceptor, login/register),
+TICKET-018 (listings grid + filters), then TICKET-019/020/021 (detail,
+booking form, My Bookings), and the admin screens (TICKET-022 onward,
+with TICKET-023's dashboard reading `/api/admin/stats/`). Deploying the
+backend skeleton to Render (TICKET-026) is also due early.

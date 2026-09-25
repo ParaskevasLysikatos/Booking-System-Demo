@@ -7,6 +7,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
 from django.test import TransactionTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -409,3 +410,128 @@ class ConcurrencyTests(BookingFixtures, TransactionTestCase):
         self.assertEqual(codes, [200, 400])
         booking.refresh_from_db()
         self.assertEqual(booking.status, "cancelled")
+
+
+# --------------------------------------------------------------------------
+# GET /api/admin/stats/ (TICKET-016)
+# --------------------------------------------------------------------------
+
+STATS_URL = reverse("admin-stats")
+
+
+class AdminStatsTests(APITestCase):
+    """Hand-built data with numbers worked out by hand.
+    Period 2030-01-01..2030-01-10 = 10 nights (the night of the 10th counts)."""
+
+    PERIOD = {"from": "2030-01-01", "to": "2030-01-10"}
+
+    def setUp(self):
+        self.guest = User.objects.create_user("guest", "guest@example.com", PASSWORD)
+        self.admin = User.objects.create_superuser("admin", "admin@example.com", PASSWORD)
+        mk = lambda title, price, active=True: Property.objects.create(
+            title=title, location="X", price_per_night=Decimal(price), capacity=4, is_active=active)
+        self.a, self.b = mk("Alpha", "100"), mk("Beta", "50")
+        self.c = mk("Gamma (retired)", "80", active=False)
+        self.d = mk("Delta (empty)", "70")
+
+        def bk(prop, ci, co, total, st):
+            return Booking.objects.create(property=prop, guest=self.guest, check_in=date.fromisoformat(ci),
+                                          check_out=date.fromisoformat(co), total_price=Decimal(total), status=st)
+        C, P, X = Booking.Status.CONFIRMED, Booking.Status.PENDING, Booking.Status.CANCELLED
+        bk(self.a, "2029-12-30", "2030-01-03", "400", C)  # 2 of 4 nights inside -> 200
+        bk(self.a, "2030-01-05", "2030-01-08", "300", P)  # pending, 3 nights -> expected 300
+        bk(self.a, "2030-01-08", "2030-01-10", "200", X)  # cancelled -> ignored (but counted)
+        bk(self.a, "2030-01-10", "2030-01-15", "500", C)  # 1 of 5 nights inside -> 100
+        bk(self.b, "2030-01-02", "2030-01-05", "100", C)  # 3 nights, all inside -> 100
+        bk(self.b, "2030-01-09", "2030-01-12", "100", C)  # 2 of 3 inside -> 66.666...
+        bk(self.c, "2030-01-01", "2030-01-03", "160", C)  # inactive property: revenue yes, occupancy no
+        bk(self.b, "2029-12-28", "2030-01-01", "999", C)  # ends as the period starts -> outside
+        bk(self.b, "2030-01-12", "2030-01-13", "999", C)  # starts after the period -> outside
+
+    def get(self, params=None, user="admin"):
+        self.client.force_authenticate(getattr(self, user) if user else None)
+        return self.client.get(STATS_URL, params or {})
+
+    def test_permissions(self):
+        self.assertEqual(self.get(user=None).status_code, 401)
+        self.assertEqual(self.get(user="guest").status_code, 403)
+        self.assertEqual(self.get(self.PERIOD).status_code, 200)
+
+    def test_totals(self):
+        data = self.get(self.PERIOD).data
+        self.assertEqual(data["period"], {"from": date(2030, 1, 1), "to": date(2030, 1, 10), "nights": 10})
+        self.assertEqual(data["bookings"], {"total": 7, "pending": 1, "confirmed": 5, "cancelled": 1,
+                                            "created_in_period": 0})
+        # Active properties A, B, D -> 30 available nights; confirmed nights
+        # inside: A 2+1, B 3+2 = 8 (Gamma's 2 are excluded - retired).
+        self.assertEqual(data["occupancy"], {"rate": 0.2667, "booked_nights": 8, "pending_nights": 3,
+                                             "available_nights": 30, "active_properties": 3})
+        # 200 + 100 + 100 + 66.666.. + 160 = 626.666.. -> rounded once, at the end
+        self.assertEqual(data["revenue"], {"confirmed": "626.67", "pending": "300.00"})
+
+    def test_per_property_breakdown(self):
+        rows = self.get(self.PERIOD).data["properties"]
+        self.assertEqual(
+            [(r["title"], r["is_active"], r["booked_nights"], r["pending_nights"], r["occupancy_rate"],
+              r["revenue"], r["pending_revenue"]) for r in rows],
+            [
+                ("Alpha", True, 3, 3, 0.3, "300.00", "300.00"),
+                ("Beta", True, 5, 0, 0.5, "166.67", "0.00"),
+                ("Gamma (retired)", False, 2, 0, 0.2, "160.00", "0.00"),
+                ("Delta (empty)", True, 0, 0, 0.0, "0.00", "0.00"),
+            ],
+        )
+
+    def test_inactive_property_without_revenue_is_left_out(self):
+        self.c.bookings.all().delete()
+        titles = [r["title"] for r in self.get(self.PERIOD).data["properties"]]
+        self.assertNotIn("Gamma (retired)", titles)
+
+    def test_single_night_period(self):
+        data = self.get({"from": "2030-01-10", "to": "2030-01-10"}).data
+        self.assertEqual(data["period"]["nights"], 1)
+        # A (booking from the 10th) and B (booking 9th-12th) are both occupied that night
+        self.assertEqual(data["occupancy"]["booked_nights"], 2)
+        self.assertEqual(data["revenue"]["confirmed"], "133.33")  # 100 + 33.33
+
+    def test_default_period_is_current_month(self):
+        data = self.get().data
+        today = timezone.localdate()
+        self.assertEqual(data["period"]["from"], today.replace(day=1))
+        self.assertEqual(data["period"]["to"].month, today.month)
+        self.assertEqual((data["period"]["to"] + timedelta(days=1)).day, 1)
+        self.assertEqual(data["bookings"]["created_in_period"], 9)  # all created today
+
+    def test_no_active_properties_gives_null_rate(self):
+        Property.objects.update(is_active=False)
+        data = self.get(self.PERIOD).data
+        self.assertIsNone(data["occupancy"]["rate"])
+        self.assertEqual(data["occupancy"]["available_nights"], 0)
+
+    def test_empty_period(self):
+        data = self.get({"from": "2035-06-01", "to": "2035-06-30"}).data
+        self.assertEqual(data["bookings"]["total"], 0)
+        self.assertEqual(data["occupancy"]["rate"], 0.0)
+        self.assertEqual(data["revenue"], {"confirmed": "0.00", "pending": "0.00"})
+
+    def test_bad_params(self):
+        for params in [{"from": "2030-01-01"}, {"to": "2030-01-01"},
+                       {"from": "2030-01-10", "to": "2030-01-01"},
+                       {"from": "2030-01-01", "to": "2031-01-02"},   # 367 days
+                       {"from": "2030-02-30", "to": "2030-03-01"}]:
+            self.assertEqual(self.get(params).status_code, 400, params)
+        self.assertEqual(self.get({"from": "2030-01-01", "to": "2031-01-01"}).status_code, 200)  # 366 ok
+
+    def test_query_count_is_constant(self):
+        self.client.force_authenticate(self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(STATS_URL, self.PERIOD)
+        before = len(ctx.captured_queries)
+        for i in range(5):
+            p = Property.objects.create(title=f"P{i}", location="X", price_per_night=Decimal("10"), capacity=2)
+            Booking.objects.create(property=p, guest=self.guest, check_in=date(2030, 1, 2),
+                                   check_out=date(2030, 1, 4), total_price=Decimal("20"),
+                                   status=Booking.Status.CONFIRMED)
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(STATS_URL, self.PERIOD)
+        self.assertEqual(len(ctx.captured_queries), before)

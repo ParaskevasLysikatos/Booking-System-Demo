@@ -151,10 +151,27 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - To apply locally: `docker compose restart backend`. The container runs `migrate` on start, which creates the extension and the constraint.
   - Change after review: guest cancellation now closes **48 hours before check-in**, instead of any time before check-in. Check-in is taken as **15:00 local time** on the check-in date (a setting, `BOOKING_CHECK_IN_TIME`; the hours are `BOOKING_GUEST_CANCELLATION_HOURS`, both overridable in `.env`). The logic is on the model: `Booking.check_in_datetime()` / `cancel_deadline()` / `guest_can_cancel()`, with the 48h subtracted in UTC so it's exact across DST. After the deadline a guest gets a 400 with the exact closing time; admins can still cancel any time. Responses now include `cancel_deadline`, and `can_cancel` uses the same rule. 3 new tests (mocked clock around the deadline, DST, configurable settings), all 80 backend tests passing on Postgres. **Refunds are out of scope here** (no payments exist yet) → **TICKET-040**.
 
-- [ ] **TICKET-016** — Admin stats endpoint
+- [x] **TICKET-016** — Admin stats endpoint
   - Priority: P1
   - Depends on: TICKET-015
   - `GET /api/admin/stats/` → booking counts, occupancy rate, revenue, for the admin dashboard (TICKET-023).
+  - Decisions (agreed before building):
+    - **Period:** defaults to the current calendar month, with `?from=&to=` for a custom range (both inclusive, max 366 days).
+    - **Revenue:** spread **per night**, and only nights inside the period count. Confirmed = revenue, pending = expected revenue.
+    - **Occupancy:** **confirmed nights only**; pending nights are reported separately.
+    - **Extras:** a **per-property breakdown**.
+  - Done:
+    - `bookings/stats.py:compute_stats` reads the bookings whose stay overlaps the period in one query and computes everything in exact `Decimal`, rounded to cents once at the end.
+    - Occupancy = confirmed nights of **active** properties ÷ (active properties × period nights). It is `null` when there are no active properties, not a misleading 0.
+    - Retired properties' revenue still counts.
+    - Cancelled bookings only appear in the status counts.
+    - `bookings.created_in_period` counts bookings made in the period.
+    - The breakdown lists every active property (including empty ones) plus retired ones that earned in the period, sorted by revenue.
+    - `AdminStatsView` (`IsAdminRole`) at `GET /api/admin/stats/`; params are validated → 400.
+    - The query count is constant regardless of data size (tested).
+    - 10 tests with hand-calculated numbers (edge-crossing stays, boundary exclusions, cancelled, retired and empty properties, thirds rounding, single-night period, default month, empty period, null rate, bad params, 401/403, query count).
+    - All 90 backend tests pass on Postgres. Smoke-tested on `seed_demo_data` output.
+    - README: new "Admin stats API" section (definitions, response shape, curl, tests); layout, status and next steps updated (**Epic 2 complete**).
 
 ---
 

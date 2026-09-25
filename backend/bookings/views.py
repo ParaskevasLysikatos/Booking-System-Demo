@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch
@@ -6,13 +8,15 @@ from django.utils import timezone
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from accounts.permissions import is_app_admin
+from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 from listings.models import PropertyImage
 
 from .models import Booking
 from .serializers import BookingCreateSerializer, BookingSerializer, BookingStatusSerializer
+from .stats import compute_stats
 
 EXCLUSION_VIOLATION = "23P01"  # Postgres SQLSTATE for exclusion_violation
 NO_OVERLAP_CONSTRAINT = "booking_no_overlap_per_property"
@@ -172,3 +176,48 @@ class BookingViewSet(
             raise ValidationError(
                 {"status": [f"Can't change a {current} booking to {new_status}."]}
             )
+
+
+# --------------------------------------------------------------------------
+# GET /api/admin/stats/ (TICKET-016)
+# --------------------------------------------------------------------------
+
+MAX_STATS_DAYS = 366
+
+
+class StatsPeriodSerializer(serializers.Serializer):
+    """?from=YYYY-MM-DD&to=YYYY-MM-DD (both inclusive, given together).
+    Omitted -> the current calendar month."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `from` is a Python keyword, so these can't be declared as class
+        # attributes - add them by name instead.
+        self.fields["from"] = serializers.DateField(required=False)
+        self.fields["to"] = serializers.DateField(required=False)
+
+    def validate(self, attrs):
+        start, end = attrs.get("from"), attrs.get("to")
+        if (start is None) != (end is None):
+            raise ValidationError({"from": ["from and to must be given together."]})
+        if start is None:
+            today = timezone.localdate()
+            start = today.replace(day=1)
+            next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            end = next_month - timedelta(days=1)
+        if end < start:
+            raise ValidationError({"to": ["to can't be before from."]})
+        if (end - start).days + 1 > MAX_STATS_DAYS:
+            raise ValidationError({"to": [f"The period can be at most {MAX_STATS_DAYS} days."]})
+        return {"start": start, "end": end}
+
+
+class AdminStatsView(APIView):
+    """Booking counts, occupancy and revenue for a period - admin only."""
+
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        params = StatsPeriodSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        return Response(compute_stats(params.validated_data["start"], params.validated_data["end"]))
