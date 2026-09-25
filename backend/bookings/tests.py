@@ -265,6 +265,21 @@ class ListBookingTests(BookingFixtures, APITestCase):
         self.assertTrue(all(b["guest_email"] for b in resp.data["results"]))
         self.assertEqual(self.ids(self.client.get(LIST_URL, {"property": self.prop2.id})), [self.theirs.id])
 
+    def test_admin_search_by_guest_email_or_property_title(self):
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "OTHER@"})), [self.theirs.id])   # guest email
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "villa"})), [self.theirs.id])    # property title
+        self.assertEqual(len(self.ids(self.client.get(LIST_URL, {"search": "loft"}))), 3)
+        self.assertEqual(len(self.ids(self.client.get(LIST_URL, {"search": " "}))), 4)                 # blank = no filter
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"search": "loft", "when": "past"})), [self.mine_past.id])
+
+    def test_guest_search_is_ignored_and_never_leaks(self):
+        self.client.force_authenticate(self.guest)
+        # searching for another guest's email/property returns only their own bookings, unfiltered
+        self.assertEqual(set(self.ids(self.client.get(LIST_URL, {"search": "other@example.com"}))),
+                         {self.mine_future.id, self.mine_past.id, self.mine_now.id})
+        self.assertNotIn(self.theirs.id, self.ids(self.client.get(LIST_URL, {"search": "villa"})))
+
     def test_guest_property_filter_does_not_leak(self):
         self.client.force_authenticate(self.guest)
         self.assertEqual(set(self.ids(self.client.get(LIST_URL, {"property": self.prop2.id}))),

@@ -422,7 +422,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Checked in Chrome** as the admin: table incl. the retired property, search, the edit form (amenities, 5 photos, cover), a drag reorder, and the discard dialog. Nothing was saved or retired without the user's OK.
     - **README:** new "Admin properties" section; the API filter table, admin routes, layout, status and next steps updated.
 
-- [ ] **TICKET-025** — `AdminBookingsComponent` (`/admin/bookings`)
+- [x] **TICKET-025** — `AdminBookingsComponent` (`/admin/bookings`)
   - Priority: P0
   - Depends on: TICKET-015, TICKET-022
   - Table of all bookings with status-change actions.
@@ -432,6 +432,8 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - Status actions per the backend's transition table (Confirm pending, Cancel pending/confirmed; cancelled is final), using the same confirmation-dialog pattern as My Bookings.
     - Uses the unfiltered `GET /api/bookings/` (no `mine=true`); **"My bookings" stays personal for everyone**, admins included.
     - Access control stays on the backend (already in place and tested since TICKET-014/015): guests only ever get their own bookings (list filtered server-side, others' ids → 404, `?property=`/`?mine=false` can't widen it); only `Profile.role == 'admin'` (checked in the DB per request) gets everyone's, with emails. The frontend AdminGuard (TICKET-022) is for navigation only, not security.
+  - Decisions (agreed at the start of TICKET-025): a **Pending only** toggle (`?pending=1`) and a **pending-count badge** on "Bookings" in the admin side nav; search covers guest email **or** property title (one box).
+  - Done: `AdminBookingsPage` with Upcoming / Past / Cancelled tabs, debounced search, property dropdown (retired ones marked), Pending only, paginator, all in the URL; table with #, guest, property (→ edit), stay + nights + "Staying now", guests, total, status chip, booked date; Confirm (pending) and Cancel (pending/confirmed) behind confirm dialogs, snackbars, server refusals shown and the list refreshed. `AdminBadgesService` feeds the side-nav badge and refreshes after every action. Backend: admin-only `?search=` on `GET /api/bookings/` (ignored for guests; 2 new tests, 98 total). The old admin placeholder page was removed. 159 frontend tests passing; production build clean; checked in Chrome as admin without changing any data. README: new "Admin bookings" section. **Epic 4 complete.**
 
 ---
 

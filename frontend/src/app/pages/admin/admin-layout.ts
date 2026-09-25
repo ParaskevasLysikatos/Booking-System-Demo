@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
+import { AdminBadgesService } from '../../core/admin/admin-badges.service';
 import { AuthService } from '../../core/auth/auth.service';
 
 export const ADMIN_NAV = [
@@ -25,6 +26,9 @@ export const ADMIN_NAV = [
         @for (item of nav; track item.path) {
           <a [routerLink]="item.path" routerLinkActive="active" ariaCurrentWhenActive="page">
             <mat-icon>{{ item.icon }}</mat-icon><span>{{ item.label }}</span>
+            @if (item.path === 'bookings' && badges.pendingBookings(); as n) {
+              <span class="badge" [attr.aria-label]="n + ' pending ' + (n === 1 ? 'booking' : 'bookings')">{{ n }}</span>
+            }
           </a>
         }
         <a routerLink="/listings" class="back"><mat-icon>arrow_back</mat-icon><span>Back to site</span></a>
@@ -51,6 +55,8 @@ export const ADMIN_NAV = [
       color: inherit; text-decoration: none; font-size: 14px; white-space: nowrap;
     }
     a:hover { background: var(--mat-sys-surface-container-high); }
+    .badge { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      line-height: 20px; text-align: center; background: #b26a00; color: #fff; }
     a.active { background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); font-weight: 500; }
     .back { margin-top: 16px; color: var(--mat-sys-on-surface-variant); }
     .who { margin: auto 12px 0; font-size: 12px; color: var(--mat-sys-on-surface-variant); overflow: hidden; text-overflow: ellipsis; }
@@ -66,5 +72,10 @@ export const ADMIN_NAV = [
 })
 export class AdminLayout {
   protected readonly auth = inject(AuthService);
+  protected readonly badges = inject(AdminBadgesService);
   protected readonly nav = ADMIN_NAV;
+
+  constructor() {
+    this.badges.refresh();
+  }
 }

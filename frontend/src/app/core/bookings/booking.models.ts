@@ -32,6 +32,10 @@ export interface BookingListQuery {
   statuses?: BookingStatus[];
   /** Only the caller's own bookings - even for an admin (My Bookings). */
   mine?: boolean;
+  /** Admin only: guest email or property title (ignored by the API for guests). */
+  search?: string;
+  /** Admin only: one property's bookings. */
+  property?: number;
   page?: number;
   pageSize?: number;
 }

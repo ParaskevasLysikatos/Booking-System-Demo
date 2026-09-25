@@ -60,13 +60,7 @@ export const routes: Routes = [
       {
         path: 'bookings',
         title: 'Bookings · Admin · Booking System Demo',
-        loadComponent: () => import('./pages/admin/admin-placeholder').then((m) => m.AdminPlaceholderPage),
-        data: {
-          heading: 'Bookings',
-          icon: 'event_note',
-          ticket: 'TICKET-025',
-          description: "All guests' bookings - Upcoming / Past / Cancelled - with Confirm and Cancel.",
-        },
+        loadComponent: () => import('./pages/admin/bookings/admin-bookings').then((m) => m.AdminBookingsPage),
       },
     ],
   },

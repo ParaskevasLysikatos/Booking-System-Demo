@@ -12,14 +12,16 @@ in and out (TICKET-017), browse and search stays on the listings page
 (TICKET-018), and open a stay's detail page with its photos, amenities
 and an availability calendar (TICKET-019), and book it in two steps
 (TICKET-020), then see and cancel their bookings under My bookings
-(TICKET-021). Epic 2 (the DRF API) is complete: JWT
+(TICKET-021). Admins have their own area (TICKET-022 to 025): a
+dashboard, the properties table and form, and every guest's bookings
+with confirm/cancel, which completes Epic 4. Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
 Bookings API (race-proof booking creation, locked status changes) and
 the admin stats endpoint are done, which completes Epic 2.
 See "Authentication (JWT)", "Permissions", "Properties API", "Bookings
-API" and "Admin stats API". See "Next
+API", "Admin stats API" and "Admin bookings". See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -143,7 +145,8 @@ frontend/
                                         authGuard + adminGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts, models
     core/bookings/                      BookingService (create/get/list/cancel), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
     core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas),
-                                        AdminPropertiesService (list all / create / update / retire / reactivate)
+                                        AdminPropertiesService (list all / create / update / retire / reactivate),
+                                        AdminBadgesService (pending-bookings count for the side nav)
     core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
@@ -156,7 +159,7 @@ frontend/
     pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog
     pages/admin/                        Admin shell (side nav), dashboard/ (stat cards + breakdown table),
                                         properties/ (table + form with amenities picker and drag-drop photos),
-                                        placeholder page for bookings
+                                        bookings/ (every guest's bookings: tabs, filters, confirm/cancel)
     pages/forbidden/                    403 "Admins only" page
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
@@ -772,6 +775,7 @@ Query params, with bad values giving a `400`:
 | `status` | `pending` / `confirmed` / `cancelled`, or a comma list like `pending,confirmed` | Filter by status (unknown values → `400`) |
 | `mine` | `true` | Only the caller's **own** bookings, even for an admin (whose default list is everyone's). Used by My Bookings |
 | `property` | property id | **Admin only**, ignored for guests |
+| `search` | `sara` | **Admin only**, ignored for guests: case-insensitive match on the **guest's email or the property title** (TICKET-025) |
 
 Default order is most recent check-in first. The property summary and
 cover image are fetched with `select_related`/`prefetch_related`, so a
@@ -798,7 +802,7 @@ curl -X PATCH http://localhost:8000/api/bookings/41/ -H "Authorization: Bearer $
 
 ### Tests
 
-`backend/bookings/tests.py` has 29 tests. They **must run on Postgres**,
+`backend/bookings/tests.py` has 35 booking tests (plus the stats tests below). They **must run on Postgres**,
 because the exclusion constraint is Postgres-only. That's what
 `docker compose exec backend python manage.py test` uses. They cover:
 
@@ -815,7 +819,8 @@ because the exclusion constraint is Postgres-only. That's what
     365 days ahead)
 - **List and detail:** a guest sees only their own bookings; the admin
   sees all, with emails; `upcoming`/`past` filters and ordering, status
-  filter, `property` filter is admin-only, `can_cancel`, and `405` for
+  filter, `property` and `search` filters are admin-only (a guest's
+  search is ignored and never shows anyone else's booking), `can_cancel`, and `405` for
   `PUT`/`DELETE`.
 - **Transitions:**
   - guest cancel before and after check-in
@@ -1511,7 +1516,7 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 | `/admin` | → `/admin/dashboard` | The whole `/admin` group is lazy-loaded and guarded **once** by `adminGuard` |
 | `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, per-property table; see "Admin dashboard" |
 | `/admin/properties` | `pages/admin/properties/` | Table of all properties; `/new` and `/:id/edit` form (unsaved-changes guard); see "Admin properties" |
-| `/admin/bookings` | placeholder | All guests' bookings (Upcoming / Past / Cancelled) in TICKET-025 |
+| `/admin/bookings` | `pages/admin/bookings/` | Every guest's bookings, Upcoming / Past / Cancelled, confirm and cancel; see "Admin bookings" |
 | `/forbidden` | `pages/forbidden/` | The friendly 403 page |
 
 ### `adminGuard` (`core/auth/auth.guards.ts`)
@@ -1539,9 +1544,14 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 - **Back to site**, and the admin's email at the bottom.
 - On phones the side nav becomes a scrollable bar across the top.
 
-The three pages are currently one reusable placeholder
-(`admin-placeholder.ts`) that reads its heading and text from route
-`data` and says which ticket fills it in.
+- A **pending badge** on Bookings (e.g. an amber "7"): how many upcoming
+  bookings are still waiting for confirmation. `AdminBadgesService` reads
+  it when the admin area opens, and again after every confirm or cancel.
+  It asks for a 1-item page and uses the total `count`, so it's cheap. If
+  the request fails, the last known number stays.
+
+The placeholder page used while the admin screens were being built was
+removed in TICKET-025, when the last one was filled in.
 
 ### Role-aware navbar (`layout/toolbar/`)
 
@@ -1807,6 +1817,101 @@ Also checked in Chrome as the admin:
 - "All properties" → the "Discard unsaved changes?" dialog → Discard,
   so **nothing was saved**
 
+## Admin bookings (Angular)
+
+TICKET-025 replaces the Bookings placeholder with the admin's view of
+**every guest's** bookings, at `/admin/bookings`
+(`pages/admin/bookings/admin-bookings.ts`). The backend is what makes it
+safe: the bookings list only returns everyone's bookings to an admin
+(guests always get their own), and only an admin can confirm.
+My bookings stays personal for everyone, admins included (`?mine=true`).
+
+### Tabs and filters, all in the URL
+
+`/admin/bookings?tab=past&search=sara&property=42&pending=1&page=2`
+
+| Control | URL | Sent to `GET /api/bookings/` |
+| --- | --- | --- |
+| **Upcoming** tab (default) | `tab` absent | `when=upcoming&status=pending,confirmed`: not checked out yet, soonest first. Stays in progress count as upcoming |
+| **Past** tab | `tab=past` | `when=past&status=pending,confirmed`, most recent first |
+| **Cancelled** tab | `tab=cancelled` | `status=cancelled` (any date) |
+| **Search** box | `search=` | `search=`: guest email or property title (admin-only on the backend), applied 300 ms after you stop typing |
+| **Property** dropdown | `property=` | `property=`: every property, retired ones marked "(retired)" |
+| **Pending only** toggle | `pending=1` | `status=pending` (hidden on the Cancelled tab) |
+| Paginator | `page=` | `page=`, 12 per page |
+
+`mine` is **never** sent, so an admin sees everybody. Changing a tab or
+filter goes back to page 1. Because the URL is the source of truth, the
+browser's back button and shared links restore the exact view.
+`parseAdminBookingsQuery()` and `toApiQuery()` are pure functions, so
+this mapping is unit-tested on its own.
+
+### The table
+
+- **Columns:** booking #, guest email, property (links to its Edit
+  page), stay ("2 Nov – 6 Nov 2026 · 4n", plus a **Staying now** chip
+  while the guest is in), guests, total (€), a status chip (Pending /
+  Confirmed / Cancelled), and when it was booked.
+- Pending rows are tinted, so they stand out in a mixed list.
+- The count ("20 bookings") sits above the table. It shows skeleton rows
+  while loading, "No bookings match." when empty, and "Couldn't load the
+  bookings." with **Try again** on an error.
+
+### Confirm and cancel
+
+The backend decides what's allowed, using the transition table from the
+Bookings API: pending → confirmed / cancelled, confirmed → cancelled,
+and cancelled is final. Unlike guests, an admin can cancel **after** the
+48-hour deadline.
+
+- **Confirm** (only on pending rows) asks first: "Confirm booking #54?",
+  with the property, dates, guest, head count and total, then
+  **Confirm booking** / **Not now**. It sends `PATCH {"status": "confirmed"}`
+  (`BookingService.confirm()`).
+- **Cancel** (on anything not already cancelled) uses the red dialog:
+  "The dates will be released and this can't be undone. No payment is
+  taken yet, so there's nothing to refund." (refunds are TICKET-040),
+  then **Cancel booking** / **Keep booking**. It sends `PATCH {"status": "cancelled"}`.
+- On success: a snackbar ("Booking #54 confirmed."), then the table
+  **and** the side-nav badge refresh.
+- If the server refuses (e.g. another admin cancelled it a moment ago),
+  its message is shown in the snackbar and the table refreshes, so you
+  see the real state. The buttons are disabled while a request runs.
+
+### Backend addition
+
+`GET /api/bookings/?search=` (see "Listing and filters" above): for an
+admin, a case-insensitive match on the guest's email or the property
+title. For a guest it is **ignored**, so it can never be used to look
+at other people's bookings. There are 2 new tests (98 backend tests in
+total, all passing on Postgres).
+
+### Tests
+
+159 frontend tests (10 new or extended):
+
+- **Query mapping:** URL → tab/search/property/pending/page, and each
+  tab → the right `when`/`status`, never `mine`.
+- **Page:**
+  - by default it asks for everyone's upcoming pending + confirmed
+    bookings
+  - rows show the guest, property link, status and the right actions
+  - tabs, Pending only and the property dropdown update the URL
+  - confirm: dialog → `PATCH confirmed` → snackbar → list and badge
+    refreshed
+  - cancel: danger dialog → `PATCH cancelled`; declining sends nothing
+  - a server refusal shows its reason and refreshes
+  - empty and error states
+- **Service:** `search`/`property` params and `confirm()`.
+- **Badge:** the service counts upcoming pending bookings from a 1-item
+  page and keeps its number on errors; the side nav shows "3" with
+  `aria-label="3 pending bookings"`.
+
+Also checked in Chrome as the admin: 20 upcoming bookings, the badge
+showing 7, searching "sara" with Pending only down to booking #54, and
+the Confirm dialog, closed with **Not now**, so **nothing was changed**
+in the database.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -1979,9 +2084,8 @@ started: TICKET-022 (the `/admin` shell with side nav, `adminGuard` + 403
 page, role-aware navbar with account menu) and TICKET-023 (the admin
 dashboard: period presets, stat cards with changes vs the previous period,
 per-property breakdown) and TICKET-024 (the properties table + create/edit
-form with amenities checklist and drag & drop photos) are done; see "Admin
-area", "Admin dashboard" and "Admin properties". Next up: the remaining
-admin screen
-(TICKET-022 onward, with TICKET-023's dashboard reading
-`/api/admin/stats/`). Deploying the backend skeleton to Render
-(TICKET-026) is also due early.
+form with amenities checklist and drag & drop photos) and TICKET-025
+(every guest's bookings with tabs, filters, confirm/cancel and a pending
+badge) are done; see "Admin area", "Admin dashboard", "Admin properties"
+and "Admin bookings". **Epic 4 (the admin area) is complete.** Next up:
+deploying the backend to Render (TICKET-026).

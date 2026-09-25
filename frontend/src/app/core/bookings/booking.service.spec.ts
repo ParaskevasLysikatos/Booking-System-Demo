@@ -33,4 +33,18 @@ describe('BookingService', () => {
     expect(patch.request.method).toBe('PATCH');
     expect(patch.request.body).toEqual({ status: 'cancelled' });
   });
+
+  it('admin extras: search + property filters, and confirm via PATCH', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    const service = TestBed.inject(BookingService);
+    const http = TestBed.inject(HttpTestingController);
+    service.list({ when: 'past', statuses: ['pending'], search: ' sara ', property: 7 }).subscribe();
+    expect(http.expectOne((r) => r.url === BOOKINGS_URL).request.params.toString()).toBe(
+      'when=past&status=pending&search=sara&property=7',
+    );
+    service.confirm(41).subscribe();
+    const patch = http.expectOne(`${BOOKINGS_URL}41/`);
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({ status: 'confirmed' });
+  });
 });

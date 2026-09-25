@@ -30,6 +30,8 @@ export class BookingService {
     if (query.when) params = params.set('when', query.when);
     if (query.statuses?.length) params = params.set('status', query.statuses.join(','));
     if (query.mine) params = params.set('mine', 'true');
+    if (query.search?.trim()) params = params.set('search', query.search.trim());
+    if (query.property) params = params.set('property', query.property);
     if (query.page && query.page > 1) params = params.set('page', query.page);
     if (query.pageSize) params = params.set('page_size', query.pageSize);
     return this.http.get<Paginated<Booking>>(BOOKINGS_URL, { params });
@@ -42,5 +44,10 @@ export class BookingService {
    */
   cancel(id: number): Observable<Booking> {
     return this.http.patch<Booking>(`${BOOKINGS_URL}${id}/`, { status: 'cancelled' });
+  }
+
+  /** Admin: pending -> confirmed (the backend's transition table decides; 400 with a reason otherwise). */
+  confirm(id: number): Observable<Booking> {
+    return this.http.patch<Booking>(`${BOOKINGS_URL}${id}/`, { status: 'confirmed' });
   }
 }

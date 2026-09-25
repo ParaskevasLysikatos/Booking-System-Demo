@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, permissions, serializers, status, viewsets
@@ -55,6 +55,9 @@ class BookingFilterSerializer(serializers.Serializer):
     # default list is everyone's). Used by My Bookings (TICKET-021).
     # allow_null so a missing param stays None instead of QueryDict's False.
     mine = serializers.BooleanField(required=False, allow_null=True, default=None)
+    # Admin search box (TICKET-025): guest email or property title. Ignored
+    # for guests - they only ever see their own bookings anyway.
+    search = serializers.CharField(required=False, allow_blank=True, max_length=255)
 
     def validate_status(self, value):
         statuses = [s.strip() for s in value.split(",") if s.strip()]
@@ -78,7 +81,8 @@ class BookingViewSet(
     - GET list/detail - guests see only their own bookings (someone else's
       is a 404), admins see all. Filters: ?status= (one or a comma list),
       ?when=upcoming|past, ?mine=true (own bookings only, even for admins),
-      ?property= (admin only). Paginated.
+      ?property= and ?search= (guest email or property title) - admin only.
+      Paginated.
     - POST            - any logged-in user books for themselves.
     - PATCH           - status only: guest may cancel their own booking
                         until 48h before check-in (15:00 local on the
@@ -129,6 +133,9 @@ class BookingViewSet(
             queryset = queryset.order_by("-check_in", "-id")
         if f.get("property") and self._is_admin():
             queryset = queryset.filter(property_id=f["property"])
+        term = f.get("search", "").strip()
+        if term and self._is_admin():
+            queryset = queryset.filter(Q(guest__email__icontains=term) | Q(property__title__icontains=term))
         return queryset
 
     def get_serializer_class(self):
