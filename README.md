@@ -7,9 +7,12 @@ for the full project plan (models, API design, day-by-day schedule).
 **Status:** Epic 1 (the data layer) is complete - all five models
 (`Property`, `PropertyImage`, `Profile`, `Booking`, `Review`), migrations,
 Django Admin registration, and a Faker seed script for realistic demo data
-are all in place and verified. Epic 2 (the DRF API) has started: JWT
-authentication - register, login, refresh, and "who am I" - is done (see
-"Authentication (JWT)"). See "Next steps" at the bottom for what's next.
+are all in place and verified. Epic 2 (the DRF API) is under way: JWT
+authentication (register, login, refresh, "who am I"), the shared admin
+permission classes, and the Properties API (filtered, paginated list,
+detail with availability, admin-only create/edit/soft-delete) are done.
+See "Authentication (JWT)", "Permissions" and "Properties API". See "Next
+steps" at the bottom for what's next.
 
 ## Prerequisites
 
@@ -72,15 +75,21 @@ backend/
   manage.py
   config/              Django project settings
     settings.py        Reads DB/secret/CORS/JWT config from env vars; JWT is the API's default auth
-    urls.py            admin/ -> Django admin, api/ -> core.urls, api/auth/ -> accounts.urls
+    urls.py            admin/ -> Django admin, api/ -> core.urls + listings.urls, api/auth/ -> accounts.urls
     wsgi.py / asgi.py
   core/                Small app - currently just the health-check endpoint
     views.py           GET /api/health/ - queries Postgres, returns status
     urls.py
+    pagination.py      StandardPagination - 12 per page, ?page_size= up to 50
     admin.py           No models of its own - just the admin site's global branding (dev-DB-inspection labeling)
     management/commands/seed_demo_data.py   Faker-based demo data generator (see "Seeding demo data" below)
   listings/            Data layer for bookable properties
     models.py          Property + PropertyImage models
+    serializers.py     List (card) + detail (images, availability; also the admin write serializer, nested images)
+    filters.py         Query-param validation + filtering (location, guests, price, dates, ordering)
+    views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete)
+    urls.py            Router for /api/properties/
+    tests.py           API tests for the Properties endpoints
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
     migrations/        0001_initial.py (Property), 0002_propertyimage.py (PropertyImage)
   accounts/            Adds a role/phone Profile on top of Django's built-in User
@@ -90,6 +99,7 @@ backend/
     serializers.py     RegisterSerializer, UserSerializer, email-login token serializer (custom role claims)
     views.py           RegisterView, LoginView, MeView
     urls.py            /api/auth/ register/, login/, refresh/, me/
+    permissions.py     IsAdminRole / IsAdminOrReadOnly - Profile.role checked from the DB
     tests.py           API tests for the auth endpoints
     admin.py           Profile inline on the User admin page, plus its own list
     migrations/        0001_initial.py creates the profiles table
@@ -341,7 +351,7 @@ The `user` object (same shape everywhere, `accounts/serializers.py:UserSerialize
 - **Default auth for the whole API** is `JWTAuthentication`
   (`REST_FRAMEWORK` in `settings.py`). The default *permission* is still
   `AllowAny` - individual views tighten it (`/me/` uses `IsAuthenticated`;
-  the admin permission class arrives in TICKET-014).
+  admin-only writes use the permission classes described under "Permissions").
 
 Demo accounts from `seed_demo_data` can log in straight away: the demo
 admin as `admin_demo@example.com` / `AdminPass123!`, and any seeded guest by
@@ -385,6 +395,171 @@ immediately; and username login to `/admin/` still works. Run them with:
 
 ```bash
 docker compose exec backend python manage.py test accounts
+```
+
+## Permissions (admin vs guest)
+
+`backend/accounts/permissions.py` (TICKET-014) holds the shared DRF
+permission classes every admin-only endpoint uses:
+
+| Class | Allows |
+| --- | --- |
+| `IsAdminRole` | Only app admins, for every method |
+| `IsAdminOrReadOnly` | Anyone can read (`GET`/`HEAD`/`OPTIONS`); only app admins can write (`POST`/`PUT`/`PATCH`/`DELETE`) |
+
+"App admin" means `Profile.role == "admin"` on an active account (the
+TICKET-007 decision). It is **not** `is_staff`/`is_superuser`: a staff user
+with the guest role is refused, and an admin-role user without staff is
+allowed. The role is always read from the database (`request.user.profile`)
+on each request, **never** from the `role` claim inside the JWT. So
+promoting or demoting someone takes effect on their very next request,
+not when their token expires. There's a test that proves this with a real
+token.
+
+Status codes: no or invalid token -> **401**; logged in but not an admin ->
+**403**.
+
+## Properties API
+
+`/api/properties/` (TICKET-013): `listings/views.py:PropertyViewSet`,
+routed in `listings/urls.py`.
+
+| Method + path | Who | What |
+| --- | --- | --- |
+| `GET /api/properties/` | anyone | Paginated, filterable list (card shape) |
+| `GET /api/properties/{id}/` | anyone | Full detail + images + availability |
+| `POST /api/properties/` | admin | Create (optionally with images) |
+| `PUT` / `PATCH /api/properties/{id}/` | admin | Full / partial update |
+| `DELETE /api/properties/{id}/` | admin | **Soft** delete: sets `is_active=false`, returns 204 |
+
+### Filtering the list
+
+All filters are optional query params and can be combined. They're
+validated in `listings/filters.py` (a small DRF serializer, so no
+`django-filter` dependency), and bad values get a `400` with a per-field
+message (e.g. `{"check_out": ["check_out must be after check_in."]}`).
+
+| Param | Example | Meaning |
+| --- | --- | --- |
+| `location` | `thessaloniki` | Case-insensitive "contains" match on `location` |
+| `guests` | `3` | `capacity >= guests` (must be at least 1) |
+| `min_price` / `max_price` | `50` / `150` | Price per night range, inclusive (`min_price <= max_price`) |
+| `check_in` + `check_out` | `2026-10-10` + `2026-10-14` | Only properties **free** for that stay. Both are required together; `check_out` must be after `check_in`; `check_in` can't be in the past |
+| `ordering` | `price`, `-price`, `capacity`, `-capacity`, `newest` | Sort order (default: newest first) |
+| `is_active` | `true` / `false` | **Admins only** (ignored for everyone else) |
+| `page` / `page_size` | `2` / `24` | Pagination: 12 per page by default, max 50 |
+
+How the date filter works: a property is excluded if it has any
+**non-cancelled** booking (pending or confirmed) whose stay overlaps the
+requested one. Check-out day is exclusive, so arriving on the day someone
+else leaves is allowed. It reuses `Booking.objects.overlapping()` (the same
+overlap rule booking creation will use in TICKET-015) as a correlated
+`NOT EXISTS` subquery, so it's still one SQL query however many properties
+there are.
+
+Response (paginated, via `core/pagination.py:StandardPagination`):
+
+```json
+{"count": 13, "next": "http://localhost:8000/api/properties/?page=2", "previous": null,
+ "results": [{"id": 13, "title": "Modern Cottage in Ioannina", "location": "Ioannina, Greece",
+   "price_per_night": "91.00", "capacity": 2, "amenities": ["wifi", "kitchen"],
+   "is_active": true, "cover_image": "https://picsum.photos/seed/13-0/800/600",
+   "rating_avg": 3.0, "review_count": 1}]}
+```
+
+`rating_avg` (1 decimal, `null` with no reviews) and `review_count` are SQL
+annotations, and images are prefetched. The whole list page costs a fixed
+3 queries (count, page, images) whatever the page size, and a test checks
+this.
+
+**Visibility:** guests and anonymous visitors only ever see active
+properties, so an inactive one is a `404` on the detail endpoint too.
+Admins see everything and can filter with `?is_active=`.
+
+### Detail + availability
+
+`GET /api/properties/{id}/` adds `description`, all `images` (cover first),
+timestamps, and an `availability` block for the TICKET-019 calendar:
+
+```json
+"availability": {
+  "booked_ranges": [{"check_in": "2026-12-24", "check_out": "2027-01-02"}],
+  "check_in": "2026-10-25", "check_out": "2026-11-01", "is_available": true
+}
+```
+
+`booked_ranges` lists upcoming, non-cancelled stays with **dates only**
+(no guest, price or status). The same `check_out`-exclusive rule applies,
+so a calendar should treat each range as `[check_in, check_out)`. Add
+`?check_in=&check_out=` (same validation as the list filter) and the block
+also answers `is_available` for that exact stay.
+
+### Writing (admin)
+
+```json
+POST /api/properties/
+{"title": "Harbour Loft", "description": "...", "location": "Kavala, Greece",
+ "price_per_night": "95.50", "capacity": 3, "amenities": ["wifi", "parking"],
+ "images": [{"image": "https://.../1.jpg"}, {"image": "https://.../2.jpg", "is_cover": true}]}
+```
+
+- Validation: `price_per_night` > 0, `capacity` >= 1, image URLs must be
+  valid URLs, and at most one image can have `is_cover: true`. With none
+  flagged, the first image is used as the cover (the model's existing
+  fallback). `amenities` are trimmed, and blank or duplicate entries
+  (ignoring case) are dropped.
+- **Images are nested and writable.** On `POST` they're created with the
+  property. On `PATCH`/`PUT`, *sending* `images` **replaces** the whole
+  image set (image ids change), and leaving it out leaves the images
+  untouched. This lets the TICKET-024 admin form save in one call. It all
+  runs in one `transaction.atomic()`, so a failure never leaves a
+  half-updated property.
+- Create/update responses come back in the full detail shape (re-read with
+  the same annotations as a `GET`).
+- **DELETE is a soft delete.** Bookings reference properties with
+  `on_delete=PROTECT`, and booking/review history should survive anyway,
+  so `DELETE` sets `is_active=false` (204). To bring a property back, send
+  `PATCH {"is_active": true}`.
+
+### Trying it with curl
+
+```bash
+# Free 2+ guest places in Thessaloniki for a week, cheapest first
+curl "http://localhost:8000/api/properties/?location=thessaloniki&guests=2&check_in=2026-11-02&check_out=2026-11-09&ordering=price"
+
+# Detail + "is it free for these dates?"
+curl "http://localhost:8000/api/properties/3/?check_in=2026-11-02&check_out=2026-11-09"
+
+# Admin: log in, then create / edit / retire
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login/ -H "Content-Type: application/json" \
+  -d '{"email":"admin_demo@example.com","password":"AdminPass123!"}' | python -c "import sys,json;print(json.load(sys.stdin)['access'])")
+curl -X PATCH http://localhost:8000/api/properties/3/ -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"price_per_night": "79.00"}'
+curl -X DELETE http://localhost:8000/api/properties/3/ -H "Authorization: Bearer $TOKEN"
+```
+
+### Tests
+
+`backend/listings/tests.py` has 27 API tests covering:
+
+- pagination and page sizes
+- each filter alone and combined
+- date edge cases: overlapping, contained, back-to-back on either side, cancelled bookings don't block, pending bookings do
+- all the bad-parameter `400`s
+- rating annotations and the fixed query count
+- visibility of inactive properties for guests vs admins
+- detail images and cover, `booked_ranges` excluding past and cancelled stays, `is_available`
+- `401` for anonymous and `403` for guest writes (including staff-without-admin-role)
+- admin create with nested images and validation
+- `PATCH` keeping or replacing images
+- soft delete plus reactivation
+- a role change taking effect on the next request, with a real JWT
+
+`backend/accounts/tests.py` adds 5 permission-class tests (TICKET-014). Run
+everything with:
+
+```bash
+docker compose exec backend python manage.py test
 ```
 
 ## Django Admin (dev-only)
@@ -533,9 +708,10 @@ down` / `up` - only `docker compose down -v` wipes them.
 Epic 1 (the data layer) is complete: all five models, migrations, Django
 Admin registration, and the Faker seed script (see "Seeding demo data"
 above) are all in place and verified. Epic 2 is under way: JWT auth
-(TICKET-012) is done - see "Authentication (JWT)". Next up: the Property
-serializer/viewset with filtering (TICKET-013) and the admin permission
-class checking `Profile.role` (TICKET-014), then bookings (TICKET-015,
-including the concurrency constraints already scoped into it). On the
-frontend, TICKET-017 (`AuthService`, JWT interceptor, login/register
-pages) can now be built against these endpoints.
+(TICKET-012), the admin permission classes (TICKET-014) and the
+Properties API (TICKET-013) are done. Next up: the Booking API
+(TICKET-015), which should use `IsAdminRole`/`is_app_admin` for its
+admin-only parts and includes the concurrency constraints already scoped
+into it, then the admin stats endpoint (TICKET-016). On the frontend,
+TICKET-017 (auth) and TICKET-018 (listings grid + filters) can now be
+built against these endpoints.

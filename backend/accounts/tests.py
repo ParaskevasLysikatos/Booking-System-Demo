@@ -169,3 +169,72 @@ class LoginRefreshMeTests(APITestCase):
 
     def test_admin_site_username_login_still_works(self):
         self.assertTrue(self.client.login(username="admin_demo", password=STRONG_PASSWORD))
+
+
+class AdminPermissionTests(APITestCase):
+    """TICKET-014: IsAdminRole / IsAdminOrReadOnly read Profile.role from the
+    DB on every request - never the token's role claim."""
+
+    def setUp(self):
+        from rest_framework.test import APIRequestFactory
+
+        self.factory = APIRequestFactory()
+        self.guest = User.objects.create_user("g", "g@example.com", STRONG_PASSWORD)
+        self.admin = User.objects.create_superuser("a", "a@example.com", STRONG_PASSWORD)
+
+    def _request(self, method, user=None):
+        from rest_framework.request import Request
+
+        req = Request(getattr(self.factory, method)("/"))
+        req.user = user if user is not None else __import__(
+            "django.contrib.auth.models", fromlist=["AnonymousUser"]
+        ).AnonymousUser()
+        return req
+
+    def test_is_app_admin(self):
+        from .permissions import is_app_admin
+
+        self.assertTrue(is_app_admin(self.admin))
+        self.assertFalse(is_app_admin(self.guest))
+        self.admin.is_active = False
+        self.assertFalse(is_app_admin(self.admin))
+
+    def test_role_not_is_staff_decides(self):
+        from .permissions import is_app_admin
+
+        # Staff flag without the admin role -> not an app admin...
+        self.guest.is_staff = True
+        self.guest.save()
+        self.assertFalse(is_app_admin(self.guest))
+        # ...and the admin role without staff -> app admin.
+        self.guest.is_staff = False
+        self.guest.save()
+        self.guest.profile.role = Profile.Role.ADMIN
+        self.guest.profile.save()
+        self.assertTrue(is_app_admin(User.objects.get(pk=self.guest.pk)))
+
+    def test_missing_profile_is_not_admin(self):
+        from .permissions import is_app_admin
+
+        Profile.objects.filter(user=self.admin).delete()
+        self.assertFalse(is_app_admin(User.objects.get(pk=self.admin.pk)))
+
+    def test_is_admin_role_permission(self):
+        from .permissions import IsAdminRole
+
+        perm = IsAdminRole()
+        self.assertTrue(perm.has_permission(self._request("get", self.admin), None))
+        self.assertFalse(perm.has_permission(self._request("get", self.guest), None))
+        self.assertFalse(perm.has_permission(self._request("get"), None))
+
+    def test_is_admin_or_read_only_permission(self):
+        from .permissions import IsAdminOrReadOnly
+
+        perm = IsAdminOrReadOnly()
+        for method in ["get", "head", "options"]:
+            self.assertTrue(perm.has_permission(self._request(method), None))
+            self.assertTrue(perm.has_permission(self._request(method, self.guest), None))
+        for method in ["post", "put", "patch", "delete"]:
+            self.assertFalse(perm.has_permission(self._request(method), None))
+            self.assertFalse(perm.has_permission(self._request(method, self.guest), None))
+            self.assertTrue(perm.has_permission(self._request(method, self.admin), None))
