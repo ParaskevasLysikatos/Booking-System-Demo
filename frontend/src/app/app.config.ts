@@ -11,12 +11,14 @@ import { provideAnimationsAsync } from '@angular/platform-browser/animations/asy
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth/auth.interceptor';
 import { AuthService } from './core/auth/auth.service';
+import { serverWakeInterceptor } from './core/server-wake';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes, withComponentInputBinding()),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    // serverWake first, so it sees the whole wait (including a token refresh + replay).
+    provideHttpClient(withInterceptors([serverWakeInterceptor, authInterceptor])),
     provideAnimationsAsync(),
     // Restore a saved session (and re-read the role from /auth/me/) before first render.
     provideAppInitializer(() => inject(AuthService).init()),

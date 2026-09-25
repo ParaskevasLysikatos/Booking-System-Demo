@@ -20,6 +20,9 @@ export const AUTH_URL = `${environment.apiUrl}/auth`;
  *   re-fetches /auth/me/ so the role always comes from the server. The
  *   role claim inside the JWT is never trusted for anything.
  */
+/** How long app start waits for /auth/me/ before rendering anyway. */
+export const INIT_MAX_WAIT_MS = 3000;
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
@@ -48,14 +51,20 @@ export class AuthService {
       this.clearSession();
       return;
     }
-    try {
-      await firstValueFrom(this.loadMe());
-    } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 401) {
-        this.clearSession(); // refresh was rejected too - session is gone
-      }
-      // status 0 / 5xx: backend down - keep the cached session for now.
-    }
+    const check = firstValueFrom(this.loadMe()).then(
+      () => undefined,
+      (err: unknown) => {
+        if (err instanceof HttpErrorResponse && err.status === 401) {
+          this.clearSession(); // refresh was rejected too - session is gone
+        }
+        // status 0 / 5xx: backend down - keep the cached session for now.
+      },
+    );
+    // A sleeping (free Render) API can take ~50 s to answer. Don't keep the
+    // whole app blank that long: after INIT_MAX_WAIT_MS render with the cached
+    // user and let the check finish in the background (TICKET-027). The server
+    // still enforces every permission, and adminGuard re-reads /me/ itself.
+    await Promise.race([check, new Promise<void>((resolve) => setTimeout(resolve, INIT_MAX_WAIT_MS))]);
   }
 
   login(credentials: LoginRequest): Observable<AuthUser> {

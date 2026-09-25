@@ -15,7 +15,8 @@ and an availability calendar (TICKET-019), and book it in two steps
 (TICKET-021). Admins have their own area (TICKET-022 to 025): a
 dashboard, the properties table and form, and every guest's bookings
 with confirm/cancel, which completes Epic 4. The API is live on Render
-at https://booking-demo-api.onrender.com (TICKET-026, see "Deploying to Render"). Epic 2 (the DRF API) is complete: JWT
+at https://booking-demo-api.onrender.com (TICKET-026, see "Deploying to Render"), and
+the Angular site at https://booking-demo.onrender.com (TICKET-027). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -59,7 +60,8 @@ Request flow when you load `localhost:4200`:
 1. Angular serves the page. Its root component (`app.ts`) renders the
    `ApiStatusComponent`, which immediately calls `ApiHealthService.check()`.
 2. That service does `GET http://localhost:8000/api/health/` (the base
-   URL comes from `frontend/src/environments/environment.ts`).
+   URL comes from `frontend/src/environments/environment.ts`; production
+   builds use `environment.production.ts`, i.e. the Render API).
 3. Django's `core/views.py:health_check` runs `SELECT 1` against Postgres
    and returns `{"status": "ok", "database": "connected"}` (or an error
    string if the query fails).
@@ -134,12 +136,15 @@ backend/
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
-  src/environments/environment.ts   apiUrl the frontend calls the backend at
+  src/environments/environment.ts   apiUrl the frontend calls the backend at (dev: localhost:8000)
+  src/environments/environment.production.ts   Same for `ng build` (Render API URL, waking-up notice on)
+  package-lock.json                 Exact package versions; Render builds with `npm ci`
   src/app/
     app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
     app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings (authGuard),
                                         /admin/** (adminGuard), /forbidden, /login, /register (all lazy)
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
+    core/server-wake.ts                 ServerWakeService + interceptor: notices when the sleeping API is slow to answer
     core/api-errors.ts                  DRF error response -> per-field + general messages for forms
     core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting
     core/properties/                    PropertyService (active-only list + get(id, dates)), params builder, models,
@@ -156,6 +161,7 @@ frontend/
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
+    layout/wake-notice/                 "Waking up the demo server" banner under the toolbar (production only)
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
                                         calendar, sticky booking panel with live availability + Book now
@@ -170,7 +176,7 @@ frontend/
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
 docker-compose.yml   Wires the four services together
-render.yaml          Render Blueprint: free Postgres + the API web service (TICKET-026)
+render.yaml          Render Blueprint: free Postgres + the API web service (TICKET-026) + the Angular static site (TICKET-027)
 .python-version      Python version Render uses (3.12, same as the Docker image)
 .env                 Local dev secrets (gitignored) - real values, ready to use
 .env.example         Committed template for .env
@@ -2007,7 +2013,8 @@ TICKET-026 puts the API (Django + Postgres) online on
 [Render](https://render.com): **https://booking-demo-api.onrender.com**
 (try `/api/health/` or `/api/properties/`). The whole setup is written down in
 `render.yaml` (a Render **Blueprint**), so there's nothing to configure
-by hand except the first click. The Angular site follows in TICKET-027.
+by hand except the first click. TICKET-027 adds the Angular site:
+**https://booking-demo.onrender.com** (see "Frontend on Render" below).
 
 ### What gets created
 
@@ -2015,6 +2022,7 @@ by hand except the first click. The Angular site follows in TICKET-027.
 | --- | --- | --- | --- |
 | Postgres 16 | `booking-demo-db` | free, Frankfurt | Same major version as `docker-compose.yml`. Render's free Postgres **expires 30 days after it's created** (then a 14-day grace period), so upgrade or recreate it after the meetup |
 | Web service (Python) | `booking-demo-api` | free, Frankfurt | Frankfurt is the closest region to Greece. `rootDir: backend`. **Sleeps after 15 min without traffic**, and the first request then takes about a minute |
+| Static site | `booking-demo` | free, Render's CDN | The Angular app (TICKET-027). Never sleeps |
 
 Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 
@@ -2044,7 +2052,7 @@ Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 | `SEED_DEMO_DATA` | `true` (only matters while the database is empty) |
 | `WEB_CONCURRENCY` | `2` gunicorn workers |
 | `RENDER_EXTERNAL_HOSTNAME` | Set by Render itself (e.g. `booking-demo-api.onrender.com`). Added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically |
-| `CORS_ALLOWED_ORIGINS` | Added in TICKET-027: the Angular site's URL |
+| `CORS_ALLOWED_ORIGINS` | `https://booking-demo.onrender.com`, the Angular site (TICKET-027). Without it the browser blocks the site's calls to the API |
 
 ### What changes when `DJANGO_DEBUG=False`
 
@@ -2110,6 +2118,83 @@ list and detail, `401` without a token on protected endpoints, no debug
   untouched
 - the health check reports `connected`; it shows the database error in
   DEBUG, but in production only says `error` and logs the details
+
+## Frontend on Render
+
+TICKET-027 serves the Angular app as a free Render **static site**,
+`booking-demo` in `render.yaml` → **https://booking-demo.onrender.com**.
+It talks to the API at https://booking-demo-api.onrender.com.
+
+### Build
+
+- `rootDir: frontend`, `buildCommand: npm ci && npx ng build`, publish
+  `dist/frontend/browser`, Node 22 (`NODE_VERSION`, the same as the Docker
+  image).
+- `npm ci` installs exactly what `frontend/package-lock.json` pins, the
+  same versions the tests ran against.
+- `ng build` uses the **production** configuration: `angular.json`'s
+  `fileReplacements` swaps `environment.ts` for `environment.production.ts`.
+  That file has `apiUrl: 'https://booking-demo-api.onrender.com/api'` and
+  turns the waking-up notice on. `ng serve` and Docker keep
+  `localhost:8000`. The built bundle was checked: it contains the Render
+  URL and no `localhost:8000`.
+
+### Routing and headers
+
+- **Deep links:** a rewrite sends every path to `/index.html`, so
+  reloading `/listings/42` or `/admin/bookings` works and Angular's router
+  takes over. Real files (JS chunks, `favicon.ico`) are served as they
+  are, because Render never rewrites a path that exists.
+- **Headers:** `X-Frame-Options: DENY` (the site can't be embedded in
+  other sites), `X-Content-Type-Options: nosniff`, and
+  `Referrer-Policy: strict-origin-when-cross-origin`.
+
+### CORS
+
+The site and the API are on different origins, so the API must allow the
+site. `CORS_ALLOWED_ORIGINS=https://booking-demo.onrender.com` is set on
+the API in `render.yaml`. Requests carry the JWT in the `Authorization`
+header, which makes the browser send a preflight `OPTIONS` first;
+`django-cors-headers` answers it. No cookies are involved.
+
+### "Waking up the demo server" notice
+
+The free API sleeps after 15 idle minutes, and the first request then
+takes ~50 s. Instead of a page that looks frozen:
+
+- `serverWakeInterceptor` (`core/server-wake.ts`) watches **our API's**
+  requests only. If one has had no answer for **4 s**
+  (`wakeNoticeAfterMs`), `ServerWakeService.slow` turns on.
+- `layout/wake-notice` then shows a slim amber banner under the toolbar:
+  "Waking up the demo server - this can take up to a minute on the free
+  plan." It uses a live region, so screen readers announce it too.
+- It disappears as soon as the server answers anything (an error status
+  also proves it's awake), or when nothing is waiting any more. "No answer
+  at all" (status 0) doesn't count as awake.
+- Dev has `wakeNoticeAfterMs: null`, so it's off locally.
+- **App start:** `AuthService.init()` used to wait for `/auth/me/` before
+  the first render, which on a sleeping server meant up to a minute of
+  blank page for returning logged-in users. It now waits at most
+  **3 s** (`INIT_MAX_WAIT_MS`), then renders with the cached user while
+  the check finishes in the background, so the banner can show. This
+  doesn't weaken security: the server still checks every request, and
+  `adminGuard` re-reads `/me/` itself.
+
+### Tests
+
+167 frontend tests (8 new):
+
+- **Wake service + interceptor** (fake timers):
+  - slow only after the delay, and cleared by the answer
+  - a quick answer never shows it
+  - an HTTP error clears it, but status 0 doesn't
+  - a cancelled request clears it
+  - off when the delay is `null`
+  - other hosts are ignored
+- **Banner:** hidden → shown after 4 s → hidden on answer; the live region
+  is always present.
+- **`AuthService.init()`:** with `/me/` hanging, it resolves after 3 s with
+  the cached user, and the late answer still updates it.
 
 ## Environment variables
 
@@ -2212,5 +2297,7 @@ form with amenities checklist and drag & drop photos) and TICKET-025
 badge) are done; see "Admin area", "Admin dashboard", "Admin properties"
 and "Admin bookings". **Epic 4 (the admin area) is complete.** Hosting
 has started: TICKET-026 (the API + Postgres on Render from `render.yaml`)
-is live at https://booking-demo-api.onrender.com; see "Deploying to Render". Next up: the Angular site on Render
-(TICKET-027).
+is live at https://booking-demo-api.onrender.com, and TICKET-027 adds the
+Angular site at https://booking-demo.onrender.com; see "Deploying to Render"
+and "Frontend on Render". Next up: the pre-demo hosted-URL check
+(TICKET-028).

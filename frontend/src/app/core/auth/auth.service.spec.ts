@@ -6,7 +6,7 @@ import { Router, provideRouter } from '@angular/router';
 import { tokenExpiringIn } from '../../testing/fake-jwt';
 import { AuthUser } from './auth.models';
 import { authInterceptor } from './auth.interceptor';
-import { AUTH_URL, AuthService, safeReturnUrl } from './auth.service';
+import { AUTH_URL, AuthService, INIT_MAX_WAIT_MS, safeReturnUrl } from './auth.service';
 import { TokenStorage } from './token-storage';
 
 export const guestUser: AuthUser = {
@@ -133,6 +133,30 @@ describe('AuthService', () => {
       http.expectOne(`${AUTH_URL}/me/`).error(new ProgressEvent('error'), { status: 0 });
       await done;
       expect(auth.isLoggedIn()).toBe(true);
+    });
+
+    it("doesn't keep the app waiting on a sleeping server (renders from the cache, finishes later)", async () => {
+      vi.useFakeTimers();
+      try {
+        localStorage.setItem('bsd.access', tokenExpiringIn(1800));
+        localStorage.setItem('bsd.refresh', tokenExpiringIn(86400));
+        localStorage.setItem('bsd.user', JSON.stringify(guestUser));
+        setup();
+        let resolved = false;
+        const done = auth.init().then(() => (resolved = true));
+        const req = http.expectOne(`${AUTH_URL}/me/`); // still waiting on the server
+        await vi.advanceTimersByTimeAsync(INIT_MAX_WAIT_MS - 1);
+        expect(resolved).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await done;
+        expect(auth.currentUser()?.email).toBe('maria@example.com'); // cached user meanwhile
+
+        // the server wakes up much later: the result still applies
+        req.flush({ ...guestUser, first_name: 'Maria (fresh)' });
+        expect(auth.currentUser()?.first_name).toBe('Maria (fresh)');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('clears the session when the server rejects it', async () => {
