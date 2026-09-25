@@ -450,7 +450,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Priority: P0
   - Depends on: TICKET-026, TICKET-018
   - Confirm the hosted frontend can reach the hosted API (CORS/env config for the production API URL).
-  - Decisions (agreed): site name **`booking-demo`** → https://booking-demo.onrender.com; add a **"Waking up the demo server"** notice for the free API's cold start.
+  - Decisions (agreed): site name **`booking-demo`** → https://booking-demo-g4aw.onrender.com (the plain name was taken by another Render user, so Render added `-g4aw`; CORS updated to match); add a **"Waking up the demo server"** notice for the free API's cold start.
   - Status: code pushed, **waiting for the Blueprint sync** in Render to create the static site. Done so far: `environment.production.ts` (Render API URL) via `fileReplacements`; `render.yaml` static site (`npm ci && npx ng build`, `dist/frontend/browser`, Node 22, `/*` → `/index.html` rewrite, X-Frame-Options/nosniff/Referrer-Policy headers); `CORS_ALLOWED_ORIGINS` on the API; committed `frontend/package-lock.json`; `ServerWakeService` + interceptor + banner (4 s); `AuthService.init()` waits at most 3 s for `/me/` so a sleeping API can't blank the page. 167 frontend tests passing; production bundle checked (Render URL, no localhost). README: "Frontend on Render".
 
 - [ ] **TICKET-028** — Pre-demo hosted-URL check

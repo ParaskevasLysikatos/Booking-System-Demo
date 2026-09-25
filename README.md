@@ -16,7 +16,7 @@ and an availability calendar (TICKET-019), and book it in two steps
 dashboard, the properties table and form, and every guest's bookings
 with confirm/cancel, which completes Epic 4. The API is live on Render
 at https://booking-demo-api.onrender.com (TICKET-026, see "Deploying to Render"), and
-the Angular site at https://booking-demo.onrender.com (TICKET-027). Epic 2 (the DRF API) is complete: JWT
+the Angular site at https://booking-demo-g4aw.onrender.com (TICKET-027). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -2014,7 +2014,7 @@ TICKET-026 puts the API (Django + Postgres) online on
 (try `/api/health/` or `/api/properties/`). The whole setup is written down in
 `render.yaml` (a Render **Blueprint**), so there's nothing to configure
 by hand except the first click. TICKET-027 adds the Angular site:
-**https://booking-demo.onrender.com** (see "Frontend on Render" below).
+**https://booking-demo-g4aw.onrender.com** (see "Frontend on Render" below).
 
 ### What gets created
 
@@ -2052,7 +2052,7 @@ Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 | `SEED_DEMO_DATA` | `true` (only matters while the database is empty) |
 | `WEB_CONCURRENCY` | `2` gunicorn workers |
 | `RENDER_EXTERNAL_HOSTNAME` | Set by Render itself (e.g. `booking-demo-api.onrender.com`). Added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically |
-| `CORS_ALLOWED_ORIGINS` | `https://booking-demo.onrender.com`, the Angular site (TICKET-027). Without it the browser blocks the site's calls to the API |
+| `CORS_ALLOWED_ORIGINS` | `https://booking-demo-g4aw.onrender.com`, the Angular site (TICKET-027). Without it the browser blocks the site's calls to the API |
 
 ### What changes when `DJANGO_DEBUG=False`
 
@@ -2122,7 +2122,10 @@ list and detail, `401` without a token on protected endpoints, no debug
 ## Frontend on Render
 
 TICKET-027 serves the Angular app as a free Render **static site**,
-`booking-demo` in `render.yaml` → **https://booking-demo.onrender.com**.
+`booking-demo` in `render.yaml` → **https://booking-demo-g4aw.onrender.com**.
+Render added the `-g4aw` suffix because another user already had
+`booking-demo.onrender.com`. If the site is ever recreated and gets a new
+address, update `CORS_ALLOWED_ORIGINS` in `render.yaml` to match.
 It talks to the API at https://booking-demo-api.onrender.com.
 
 ### Build
@@ -2152,7 +2155,7 @@ It talks to the API at https://booking-demo-api.onrender.com.
 ### CORS
 
 The site and the API are on different origins, so the API must allow the
-site. `CORS_ALLOWED_ORIGINS=https://booking-demo.onrender.com` is set on
+site. `CORS_ALLOWED_ORIGINS=https://booking-demo-g4aw.onrender.com` is set on
 the API in `render.yaml`. Requests carry the JWT in the `Authorization`
 header, which makes the browser send a preflight `OPTIONS` first;
 `django-cors-headers` answers it. No cookies are involved.
@@ -2298,6 +2301,6 @@ badge) are done; see "Admin area", "Admin dashboard", "Admin properties"
 and "Admin bookings". **Epic 4 (the admin area) is complete.** Hosting
 has started: TICKET-026 (the API + Postgres on Render from `render.yaml`)
 is live at https://booking-demo-api.onrender.com, and TICKET-027 adds the
-Angular site at https://booking-demo.onrender.com; see "Deploying to Render"
+Angular site at https://booking-demo-g4aw.onrender.com; see "Deploying to Render"
 and "Frontend on Render". Next up: the pre-demo hosted-URL check
 (TICKET-028).
