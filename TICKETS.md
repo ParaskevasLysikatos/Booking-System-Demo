@@ -89,11 +89,14 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 
 ## Epic 2 — Backend API (DRF)
 
-- [ ] **TICKET-012** — JWT auth endpoints
+- [x] **TICKET-012** — JWT auth endpoints
   - Priority: P0
   - Depends on: TICKET-007
   - `POST /api/auth/register/`, `POST /api/auth/login/`, `POST /api/auth/refresh/` via `djangorestframework-simplejwt`.
   - Acceptance: register creates a `User` + `Profile` (role `guest`); login returns access + refresh tokens.
+  - Decisions (agreed before building): **email + password login** (username auto-derived from the email on register, never shown to users); register returns the user **plus** tokens (logged in straight away); `email`/`username`/`role` added as **custom JWT claims** plus a new `GET /api/auth/me/` (always-current role — the claim is only a UI hint, TICKET-014 must re-check `Profile.role` server-side); lifetimes **30 min access / 1 day refresh**, no rotation/blacklist (so no server-side logout).
+  - Done: `djangorestframework-simplejwt` added; `JWTAuthentication` is now DRF's default auth class (default permission still `AllowAny`, views tighten it). New `accounts/backends.py:EmailBackend` (case-insensitive email lookup; refuses login if two accounts share an email rather than guessing; runs the hasher on unknown emails to blunt timing-based enumeration), registered alongside `ModelBackend` so username login to the dev `/admin/` site still works. `accounts/serializers.py`: `RegisterSerializer` (lowercases + uniqueness-checks email, runs Django's `AUTH_PASSWORD_VALIDATORS`, no `role` field so nobody can self-register as admin, `transaction.atomic()` create; the Profile still comes from the existing `post_save` signal, register only fills in optional `phone`), `UserSerializer`, and `EmailTokenObtainPairSerializer` (claims). Views in `accounts/views.py`, routes in `accounts/urls.py` mounted at `/api/auth/`. `register/`/`login/`/`refresh/` have `authentication_classes = []` so a stale token attached by the future interceptor can't 401 a login. `JWT_ACCESS_MINUTES`/`JWT_REFRESH_DAYS` env overrides added to `.env.example`; dev-default `SECRET_KEY` lengthened to ≥32 bytes (JWT HMAC key-length warning). Seed command's summary output now prints the email logins. 19 API tests in `accounts/tests.py`, all passing against SQLite (Postgres not reachable from this environment); also smoke-tested end-to-end after `seed_demo_data` (admin + guest login by email, `/me/`). `manage.py check` + `makemigrations --check` clean (no migrations needed). README: new "Authentication (JWT)" section (endpoints, design, curl examples, tests), project layout/env vars/status/next steps updated.
+  - Follow-up (not done, low priority): Django's `User.email` isn't unique at the DB level — register enforces it, but a concurrent double-submit could still create two accounts with the same email (login would then refuse both). If it matters later, add a partial unique index on `LOWER(email) WHERE email <> ''` via a `RunSQL` migration in `accounts`.
 
 - [ ] **TICKET-013** — Property serializer + viewset
   - Priority: P0

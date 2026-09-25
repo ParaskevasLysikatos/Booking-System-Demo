@@ -7,8 +7,9 @@ for the full project plan (models, API design, day-by-day schedule).
 **Status:** Epic 1 (the data layer) is complete - all five models
 (`Property`, `PropertyImage`, `Profile`, `Booking`, `Review`), migrations,
 Django Admin registration, and a Faker seed script for realistic demo data
-are all in place and verified. See "Next steps" at the bottom for what's
-next (Epic 2: DRF API + JWT auth).
+are all in place and verified. Epic 2 (the DRF API) has started: JWT
+authentication - register, login, refresh, and "who am I" - is done (see
+"Authentication (JWT)"). See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
 
@@ -67,11 +68,11 @@ your actual machine outside Docker, uses `localhost:<port>`.
 ```
 backend/
   Dockerfile           Python 3.12 image; runs migrate then runserver on boot
-  requirements.txt     Django, DRF, django-cors-headers, django-environ, psycopg2, Faker
+  requirements.txt     Django, DRF, simplejwt, django-cors-headers, django-environ, psycopg2, Faker
   manage.py
   config/              Django project settings
-    settings.py        Reads DB/secret/CORS config from env vars
-    urls.py            / admin/ -> Django admin, /api/ -> core.urls
+    settings.py        Reads DB/secret/CORS/JWT config from env vars; JWT is the API's default auth
+    urls.py            admin/ -> Django admin, api/ -> core.urls, api/auth/ -> accounts.urls
     wsgi.py / asgi.py
   core/                Small app - currently just the health-check endpoint
     views.py           GET /api/health/ - queries Postgres, returns status
@@ -85,6 +86,11 @@ backend/
   accounts/            Adds a role/phone Profile on top of Django's built-in User
     models.py          Profile model (role: guest/admin, phone)
     signals.py         post_save on User auto-creates a Profile (any creation path)
+    backends.py        EmailBackend - authenticate by email (case-insensitive) + password
+    serializers.py     RegisterSerializer, UserSerializer, email-login token serializer (custom role claims)
+    views.py           RegisterView, LoginView, MeView
+    urls.py            /api/auth/ register/, login/, refresh/, me/
+    tests.py           API tests for the auth endpoints
     admin.py           Profile inline on the User admin page, plus its own list
     migrations/        0001_initial.py creates the profiles table
   bookings/            A guest's reservation of a Property for a date range
@@ -266,6 +272,121 @@ runs `migrate` on boot - see "Quick start" above); outside Docker, run
 `python manage.py migrate` from `backend/` with a reachable Postgres
 connection.
 
+## Authentication (JWT)
+
+The API is token-based (TICKET-012), using
+[`djangorestframework-simplejwt`](https://django-rest-framework-simplejwt.readthedocs.io/).
+There are no sessions or cookies for the Angular app: every authenticated
+request carries `Authorization: Bearer <access token>`.
+
+### Endpoints
+
+All under `/api/auth/` (`backend/accounts/urls.py`):
+
+| Method + path | Auth | Body | Returns |
+| --- | --- | --- | --- |
+| `POST /api/auth/register/` | none | `email`, `password`, optional `first_name`, `last_name`, `phone` | `201` - `{user, access, refresh}` (new user is logged in straight away) |
+| `POST /api/auth/login/` | none | `email`, `password` | `200` - `{access, refresh, user}`; `401` on bad credentials |
+| `POST /api/auth/refresh/` | none | `refresh` | `200` - `{access}` (a fresh access token); `401` if the refresh token is invalid/expired |
+| `GET /api/auth/me/` | Bearer | - | `200` - the current user with their **current** role; `401` without a valid token |
+
+The `user` object (same shape everywhere, `accounts/serializers.py:UserSerializer`):
+
+```json
+{"id": 12, "username": "maria@example.com", "email": "maria@example.com",
+ "first_name": "Maria", "last_name": "", "role": "guest", "phone": "", "is_admin": false}
+```
+
+### How it works
+
+- **Email login.** Users sign up and log in with email + password. Django's
+  built-in `User` still needs a `username`, so register derives it from
+  the email automatically (users never see it). Login is routed through a
+  small custom backend, `accounts/backends.py:EmailBackend`, which looks the
+  user up by email (case-insensitive) and checks the password. Django's
+  default `ModelBackend` is kept alongside it (`AUTHENTICATION_BACKENDS` in
+  `settings.py`) so username login still works where it's still used:
+  `createsuperuser` accounts signing in to the dev-only `/admin/` site.
+- **Register = guest, always.** `RegisterSerializer` doesn't accept a
+  `role` field at all, so nobody can sign themselves up as an admin
+  (sending `"role": "admin"` is silently ignored). The `Profile` itself is
+  created by the existing `post_save` signal (`accounts/signals.py`) with
+  role `guest` - register just fills in the optional `phone` on it. The
+  whole create runs in `transaction.atomic()`, so a failure never leaves a
+  User without its Profile.
+- **Validation.** Emails are normalised to lowercase and must be unique
+  (case-insensitively - `Maria@x.com` and `maria@x.com` are the same
+  account). Passwords go through Django's existing
+  `AUTH_PASSWORD_VALIDATORS` (min length 8, not too common, not
+  all-numeric, not too similar to the email/name); errors come back as a
+  `400` with per-field messages, e.g. `{"password": ["This password is too common."]}`.
+- **Custom token claims.** Besides simplejwt's standard `user_id`/`exp`,
+  every token carries `email`, `username`, and `role`, so the frontend can
+  decide what to show (Admin link, route guards) by decoding the token,
+  without an extra request. These claims are a **UI convenience only**:
+  they're as old as the token, so if a user's role changes the claim lags
+  until the token expires. The server never trusts the claim for
+  authorisation - admin-only endpoints re-check `Profile.role` from the DB
+  (TICKET-014) - and `GET /api/auth/me/` is the always-current source of
+  truth.
+- **Lifetimes.** Access token 30 minutes, refresh token 1 day (override
+  with `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` in `.env`). No refresh
+  rotation/blacklisting - kept simple for the demo, so there's no
+  server-side logout; the frontend "logs out" by discarding its tokens.
+  Tokens are signed with `DJANGO_SECRET_KEY`.
+- **Stale tokens don't block login.** `register/`, `login/` and `refresh/`
+  have authentication turned off (`authentication_classes = []`). Otherwise
+  an expired token still attached by the frontend's HTTP interceptor would
+  make DRF reject the request with `401` before the login even ran.
+- **Default auth for the whole API** is `JWTAuthentication`
+  (`REST_FRAMEWORK` in `settings.py`). The default *permission* is still
+  `AllowAny` - individual views tighten it (`/me/` uses `IsAuthenticated`;
+  the admin permission class arrives in TICKET-014).
+
+Demo accounts from `seed_demo_data` can log in straight away: the demo
+admin as `admin_demo@example.com` / `AdminPass123!`, and any seeded guest by
+their `...@example.com` email with `DemoPass123!`. Note: a superuser
+created with `createsuperuser` and no email can still use `/admin/`, but
+can't log in to the API until you give it an email.
+
+### Trying it with curl
+
+```bash
+# Register (returns the user + tokens)
+curl -X POST http://localhost:8000/api/auth/register/ \
+  -H "Content-Type: application/json" \
+  -d '{"email": "maria@example.com", "password": "S3cure-Booking-Pass!", "first_name": "Maria"}'
+
+# Log in
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin_demo@example.com", "password": "AdminPass123!"}'
+
+# Who am I? (paste the "access" value from the login response)
+curl http://localhost:8000/api/auth/me/ -H "Authorization: Bearer <access>"
+
+# Get a new access token once it expires
+curl -X POST http://localhost:8000/api/auth/refresh/ \
+  -H "Content-Type: application/json" -d '{"refresh": "<refresh>"}'
+```
+
+### Tests
+
+`backend/accounts/tests.py` (19 API tests) covers: register creates a User
++ exactly one guest Profile and returns tokens; `role` can't be
+self-assigned; duplicate emails (any case), weak passwords and invalid
+emails are rejected; login returns access + refresh with the right role
+claim (guest and admin); case-insensitive email; wrong password / unknown
+email / inactive user -> `401`; login by username is rejected; an
+ambiguous duplicate email refuses login instead of guessing; refresh
+issues a new access token (and rejects garbage or an access token passed
+as a refresh token); `/me/` requires a token and reflects a role change
+immediately; and username login to `/admin/` still works. Run them with:
+
+```bash
+docker compose exec backend python manage.py test accounts
+```
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -358,6 +479,7 @@ you ever need to regenerate it.
 | `DJANGO_DEBUG` | backend | Debug mode (verbose error pages) |
 | `DJANGO_ALLOWED_HOSTS` | backend | Hostnames Django will respond to |
 | `CORS_ALLOWED_ORIGINS` | backend | Origins allowed to call the API (the Angular dev server) |
+| `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` | backend | Optional token lifetimes (defaults 30 minutes / 1 day) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
 
@@ -410,6 +532,10 @@ down` / `up` - only `docker compose down -v` wipes them.
 
 Epic 1 (the data layer) is complete: all five models, migrations, Django
 Admin registration, and the Faker seed script (see "Seeding demo data"
-above) are all in place and verified. Next up: Epic 2 - DRF serializers/
-viewsets and JWT auth (TICKET-012 onward), including the concurrency/
-payment-safety constraints already scoped into TICKET-015 and TICKET-029.
+above) are all in place and verified. Epic 2 is under way: JWT auth
+(TICKET-012) is done - see "Authentication (JWT)". Next up: the Property
+serializer/viewset with filtering (TICKET-013) and the admin permission
+class checking `Profile.role` (TICKET-014), then bookings (TICKET-015,
+including the concurrency constraints already scoped into it). On the
+frontend, TICKET-017 (`AuthService`, JWT interceptor, login/register
+pages) can now be built against these endpoints.

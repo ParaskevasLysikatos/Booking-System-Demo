@@ -139,14 +139,16 @@ class Command(BaseCommand):
         ))
         if admin_created:
             self.stdout.write(
-                f"Demo admin login: {DEMO_ADMIN_USERNAME} / {DEMO_ADMIN_PASSWORD}"
+                f"Demo admin login: {DEMO_ADMIN_EMAIL} / {DEMO_ADMIN_PASSWORD} "
+                f"(app/API, by email) - or username {DEMO_ADMIN_USERNAME} for /admin/"
             )
         else:
             self.stdout.write(
                 f"Demo admin '{DEMO_ADMIN_USERNAME}' already existed - left untouched."
             )
         self.stdout.write(
-            f"Demo guest login password (all guest_* accounts): {DEMO_GUEST_PASSWORD}"
+            f"Demo guest login password (all guest_* accounts, log in with "
+            f"their @example.com email): {DEMO_GUEST_PASSWORD}"
         )
 
     # -- clearing -----------------------------------------------------
