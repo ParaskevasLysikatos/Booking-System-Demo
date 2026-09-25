@@ -1,0 +1,106 @@
+<section class="page">
+  <h1>My bookings</h1>
+
+  <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="selectTab($event)" animationDuration="0ms" mat-stretch-tabs="false">
+    @for (t of tabs; track t.key) {
+      <mat-tab [label]="t.label" />
+    }
+  </mat-tab-group>
+
+  @switch (state().status) {
+    @case ('loading') {
+      <div class="list" aria-busy="true" aria-label="Loading bookings">
+        @for (i of [1, 2, 3]; track i) {
+          <div class="card skeleton"><div class="ph-img"></div><div class="ph-body"></div></div>
+        }
+      </div>
+    }
+
+    @case ('error') {
+      <div class="message" role="alert">
+        <mat-icon>cloud_off</mat-icon>
+        <p>Couldn't load your bookings.</p>
+        <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      </div>
+    }
+
+    @case ('ok') {
+      @let data = okData()!;
+      @if (data.count === 0) {
+        <div class="message">
+          <mat-icon>luggage</mat-icon>
+          <p>{{ emptyText() }}</p>
+          <a mat-stroked-button routerLink="/listings">Browse stays</a>
+        </div>
+      } @else {
+        <ul class="list">
+          @for (b of data.results; track b.id) {
+            <li class="card" [class.cancelled]="b.status === 'cancelled'">
+              <a class="photo" [routerLink]="['/listings', b.property.id]" [attr.aria-label]="b.property.title">
+                @if (b.property.cover_image) {
+                  <img [src]="b.property.cover_image" alt="" loading="lazy" />
+                } @else {
+                  <mat-icon>image_not_supported</mat-icon>
+                }
+              </a>
+
+              <div class="body">
+                <div class="top">
+                  <h2><a [routerLink]="['/listings', b.property.id]">{{ b.property.title }}</a></h2>
+                  <span class="chip" [class]="b.status">{{ statusLabel[b.status] }}</span>
+                  @if (isOngoing(b)) {
+                    <span class="chip ongoing">Staying now</span>
+                  }
+                </div>
+                <p class="muted"><mat-icon>place</mat-icon>{{ b.property.location }}</p>
+
+                <p class="dates">
+                  <mat-icon>calendar_month</mat-icon>
+                  {{ date(b.check_in) }} → {{ date(b.check_out) }}
+                  <span class="muted-inline">· {{ b.nights }} {{ b.nights === 1 ? 'night' : 'nights' }} · {{ b.guests }} {{ b.guests === 1 ? 'guest' : 'guests' }}</span>
+                </p>
+
+                <p class="meta">
+                  <strong>{{ formatPrice(b.total_price) }}</strong>
+                  <span class="muted-inline">· #{{ b.id }} · booked {{ bookedOn(b.created_at) }}</span>
+                </p>
+
+                @if (b.status === 'pending' && isUpcoming(b)) {
+                  <p class="hint">Waiting for the host to confirm.</p>
+                }
+
+                @if (b.status !== 'cancelled' && isUpcoming(b)) {
+                  <div class="actions">
+                    @if (b.can_cancel) {
+                      <span class="hint">Free cancellation until <strong>{{ deadline(b.cancel_deadline) }}</strong></span>
+                      <button mat-stroked-button type="button" class="cancel" (click)="cancel(b)" [disabled]="cancelling() !== null">
+                        @if (cancelling() === b.id) {
+                          <mat-spinner diameter="18" />
+                        } @else {
+                          Cancel booking
+                        }
+                      </button>
+                    } @else {
+                      <span class="hint">Can no longer be cancelled online (less than 48 hours before check-in).</span>
+                    }
+                  </div>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+
+        @if (data.count > pageSize) {
+          <mat-paginator
+            [length]="data.count"
+            [pageIndex]="view().page - 1"
+            [pageSize]="pageSize"
+            [hidePageSize]="true"
+            (page)="onPage($event)"
+            aria-label="Choose bookings page"
+          />
+        }
+      }
+    }
+  }
+</section>

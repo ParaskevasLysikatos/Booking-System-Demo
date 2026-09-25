@@ -38,9 +38,14 @@
   }
 }
 
+.nav-link.active {
+  background: var(--mat-sys-secondary-container);
+}
+
 @media (max-width: 600px) {
   .brand span,
-  .user .email {
+  .user .email,
+  .nav-link .label {
     display: none;
   }
 }

@@ -23,6 +23,12 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/booking/booking').then((m) => m.BookingFormPage),
   },
   {
+    path: 'my-bookings',
+    title: 'My bookings · Booking System Demo',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/my-bookings/my-bookings').then((m) => m.MyBookingsPage),
+  },
+  {
     path: 'login',
     title: 'Log in · Booking System Demo',
     canActivate: [guestOnlyGuard],

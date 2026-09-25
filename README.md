@@ -11,7 +11,8 @@ are all in place and verified. On the frontend, users can register, log
 in and out (TICKET-017), browse and search stays on the listings page
 (TICKET-018), and open a stay's detail page with its photos, amenities
 and an availability calendar (TICKET-019), and book it in two steps
-(TICKET-020). Epic 2 (the DRF API) is complete: JWT
+(TICKET-020), then see and cancel their bookings under My bookings
+(TICKET-021). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -129,7 +130,7 @@ frontend/
   src/environments/environment.ts   apiUrl the frontend calls the backend at
   src/app/
     app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
-    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId (authGuard), /login, /register (lazy)
+    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings (authGuard), /login, /register (lazy)
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
     core/api-errors.ts                  DRF error response -> per-field + general messages for forms
     core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting
@@ -139,14 +140,15 @@ frontend/
     core/amenities.ts                   Amenity labels + Material icons (cards and detail page)
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
                                         authGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts (exp reader), models
-    core/bookings/                      BookingService (create/get), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
-    layout/toolbar/                     Top bar: brand, Log in / Sign up or email + Log out
+    core/bookings/                      BookingService (create/get/list/cancel), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
+    layout/toolbar/                     Top bar: brand, Log in / Sign up, or My bookings + email + Log out
     layout/footer/                      Footer with the API/database connectivity dot
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
                                         calendar, sticky booking panel with live availability + Book now
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
+    pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
@@ -681,6 +683,21 @@ Two layers:
    dates were just booked by someone else" instead of a 500. Any other
    database error still surfaces as a real error.
 
+   **Deadlocks, found while testing TICKET-021 and fixed.** When two
+   overlapping inserts hit Postgres at *exactly* the same moment, each
+   can end up waiting inside the exclusion check for the other's
+   uncommitted row. Postgres then aborts one of them with a **deadlock**
+   error (SQLSTATE `40P01`) rather than the exclusion violation. The
+   real-concurrency test hit this intermittently (about 1 run in 3), and
+   it would have been a 500 in production. The view now retries that
+   insert **once**. By then the winner has committed, so the retry gets
+   the normal exclusion violation (→ `409`). If the winner rolled back
+   instead, the retry simply succeeds. A second deadlock is also
+   answered with `409`. Two new tests cover this: a deadlock followed by
+   a successful retry → `201`, and repeated deadlocks → `409`, not
+   `500`. The concurrency test was then run 12 times in a row, all
+   green.
+
 Before adding the constraint, the migration checks your existing data. If
 you already have overlapping non-cancelled bookings, it stops with a list
 of the clashing pairs (instead of a cryptic Postgres error). Cancel one
@@ -742,7 +759,8 @@ Query params, with bad values giving a `400`:
 | --- | --- | --- |
 | `when` | `upcoming` | Not checked out yet (stays in progress count), soonest first. Used by My Bookings (TICKET-021) |
 | `when` | `past` | Already checked out, most recent first |
-| `status` | `pending` / `confirmed` / `cancelled` | Filter by status |
+| `status` | `pending` / `confirmed` / `cancelled`, or a comma list like `pending,confirmed` | Filter by status (unknown values → `400`) |
+| `mine` | `true` | Only the caller's **own** bookings, even for an admin (whose default list is everyone's). Used by My Bookings |
 | `property` | property id | **Admin only**, ignored for guests |
 
 Default order is most recent check-in first. The property summary and
@@ -1381,6 +1399,95 @@ If you change the backend settings, update these two constants too.
 Also checked in Chrome: steps 1 → 2 on property 42 (2–4 Feb 2027, €364,
 "Free cancellation until Sun 31 Jan, 15:00").
 
+## My Bookings page (Angular)
+
+`/my-bookings` (TICKET-021) is `pages/my-bookings/` (`MyBookingsPage`),
+protected by the same **`authGuard`** as the booking form. A logged-out
+visitor goes to login and comes back here. The toolbar has a **My
+bookings** link whenever you're logged in (highlighted while you're on
+the page), and the booking confirmation screen's "My bookings" button
+now lands here.
+
+### Tabs (in the URL: `?tab=past&page=2`)
+
+| Tab | API query (always `mine=true`) | Order |
+| --- | --- | --- |
+| **Upcoming** (default) | `when=upcoming&status=pending,confirmed`: not checked out yet, not cancelled, including a stay you're in right now | soonest first |
+| **Past** | `when=past&status=pending,confirmed` | most recent first |
+| **Cancelled** | `status=cancelled` (any dates) | most recent check-in first |
+
+A reload or the browser's Back button keeps the tab and page. The
+paginator shows when there are more than 12 bookings.
+
+### Booking cards
+
+Each card shows:
+
+- the cover photo and title, both linking to the property
+- a status chip (**Pending** amber, **Confirmed** green, **Cancelled**
+  grey), plus **Staying now** during a stay
+- location, dates (weekday, date, year), nights and guests
+- the server-computed **total**, the reference **#id**, and when it was
+  booked
+- for pending upcoming stays: "Waiting for the host to confirm."
+- for upcoming, not-cancelled stays, one of:
+  - **Free cancellation until Sun 31 Jan, 15:00** plus a **Cancel
+    booking** button, when the server says `can_cancel` (the 48-hour
+    rule from TICKET-015)
+  - "Can no longer be cancelled online (less than 48 hours before
+    check-in)"
+
+### Cancelling
+
+1. **Cancel booking** opens a confirmation dialog
+   (`pages/my-bookings/cancel-dialog.ts`): "Cancel this booking?" with
+   the property, dates, nights and total. It notes that this can't be
+   undone (cancelled is final; to change your mind you'd book again) and
+   that there's nothing to refund yet (refunds come with payments,
+   TICKET-040). Buttons: **Keep booking** (the default focus) and a red
+   **Cancel booking**.
+2. On confirm it sends `PATCH /api/bookings/{id}/ {"status": "cancelled"}`
+   (`BookingService.cancel()`). The button shows a spinner, and other
+   cancel buttons are disabled until it finishes.
+3. **Success:** a snackbar "Booking #56 cancelled.", and the list
+   refreshes. The booking leaves Upcoming and appears under Cancelled.
+4. **The server refuses** (e.g. the 48h deadline passed while the page
+   was open): its exact reason goes in a snackbar ("Online cancellation
+   closed on … Please contact us."), and the list refreshes, so the card
+   now shows it can no longer be cancelled online.
+
+### Backend additions for this page
+
+`GET /api/bookings/` got two backward-compatible filters (see the
+Bookings API table):
+
+- `?mine=true`: only the caller's **own** bookings, **even for an
+  admin**. An admin's default list is everyone's; the admin bookings
+  table in TICKET-025 keeps using that.
+- `?status=` accepts a **comma list**, e.g. `pending,confirmed`, so
+  "Upcoming" can leave out cancelled bookings. Unknown values get a
+  `400`.
+
+### Tests
+
+- **Backend:** 3 new tests (the comma status list, and `mine` for an
+  admin and for a guest). The full backend suite (94 tests) passes on
+  Postgres.
+- **Frontend:** 100 tests (9 new):
+  - service `list()` params and the `cancel()` PATCH
+  - each tab's query and the tab in the URL
+  - cancel: confirm → PATCH → snackbar → the card leaves the tab;
+    "Keep booking" sends nothing; a server refusal shows its reason,
+    refreshes, and the card shows it can no longer be cancelled
+  - the "Staying now" chip; no actions for past or cancelled bookings
+  - the error state with Try again
+  - paging through the URL
+  - the toolbar link only when logged in
+
+Also checked in Chrome as the demo admin: only the admin's own booking
+#56 appears (not everyone's), the Past tab is empty, and the cancel
+dialog opens and closes with **Keep booking**, so nothing was cancelled.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -1546,9 +1653,10 @@ URL-driven search, filters, cards, paginator) are done; see "Frontend
 auth" and "Listings page"; and TICKET-019 (the property detail page:
 gallery, amenities, availability calendar, live availability check,
 Book now) and TICKET-020 (the two-step booking form with confirmation
-screen) are done too; see "Property detail page" and "Booking form".
-Next up: TICKET-021 (My Bookings, reusing the existing `authGuard`),
-then the admin screens
+screen) and TICKET-021 (My Bookings with tabs and cancelling) are done
+too; see "Property detail page", "Booking form" and "My Bookings page".
+**Epic 3 (the customer experience) is complete.** Next up: the admin
+screens
 (TICKET-022 onward, with TICKET-023's dashboard reading
 `/api/admin/stats/`). Deploying the backend skeleton to Render
 (TICKET-026) is also due early.

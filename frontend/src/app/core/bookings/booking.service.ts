@@ -1,9 +1,10 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { Booking, CreateBookingRequest } from './booking.models';
+import { Paginated } from '../properties/property.models';
+import { Booking, BookingListQuery, CreateBookingRequest } from './booking.models';
 
 export const BOOKINGS_URL = `${environment.apiUrl}/bookings/`;
 
@@ -22,5 +23,24 @@ export class BookingService {
 
   get(id: number): Observable<Booking> {
     return this.http.get<Booking>(`${BOOKINGS_URL}${id}/`);
+  }
+
+  list(query: BookingListQuery = {}): Observable<Paginated<Booking>> {
+    let params = new HttpParams();
+    if (query.when) params = params.set('when', query.when);
+    if (query.statuses?.length) params = params.set('status', query.statuses.join(','));
+    if (query.mine) params = params.set('mine', 'true');
+    if (query.page && query.page > 1) params = params.set('page', query.page);
+    if (query.pageSize) params = params.set('page_size', query.pageSize);
+    return this.http.get<Paginated<Booking>>(BOOKINGS_URL, { params });
+  }
+
+  /**
+   * Cancel a booking. The server re-checks the rules against the locked
+   * row (guests: only until 48h before check-in) and answers 400 with the
+   * reason if it's no longer allowed.
+   */
+  cancel(id: number): Observable<Booking> {
+    return this.http.patch<Booking>(`${BOOKINGS_URL}${id}/`, { status: 'cancelled' });
   }
 }

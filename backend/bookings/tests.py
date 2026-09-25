@@ -134,6 +134,43 @@ class CreateBookingTests(BookingFixtures, APITestCase):
         self.assertIn("just booked", resp.data["detail"])
         self.assertEqual(Booking.objects.count(), 1)
 
+    def _deadlock(self):
+        from django.db import OperationalError
+
+        class FakePgDeadlock(Exception):
+            pgcode = "40P01"  # what psycopg2 puts on the driver error
+
+        exc = OperationalError("deadlock detected")
+        exc.__cause__ = FakePgDeadlock()
+        return exc
+
+    def test_deadlock_is_retried_once_then_succeeds(self):
+        """Truly simultaneous overlapping inserts can deadlock in the
+        exclusion check (Postgres aborts one with 40P01). The loser retries."""
+        from bookings.serializers import BookingCreateSerializer
+
+        original = BookingCreateSerializer.create
+        calls = {"n": 0}
+
+        def flaky(self_, data):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise self._deadlock()
+            return original(self_, data)
+
+        with mock.patch.object(BookingCreateSerializer, "create", flaky):
+            resp = self.client.post(LIST_URL, self.payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(calls["n"], 2)
+
+    def test_repeated_deadlock_is_a_409_not_a_500(self):
+        from bookings.serializers import BookingCreateSerializer
+
+        with mock.patch.object(BookingCreateSerializer, "create", side_effect=lambda *a: (_ for _ in ()).throw(self._deadlock())):
+            resp = self.client.post(LIST_URL, self.payload(), format="json")
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(Booking.objects.count(), 0)
+
     def test_validation_errors(self):
         self.prop2.is_active = False
         self.prop2.save()
@@ -198,6 +235,28 @@ class ListBookingTests(BookingFixtures, APITestCase):
         self.assertEqual(self.ids(self.client.get(LIST_URL, {"status": "pending"})), [self.mine_future.id])
         self.assertEqual(self.client.get(LIST_URL, {"status": "nope"}).status_code, 400)
         self.assertEqual(self.client.get(LIST_URL, {"when": "later"}).status_code, 400)
+
+    def test_status_comma_list(self):
+        self.client.force_authenticate(self.guest)
+        cancelled = self.book(start=30, end=31, status_=Booking.Status.CANCELLED)
+        ids = set(self.ids(self.client.get(LIST_URL, {"status": "pending,confirmed"})))
+        self.assertEqual(ids, {self.mine_future.id, self.mine_past.id, self.mine_now.id})
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"status": "cancelled"})), [cancelled.id])
+        # My Bookings' "Upcoming" tab: not checked out yet AND not cancelled
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"when": "upcoming", "status": "pending,confirmed"})),
+                         [self.mine_now.id, self.mine_future.id])
+        for bad in ["pending,nope", ",", "PENDING"]:
+            self.assertEqual(self.client.get(LIST_URL, {"status": bad}).status_code, 400, bad)
+
+    def test_mine_limits_an_admin_to_their_own_bookings(self):
+        own = self.book(prop=self.prop2, start=40, end=42, guest=self.admin)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(len(self.ids(self.client.get(LIST_URL))), 5)  # everyone's by default
+        self.assertEqual(self.ids(self.client.get(LIST_URL, {"mine": "true"})), [own.id])
+        self.assertEqual(len(self.ids(self.client.get(LIST_URL, {"mine": "false"}))), 5)
+        # for a guest, mine=true changes nothing (they only ever see their own)
+        self.client.force_authenticate(self.guest)
+        self.assertEqual(len(self.ids(self.client.get(LIST_URL, {"mine": "true"}))), 3)
 
     def test_admin_sees_all_with_emails_and_property_filter(self):
         self.client.force_authenticate(self.admin)
@@ -366,9 +425,15 @@ class ConcurrencyTests(BookingFixtures, TransactionTestCase):
 
         barrier = threading.Barrier(2, timeout=10)
         original = BookingCreateSerializer.create
+        seen = threading.local()
 
         def create_after_barrier(self_, validated_data):
-            barrier.wait()
+            # Only the first attempt per request waits: if Postgres resolves
+            # the collision with a deadlock abort, the view's single retry
+            # must not wait for a partner that already finished.
+            if not getattr(seen, "waited", False):
+                seen.waited = True
+                barrier.wait()
             return original(self_, validated_data)
 
         with mock.patch.object(BookingCreateSerializer, "create", create_after_barrier):

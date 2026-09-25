@@ -6,6 +6,9 @@
   <span class="spacer"></span>
 
   @if (auth.currentUser(); as user) {
+    <a mat-button routerLink="/my-bookings" routerLinkActive="active" class="nav-link">
+      <mat-icon>luggage</mat-icon><span class="label">My bookings</span>
+    </a>
     <span class="user" [title]="user.email">
       <mat-icon>account_circle</mat-icon>
       <span class="email">{{ user.email }}</span>

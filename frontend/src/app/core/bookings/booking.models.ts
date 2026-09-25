@@ -26,6 +26,16 @@ export interface Booking {
   created_at: string;
 }
 
+/** Query for GET /api/bookings/ (see backend BookingFilterSerializer). */
+export interface BookingListQuery {
+  when?: 'upcoming' | 'past';
+  statuses?: BookingStatus[];
+  /** Only the caller's own bookings - even for an admin (My Bookings). */
+  mine?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
 /** POST /api/bookings/ body - price/status/guest are decided by the server. */
 export interface CreateBookingRequest {
   property: number;

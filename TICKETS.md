@@ -149,6 +149,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **Verification:** all 77 backend tests pass on real Postgres. That was **Postgres 14** with contrib in the sandbox; the sandbox Postgres 16 build lacks the `btree_gist` extension, and the Docker `postgres:16-alpine` image does include it. `makemigrations --check` is clean. Smoke-tested after `seed_demo_data --clear`: admin list with emails, 409 on booking seeded dates, all seeded `guests` within capacity.
     - **README:** new "Bookings API" section (endpoints, create rules, the two-layer race protection, transition table, filters, curl, tests), data model, layout, status and next steps updated, and two new Troubleshooting entries (rebuild after new packages, migrate after new migrations).
   - To apply locally: `docker compose restart backend`. The container runs `migrate` on start, which creates the extension and the constraint.
+  - Follow-up fix (during TICKET-021): simultaneous overlapping inserts can hit a Postgres **deadlock (40P01)** inside the exclusion check; the view now retries once (→ 409 or success) instead of returning a 500. See TICKET-021.
   - Change after review: guest cancellation now closes **48 hours before check-in**, instead of any time before check-in. Check-in is taken as **15:00 local time** on the check-in date (a setting, `BOOKING_CHECK_IN_TIME`; the hours are `BOOKING_GUEST_CANCELLATION_HOURS`, both overridable in `.env`). The logic is on the model: `Booking.check_in_datetime()` / `cancel_deadline()` / `guest_can_cancel()`, with the 48h subtracted in UTC so it's exact across DST. After the deadline a guest gets a 400 with the exact closing time; admins can still cancel any time. Responses now include `cancel_deadline`, and `can_cancel` uses the same rule. 3 new tests (mocked clock around the deadline, DST, configurable settings), all 80 backend tests passing on Postgres. **Refunds are out of scope here** (no payments exist yet) → **TICKET-040**.
 
 - [x] **TICKET-016** — Admin stats endpoint
@@ -298,10 +299,35 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - **README:** new "Booking form" section; layout, status and next steps updated.
   - Note: the confirmation's "My bookings" button lands on the listings page until TICKET-021 adds `/my-bookings`.
 
-- [ ] **TICKET-021** — `MyBookingsComponent` (`/my-bookings`) + `AuthGuard`
+- [x] **TICKET-021** — `MyBookingsComponent` (`/my-bookings`) + `AuthGuard`
   - Priority: P0
   - Depends on: TICKET-017, TICKET-020
   - Upcoming/past bookings, cancel action; route guarded so only logged-in guests can reach it.
+  - Decisions (agreed before building):
+    - **small backend tweak**: `?mine=true` (own bookings only, even for admins) and a comma-list `?status=`
+    - cancelling via a **confirmation dialog**
+  - Done:
+    - **Backend** (`bookings/views.py:BookingFilterSerializer`): `mine` and the comma-list `status`, both backward-compatible; unknown statuses → 400; 3 new tests.
+    - **Frontend:**
+      - `BookingService.list/cancel`
+      - `pages/my-bookings/`:
+        - Upcoming / Past / Cancelled tabs, with the tab and page in the URL
+        - Upcoming and Past both exclude cancelled; Upcoming includes a stay in progress
+        - booking cards: photo/title linking to the property, status chip + "Staying now", dates/nights/guests, server total, #id, booked-on date, "Waiting for the host to confirm"
+        - the cancel deadline from the server with Cancel only when `can_cancel`, otherwise "Can no longer be cancelled online"
+      - `cancel-dialog.ts`: "Keep booking" / red "Cancel booking", noting it's final and there's nothing to refund yet (TICKET-040)
+      - cancel flow: PATCH → snackbar → list refresh (the card moves to Cancelled); a server refusal shows its reason and refreshes
+      - states: skeletons, per-tab empty text + Browse stays, an error with Try again, a paginator
+      - `/my-bookings` route behind the existing `authGuard`
+      - a toolbar "My bookings" link (logged in only, highlighted while on the page)
+    - **Tests:** 9 new frontend tests (100 total), all passing; the production build is clean.
+    - **Checked in Chrome** as the demo admin: only their own booking #56 shows, the tabs work, and the dialog opened and was closed with Keep booking, so nothing was cancelled.
+    - **README:** new "My Bookings page" section; the Bookings API filters table, layout, status and next steps updated. **Epic 3 is complete.**
+  - **Bug found and fixed in TICKET-015's code while testing this ticket:**
+    - With truly simultaneous overlapping inserts, Postgres sometimes resolves the exclusion-constraint wait with a **deadlock abort (40P01)** instead of 23P01. The concurrency test failed about 1 run in 3, and in production this would have been a 500.
+    - `POST /api/bookings/` now retries once on a deadlock (the retry → 409 or success), and a repeated deadlock → 409.
+    - 2 new tests; the concurrency test's barrier now only waits on the first attempt.
+    - The concurrency tests passed 12/12 runs afterwards, and all 94 backend tests pass.
 
 ---
 

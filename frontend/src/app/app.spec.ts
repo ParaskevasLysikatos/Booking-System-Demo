@@ -26,6 +26,7 @@ describe('App', () => {
     expect(text).toContain('Booking System Demo');
     expect(text).toContain('Log in');
     expect(text).toContain('Sign up');
+    expect(text).not.toContain('My bookings');
   });
 
   it('shows the email and Log out when a session is stored', async () => {
@@ -34,6 +35,7 @@ describe('App', () => {
     await fixture.whenStable();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('maria@example.com');
+    expect(text).toContain('My bookings');
     expect(text).toContain('Log out');
   });
 });

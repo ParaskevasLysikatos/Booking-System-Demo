@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -19,10 +19,19 @@ from .serializers import BookingCreateSerializer, BookingSerializer, BookingStat
 from .stats import compute_stats
 
 EXCLUSION_VIOLATION = "23P01"  # Postgres SQLSTATE for exclusion_violation
+DEADLOCK_DETECTED = "40P01"  # Postgres SQLSTATE for deadlock_detected
 NO_OVERLAP_CONSTRAINT = "booking_no_overlap_per_property"
 
 DATES_TAKEN = "These dates are no longer available for this property."
 DATES_JUST_TAKEN = "These dates were just booked by someone else. Please pick different dates."
+
+
+def is_deadlock(exc):
+    """Two *truly* simultaneous inserts of overlapping bookings can
+    deadlock inside the exclusion-constraint check (each waits for the
+    other's uncommitted row). Postgres then aborts one of them with
+    40P01 instead of 23P01 - the other one wins and commits."""
+    return getattr(getattr(exc, "__cause__", None), "pgcode", None) == DEADLOCK_DETECTED
 
 
 def is_overlap_violation(exc):
@@ -37,9 +46,25 @@ def is_overlap_violation(exc):
 
 
 class BookingFilterSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=Booking.Status.choices, required=False)
+    # One status or a comma list: ?status=pending,confirmed (TICKET-021 -
+    # "Upcoming" in My Bookings = not cancelled).
+    status = serializers.CharField(required=False)
     when = serializers.ChoiceField(choices=["upcoming", "past"], required=False)
     property = serializers.IntegerField(required=False, min_value=1)  # admin only
+    # ?mine=true: only the caller's own bookings - even for an admin (whose
+    # default list is everyone's). Used by My Bookings (TICKET-021).
+    # allow_null so a missing param stays None instead of QueryDict's False.
+    mine = serializers.BooleanField(required=False, allow_null=True, default=None)
+
+    def validate_status(self, value):
+        statuses = [s.strip() for s in value.split(",") if s.strip()]
+        invalid = [s for s in statuses if s not in Booking.Status.values]
+        if not statuses or invalid:
+            raise serializers.ValidationError(
+                f"Unknown status {', '.join(invalid) or repr(value)}. "
+                f"Use one or more of: {', '.join(Booking.Status.values)}."
+            )
+        return statuses
 
 
 class BookingViewSet(
@@ -51,7 +76,8 @@ class BookingViewSet(
     """/api/bookings/ (TICKET-015)
 
     - GET list/detail - guests see only their own bookings (someone else's
-      is a 404), admins see all. Filters: ?status=, ?when=upcoming|past,
+      is a 404), admins see all. Filters: ?status= (one or a comma list),
+      ?when=upcoming|past, ?mine=true (own bookings only, even for admins),
       ?property= (admin only). Paginated.
     - POST            - any logged-in user books for themselves.
     - PATCH           - status only: guest may cancel their own booking
@@ -91,7 +117,9 @@ class BookingViewSet(
         f = params.validated_data
         today = timezone.localdate()
         if f.get("status"):
-            queryset = queryset.filter(status=f["status"])
+            queryset = queryset.filter(status__in=f["status"])
+        if f.get("mine"):
+            queryset = queryset.filter(guest=self.request.user)
         if f.get("when") == "upcoming":
             # Not checked out yet (includes stays in progress), soonest first.
             queryset = queryset.filter(check_out__gt=today).order_by("check_in", "id")
@@ -127,14 +155,27 @@ class BookingViewSet(
         # 2) The real guarantee: the DB exclusion constraint. If another
         #    request committed an overlapping booking between our pre-check
         #    and this insert, Postgres rejects it here -> clean 409, not 500.
-        try:
-            with transaction.atomic():
-                booking = serializer.save()
-        except IntegrityError as exc:
-            if is_overlap_violation(exc):
-                return Response({"detail": DATES_JUST_TAKEN, "code": "dates_unavailable"},
-                                status=status.HTTP_409_CONFLICT)
-            raise
+        #    If both inserts were in flight at the very same moment, Postgres
+        #    may instead abort one with a deadlock error: retry that once -
+        #    by then the winner has committed, so the retry either gets the
+        #    normal exclusion violation (-> 409) or, if the winner rolled
+        #    back, succeeds. A second deadlock is also answered with 409.
+        just_taken = Response({"detail": DATES_JUST_TAKEN, "code": "dates_unavailable"},
+                              status=status.HTTP_409_CONFLICT)
+        for attempt in (1, 2):
+            try:
+                with transaction.atomic():
+                    booking = serializer.save()
+                break
+            except IntegrityError as exc:
+                if is_overlap_violation(exc):
+                    return just_taken
+                raise
+            except OperationalError as exc:
+                if not is_deadlock(exc):
+                    raise
+                if attempt == 2:
+                    return just_taken
         return self._respond(booking, status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
