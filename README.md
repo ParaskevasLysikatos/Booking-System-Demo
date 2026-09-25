@@ -14,8 +14,8 @@ and an availability calendar (TICKET-019), and book it in two steps
 (TICKET-020), then see and cancel their bookings under My bookings
 (TICKET-021). Admins have their own area (TICKET-022 to 025): a
 dashboard, the properties table and form, and every guest's bookings
-with confirm/cancel, which completes Epic 4. The API is ready to deploy to
-Render from `render.yaml` (TICKET-026, see "Deploying to Render"). Epic 2 (the DRF API) is complete: JWT
+with confirm/cancel, which completes Epic 4. The API is live on Render
+at https://booking-demo-api.onrender.com (TICKET-026, see "Deploying to Render"). Epic 2 (the DRF API) is complete: JWT
 authentication (register, login, refresh, "who am I"), the shared admin
 permission classes, and the Properties API (filtered, paginated list,
 detail with availability, admin-only create/edit/soft-delete) and the
@@ -2004,7 +2004,8 @@ past booking, ratings stay in range, `--clear` wipes only seeded data
 ## Deploying to Render
 
 TICKET-026 puts the API (Django + Postgres) online on
-[Render](https://render.com). The whole setup is written down in
+[Render](https://render.com): **https://booking-demo-api.onrender.com**
+(try `/api/health/` or `/api/properties/`). The whole setup is written down in
 `render.yaml` (a Render **Blueprint**), so there's nothing to configure
 by hand except the first click. The Angular site follows in TICKET-027.
 
@@ -2095,6 +2096,11 @@ and `RENDER_EXTERNAL_HOSTNAME` set:
 - the Django Admin CSS came back hashed through WhiteNoise
 - admin login and `/api/admin/stats/` worked
 - a foreign `Host` got a `400`, and HSTS and `nosniff` headers were present
+
+After the real deploy, the same checks passed from a browser against
+https://booking-demo-api.onrender.com: health `connected`, the property
+list and detail, `401` without a token on protected endpoints, no debug
+404 pages, and the Django Admin login page styled.
 
 ### Tests
 
@@ -2206,5 +2212,5 @@ form with amenities checklist and drag & drop photos) and TICKET-025
 badge) are done; see "Admin area", "Admin dashboard", "Admin properties"
 and "Admin bookings". **Epic 4 (the admin area) is complete.** Hosting
 has started: TICKET-026 (the API + Postgres on Render from `render.yaml`)
-is ready; see "Deploying to Render". Next up: the Angular site on Render
+is live at https://booking-demo-api.onrender.com; see "Deploying to Render". Next up: the Angular site on Render
 (TICKET-027).
