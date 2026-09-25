@@ -1,0 +1,36 @@
+# TICKET-028: start this by hand on demo day (GitHub -> Actions -> "Keep demo
+# awake" -> Run workflow, also from the GitHub mobile app). It wakes and
+# checks the hosted demo, then pings the free Render API every 10 minutes so
+# it doesn't fall asleep (it sleeps after 15 idle minutes). Cancel the run to
+# stop early.
+name: Keep demo awake
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: How many hours to keep the API awake
+        type: choice
+        options: ["1", "2", "3", "4", "5"]
+        default: "3"
+
+permissions:
+  contents: read
+
+# Only one keep-awake run at a time; starting a new one replaces the old one.
+concurrency:
+  group: keep-awake
+  cancel-in-progress: true
+
+jobs:
+  keep-awake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330   # 5 h of pings + margin (GitHub's limit is 6 h)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wake up and check the hosted demo
+        run: bash scripts/hosted-check.sh
+      - name: Keep the API awake
+        env:
+          KEEP_AWAKE_MINUTES: ${{ fromJSON(inputs.hours) * 60 }}
+        run: bash scripts/keep-awake.sh

@@ -178,6 +178,8 @@ frontend/
 docker-compose.yml   Wires the four services together
 scripts/hosted-check.sh           Wakes the hosted demo and smoke-checks it (TICKET-028)
 .github/workflows/hosted-check.yml  "Hosted demo check" - runs that script from a Run workflow button
+scripts/keep-awake.sh             Pings the API every 10 minutes for N minutes, so it doesn't fall asleep
+.github/workflows/keep-awake.yml  "Keep demo awake" - the check, then 3 h (1-5 h) of keep-alive pings; started by hand
 docs/booking-demo-qr.png          QR code of the hosted site, for the meetup
 render.yaml          Render Blueprint: free Postgres + the API web service (TICKET-026) + the Angular static site (TICKET-027)
 .python-version      Python version Render uses (3.12, same as the Docker image)
@@ -2236,7 +2238,33 @@ recruiters the **hosted link** to try afterwards.
 - [ ] The backup video (TICKET-039) is on the laptop, in case the laptop
       demo itself has problems.
 
-### A few minutes before showing the hosted link
+### Meetup day: keep it awake for the whole evening
+
+**Around 17:30 on Oct 1: GitHub → Actions → "Keep demo awake" → Run
+workflow** (hours: **3**, the default). This also works in the GitHub
+mobile app. The run:
+
+1. runs the full hosted check first, so the evening starts awake and
+   verified. It fails straight away if something's broken.
+2. then pings the API's health check (which also reaches the database)
+   **every 10 minutes for 3 hours**, i.e. until ~20:30. That's below Render's
+   15-minute sleep timer, so the API never falls asleep and every recruiter
+   who scans the QR code gets an instant page.
+
+Details:
+
+- **Stopping early:** cancel the run on GitHub. **Starting it again**
+  replaces the previous run (`concurrency`), so two never run at once.
+- **If the API stops answering:** each missed ping is a warning in the
+  log. After **3 missed pings in a row** the run fails, and GitHub emails
+  you.
+- **Cost:** free. Public repos get free GitHub Actions minutes, and 3
+  hours is a tiny part of Render's 750 free hours a month.
+- **Tested:** locally with a short window: 1 minute, a ping every 20 s,
+  3 OK pings, then "Kept awake until …". With the API switched off it
+  failed after 3 missed pings.
+
+### A few minutes before showing the hosted link (any other day)
 
 The free API sleeps after 15 minutes without visitors, and the first
 visit then takes about a minute. Wake it up first. Either way works:
