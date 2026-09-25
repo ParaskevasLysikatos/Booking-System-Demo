@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, guestOnlyGuard } from './core/auth/auth.guards';
+import { adminGuard, authGuard, guestOnlyGuard } from './core/auth/auth.guards';
 
 export const routes: Routes = [
   // Listings are the home page (TICKET-018).
@@ -27,6 +27,54 @@ export const routes: Routes = [
     title: 'My bookings · Booking System Demo',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/my-bookings/my-bookings').then((m) => m.MyBookingsPage),
+  },
+  {
+    // Admin area (TICKET-022): one guard for the whole group - logged out ->
+    // login; not an admin -> /forbidden. Navigation only; the API enforces roles.
+    path: 'admin',
+    canActivate: [adminGuard],
+    loadComponent: () => import('./pages/admin/admin-layout').then((m) => m.AdminLayout),
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+      {
+        path: 'dashboard',
+        title: 'Dashboard · Admin · Booking System Demo',
+        loadComponent: () => import('./pages/admin/admin-placeholder').then((m) => m.AdminPlaceholderPage),
+        data: {
+          heading: 'Dashboard',
+          icon: 'dashboard',
+          ticket: 'TICKET-023',
+          description: 'Stat cards for bookings, occupancy and revenue (from /api/admin/stats/).',
+        },
+      },
+      {
+        path: 'properties',
+        title: 'Properties · Admin · Booking System Demo',
+        loadComponent: () => import('./pages/admin/admin-placeholder').then((m) => m.AdminPlaceholderPage),
+        data: {
+          heading: 'Properties',
+          icon: 'holiday_village',
+          ticket: 'TICKET-024',
+          description: 'Create, edit and retire properties (table + form with photos).',
+        },
+      },
+      {
+        path: 'bookings',
+        title: 'Bookings · Admin · Booking System Demo',
+        loadComponent: () => import('./pages/admin/admin-placeholder').then((m) => m.AdminPlaceholderPage),
+        data: {
+          heading: 'Bookings',
+          icon: 'event_note',
+          ticket: 'TICKET-025',
+          description: "All guests' bookings - Upcoming / Past / Cancelled - with Confirm and Cancel.",
+        },
+      },
+    ],
+  },
+  {
+    path: 'forbidden',
+    title: 'Admins only · Booking System Demo',
+    loadComponent: () => import('./pages/forbidden/forbidden').then((m) => m.ForbiddenPage),
   },
   {
     path: 'login',

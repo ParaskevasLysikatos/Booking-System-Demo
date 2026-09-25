@@ -18,34 +18,52 @@
   white-space: nowrap;
 }
 
-.spacer {
-  flex: 1;
+.spacer { flex: 1; }
+
+.links {
+  display: flex;
+  gap: 4px;
+
+  a.active { background: var(--mat-sys-secondary-container); }
 }
 
-.user {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 14px;
-  color: var(--mat-sys-on-surface-variant);
+.account {
+  max-width: 280px;
 
   .email {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 240px;
+    max-width: 200px;
+    display: inline-block;
+    vertical-align: middle;
   }
+  .caret { margin-left: 2px; }
 }
 
-.nav-link.active {
-  background: var(--mat-sys-secondary-container);
+/* Menu content is rendered in an overlay, outside this component. */
+::ng-deep .mat-mdc-menu-panel {
+  .menu-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 16px 12px;
+    font-size: 14px;
+  }
+  .role {
+    align-self: flex-start;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: var(--mat-sys-surface-container-highest);
+    &.admin { background: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container); }
+  }
+  .menu-link { display: none; }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .brand span,
-  .user .email,
-  .nav-link .label {
-    display: none;
-  }
+  .links,
+  .account .email { display: none; }
+  ::ng-deep .mat-mdc-menu-panel .menu-link { display: flex; }
 }

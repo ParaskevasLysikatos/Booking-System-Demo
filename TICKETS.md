@@ -333,10 +333,36 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 
 ## Epic 4 — Frontend: Admin Experience
 
-- [ ] **TICKET-022** — `AdminGuard` + admin route group + role-aware `NavbarComponent`
+- [x] **TICKET-022** — `AdminGuard` + admin route group + role-aware `NavbarComponent`
   - Priority: P0
   - Depends on: TICKET-017
   - Admin routes only reachable by admin accounts; navbar shows the Admin link only when logged in as admin.
+  - Decisions (agreed before building):
+    - a **side-nav admin shell**
+    - a friendly **403 page** for logged-in non-admins
+    - a navbar with **links + an account menu** (email/role + Log out; links move into the menu on phones)
+    - the guard **re-checks `/me/`** on entry
+  - Done:
+    - **`adminGuard`** (`core/auth/auth.guards.ts`):
+      - logged out → login with returnUrl
+      - logged in → `GET /auth/me/` first, so a demotion on the server wins over the cached role; if the server is unreachable, the cached role decides
+      - non-admin → `/forbidden?from=…`
+      - navigation only; the backend 403s remain the real protection
+    - **`/admin` route group** (lazy, guarded once):
+      - `pages/admin/admin-layout.ts`: side nav Dashboard/Properties/Bookings, active item + `aria-current`, Back to site, the admin's email; a top scroll bar on phones
+      - `/admin` → `/admin/dashboard`
+      - `admin-placeholder.ts` pages driven by route data, pointing to TICKET-023/024/025
+    - **`pages/forbidden/`:** "Admins only" + who's logged in, Back to stays, and "Log in as someone else" (logs out and keeps the returnUrl).
+    - **Toolbar:**
+      - My bookings + Admin (admins only), with the active section highlighted
+      - an account button → menu with email, Guest/Admin badge and Log out
+      - follows the `isAdmin` signal live
+      - on phones the links move into the menu
+      - fixed the caret icon position (`iconPositionEnd`)
+    - **Bundle budget:** the `angular.json` initial-bundle warning threshold was raised 500 kB → 700 kB (the Material menu took it to ~523 kB raw / ~127 kB transferred); the error limit stays at 1 MB.
+    - **Tests:** 12 new Vitest tests (112 total), all passing; the production build is clean.
+    - **Checked in Chrome** as the admin: the redirect, the side nav, the active Admin link, the account menu. The guest 403 is covered by tests.
+    - **README:** new "Admin area" section; layout, status and next steps updated.
 
 - [ ] **TICKET-023** — `AdminDashboardComponent` (`/admin/dashboard`)
   - Priority: P1

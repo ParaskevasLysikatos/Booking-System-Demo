@@ -130,7 +130,8 @@ frontend/
   src/environments/environment.ts   apiUrl the frontend calls the backend at
   src/app/
     app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
-    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings (authGuard), /login, /register (lazy)
+    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings (authGuard),
+                                        /admin/** (adminGuard), /forbidden, /login, /register (all lazy)
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
     core/api-errors.ts                  DRF error response -> per-field + general messages for forms
     core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting
@@ -139,9 +140,9 @@ frontend/
                                         stay-rules.ts (shared stay validation messages + picker date filter)
     core/amenities.ts                   Amenity labels + Material icons (cards and detail page)
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
-                                        authGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts (exp reader), models
+                                        authGuard + adminGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts, models
     core/bookings/                      BookingService (create/get/list/cancel), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
-    layout/toolbar/                     Top bar: brand, Log in / Sign up, or My bookings + email + Log out
+    layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
@@ -149,6 +150,8 @@ frontend/
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
     pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog
+    pages/admin/                        Admin shell (side nav) + placeholder pages for dashboard/properties/bookings
+    pages/forbidden/                    403 "Admins only" page
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
 
@@ -1488,6 +1491,91 @@ Also checked in Chrome as the demo admin: only the admin's own booking
 #56 appears (not everyone's), the Past tab is empty, and the cancel
 dialog opens and closes with **Keep booking**, so nothing was cancelled.
 
+## Admin area (Angular)
+
+TICKET-022 adds the admin shell, the guard for it, and a role-aware
+navbar. The admin pages themselves are filled in by TICKET-023 (dashboard),
+TICKET-024 (properties) and TICKET-025 (bookings).
+
+### Routes (`app.routes.ts`)
+
+| URL | Page | Notes |
+| --- | --- | --- |
+| `/admin` | → `/admin/dashboard` | The whole `/admin` group is lazy-loaded and guarded **once** by `adminGuard` |
+| `/admin/dashboard` | placeholder | Stat cards arrive in TICKET-023 (`/api/admin/stats/`) |
+| `/admin/properties` | placeholder | Property table and form in TICKET-024 |
+| `/admin/bookings` | placeholder | All guests' bookings (Upcoming / Past / Cancelled) in TICKET-025 |
+| `/forbidden` | `pages/forbidden/` | The friendly 403 page |
+
+### `adminGuard` (`core/auth/auth.guards.ts`)
+
+- **Logged out** → `/login?returnUrl=/admin/…`, the same as `authGuard`.
+- **Logged in:** before deciding, it **re-reads the user from the
+  server** (`GET /api/auth/me/`). A user demoted since their page loaded
+  is stopped, even though the role cached in their browser still says
+  "admin". If the server can't be reached, it decides on the cached role.
+- **Not an admin** → `/forbidden?from=/admin/…`. That page says "Admins
+  only" and who you're logged in as (e.g. "guest@example.com (guest)").
+  Its buttons are **Back to stays** and **Log in as someone else**, which
+  logs out and then returns to the admin page you wanted after logging
+  in.
+- **This is navigation, not security.** The data is protected by the
+  backend: `IsAdminRole` / `IsAdminOrReadOnly` (checked against the
+  database on every request) return 403. The bookings list is always
+  narrowed to the caller's own bookings for guests. Hiding the Admin
+  link or passing the guard grants nothing on its own.
+
+### Admin layout (`pages/admin/admin-layout.ts`)
+
+- A left **side nav**: Dashboard, Properties, Bookings, with the current
+  page highlighted and marked `aria-current="page"`.
+- **Back to site**, and the admin's email at the bottom.
+- On phones the side nav becomes a scrollable bar across the top.
+
+The three pages are currently one reusable placeholder
+(`admin-placeholder.ts`) that reads its heading and text from route
+`data` and says which ticket fills it in.
+
+### Role-aware navbar (`layout/toolbar/`)
+
+- **Logged out:** Log in / Sign up.
+- **Logged in:**
+  - **My bookings**, plus **Admin** for admins only; the current section
+    is highlighted
+  - an **account button** (icon + email ▾) that opens a menu with your
+    email, a Guest/Admin role badge, and **Log out**
+- The Admin link follows the `AuthService.isAdmin` signal, which is
+  refreshed from `/api/auth/me/` on app start and whenever `adminGuard`
+  runs. A role change on the server shows up without reloading.
+- On phones, the links move into the account menu, and the brand text
+  and email collapse to icons.
+
+### Tests
+
+112 frontend tests (12 new):
+
+- **`adminGuard`:** logged out → login with no API call; an admin
+  confirmed by `/me/` gets in; a guest → `/forbidden?from=…`; cached
+  "admin" but demoted on the server → 403 (the server wins); server
+  unreachable → cached role.
+- **Toolbar:** logged-out links; guest: My bookings only; admin: My
+  bookings + Admin; the Admin link disappears when the role changes;
+  the account menu shows email, role and Log out.
+- **Admin layout:** `/admin` → dashboard, the nav items, the
+  active/`aria-current` state, the child page.
+- **Forbidden page:** shows who's logged in; "Log in as someone else"
+  logs out and keeps the returnUrl.
+
+Also checked in Chrome as the demo admin: `/admin` → Dashboard, the side
+nav, the highlighted Admin link, and the account menu with the Admin
+badge and Log out. The guest-side 403 is covered by the tests; to see it
+yourself, log in as a guest and open `/admin`.
+
+The production bundle-size warning threshold in `angular.json` was
+raised from 500 kB to 700 kB. The toolbar's Material menu pushed the
+initial bundle to about 523 kB (about 127 kB over the wire). The hard
+error limit stays at 1 MB.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -1655,8 +1743,10 @@ gallery, amenities, availability calendar, live availability check,
 Book now) and TICKET-020 (the two-step booking form with confirmation
 screen) and TICKET-021 (My Bookings with tabs and cancelling) are done
 too; see "Property detail page", "Booking form" and "My Bookings page".
-**Epic 3 (the customer experience) is complete.** Next up: the admin
-screens
+**Epic 3 (the customer experience) is complete.** The admin area has
+started: TICKET-022 (the `/admin` shell with side nav, `adminGuard` + 403
+page, role-aware navbar with account menu) is done; see "Admin area".
+Next up: the admin screens that fill it in
 (TICKET-022 onward, with TICKET-023's dashboard reading
 `/api/admin/stats/`). Deploying the backend skeleton to Render
 (TICKET-026) is also due early.

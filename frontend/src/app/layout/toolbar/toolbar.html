@@ -6,14 +6,36 @@
   <span class="spacer"></span>
 
   @if (auth.currentUser(); as user) {
-    <a mat-button routerLink="/my-bookings" routerLinkActive="active" class="nav-link">
-      <mat-icon>luggage</mat-icon><span class="label">My bookings</span>
-    </a>
-    <span class="user" [title]="user.email">
+    <nav class="links" aria-label="Main">
+      <a mat-button routerLink="/my-bookings" routerLinkActive="active" ariaCurrentWhenActive="page">
+        <mat-icon>luggage</mat-icon>My bookings
+      </a>
+      @if (auth.isAdmin()) {
+        <a mat-button routerLink="/admin" routerLinkActive="active" ariaCurrentWhenActive="page" class="admin-link">
+          <mat-icon>admin_panel_settings</mat-icon>Admin
+        </a>
+      }
+    </nav>
+
+    <button mat-stroked-button type="button" class="account" [matMenuTriggerFor]="account" [attr.aria-label]="'Account menu for ' + user.email">
       <mat-icon>account_circle</mat-icon>
       <span class="email">{{ user.email }}</span>
-    </span>
-    <button mat-stroked-button type="button" (click)="auth.logout()">Log out</button>
+      <mat-icon class="caret" iconPositionEnd>expand_more</mat-icon>
+    </button>
+
+    <mat-menu #account="matMenu" xPosition="before">
+      <div class="menu-head" (click)="$event.stopPropagation()">
+        <strong>{{ user.email }}</strong>
+        <span class="role" [class.admin]="auth.isAdmin()">{{ auth.isAdmin() ? 'Admin' : 'Guest' }}</span>
+      </div>
+      <mat-divider />
+      <!-- The main links repeat here for phones, where the inline links are hidden. -->
+      <a mat-menu-item routerLink="/my-bookings" class="menu-link"><mat-icon>luggage</mat-icon>My bookings</a>
+      @if (auth.isAdmin()) {
+        <a mat-menu-item routerLink="/admin" class="menu-link"><mat-icon>admin_panel_settings</mat-icon>Admin</a>
+      }
+      <button mat-menu-item type="button" (click)="auth.logout()"><mat-icon>logout</mat-icon>Log out</button>
+    </mat-menu>
   } @else {
     <a mat-button routerLink="/login">Log in</a>
     <a mat-flat-button routerLink="/register">Sign up</a>
