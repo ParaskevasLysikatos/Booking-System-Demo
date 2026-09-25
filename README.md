@@ -2265,7 +2265,8 @@ The same check runs anywhere with bash, curl and python3:
 addresses). It was tested against a local copy of the production setup
 (gunicorn plus the built site with the same rewrite and headers). It
 passes there, and it fails on the CORS step, with the message above, when
-the site address is wrong.
+the site address is wrong. The first real run on GitHub, against the live
+site, passed all five checks.
 
 ### Dates to remember
 
