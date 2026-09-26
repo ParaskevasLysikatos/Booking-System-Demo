@@ -3015,7 +3015,7 @@ recruiters the **hosted link** to try afterwards.
 
 ### Before leaving home
 
-- [ ] TICKET-041 (simple demo logins) and TICKET-038 (final redeploy +
+- [ ] TICKET-041 (simple demo logins) and TICKET-039 (final redeploy +
       smoke test) are done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -3023,8 +3023,6 @@ recruiters the **hosted link** to try afterwards.
       the admin and once as a guest.
 - [ ] The QR code is ready: `docs/booking-demo-qr.png`, on your phone or
       printed. It opens https://booking-demo-g4aw.onrender.com.
-- [ ] The backup video (TICKET-039) is on the laptop, in case the laptop
-      demo itself has problems.
 
 ### Meetup day: keep it awake for the whole evening
 

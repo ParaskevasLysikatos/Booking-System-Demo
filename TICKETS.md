@@ -8,6 +8,11 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 
 **Status key:** `[x]` done · `[ ]` not started.
 
+**Working order (agreed after TICKET-029):** one ticket at a time, in the
+order they appear in this file - TICKET-040 → 030 → 031 → 032 → 033 → 034 →
+035 → 036 → 037 → 041 → 038 (two languages) → 039 (final redeploy + smoke
+test, always last).
+
 ---
 
 ## Epic 0 — Foundation & Infrastructure
@@ -571,7 +576,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Priority: P0 · Depends on: Epic 3 & 4 complete
 
 - [ ] **TICKET-041** — Simple demo logins in the seeder (admin + guests)
-  - Priority: P0 · Depends on: TICKET-026 · Do before TICKET-038 (requested after TICKET-026)
+  - Priority: P0 · Depends on: TICKET-026 · Do before TICKET-039 (requested after TICKET-026)
   - Goal: logins that are easy to type at the meetup table, for both roles, e.g. `admin@demo.com` / `admin123` and `guest1@demo.com` … `guest10@demo.com` / `guest123` (exact values to agree when the ticket starts).
   - Seeder (`seed_demo_data`): fixed, numbered guest emails instead of Faker usernames (Faker still provides the first/last names); one shared guest password; simple admin email/password. Keep them as constants in one place so the README and the login page hint can't drift.
   - Simple passwords are fine here: the seeder uses `set_password()`, which skips Django's password validators. Registration still enforces them for real sign-ups.
@@ -580,12 +585,22 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
   - Optional: a small "Demo logins" hint on the login page (or the README only), so visitors know which accounts exist.
   - Update the README (Seeding demo data, Deploying to Render → logins) and the tests for `--clear` / `--if-empty`.
 
-- [ ] **TICKET-038** — Final redeploy + smoke test (local + hosted)
-  - Priority: P0 · Depends on: TICKET-026, TICKET-027
+- [ ] **TICKET-038** — Two-language support (English / Greek)
+  - Priority: P2 · Depends on: Epic 3 & 4 complete, TICKET-029 (the payment screens are part of the text to translate)
+  - Moved in from "Explicitly cut" (requested after TICKET-029). Suggested approach, following the build plan's advice ("two JSON label dictionaries rather than full Angular i18n tooling"):
+    - **Runtime switching, one build:** two dictionaries `en.json` / `el.json` + a tiny signal-based `TranslationService` and a `t` pipe - not Angular's build-time i18n (that needs one build and one deployed site per language), and no new npm dependency unless we agree on `ngx-translate`.
+    - **Language toggle** "EN / ΕΛ" in the toolbar; the choice remembered in localStorage (per browser), first visit defaults to the browser's language.
+    - **All UI text** incl. page titles, dialogs, snackbars, empty/error states, the booking policy lines and the payment screens; **dates and money in the chosen locale** (`el-GR`: "Τετ 10 Μαρ 2027", "364,00 €"), and Material's own texts (paginator, date picker, stepper).
+    - **Server messages:** translate by the API's error `code` (e.g. `dates_unavailable`, `payment_window_closed`) on the frontend, falling back to the server's English text; the backend stays English-only.
+    - **Stripe's payment page** in the same language (`locale: "el"` / `"en"` on the Checkout Session).
+    - Out of scope: translating property content (titles/descriptions are entered by the admin in one language) and Django Admin.
+    - Tests: every key exists in both dictionaries (no missing Greek), switching updates the page without a reload, dates/prices formatted per locale.
+  - Decisions to agree when the ticket starts: the approach above vs `ngx-translate`; default language (browser vs always English); whether the server's field-level validation messages need Greek too.
 
-- [ ] **TICKET-039** — Record a backup demo video
-  - Priority: P0
-  - In case live wifi/hosting fails at the meetup table.
+- [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket**
+  - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)
+  - Redeploy both Render services from the final `master`, run the local and hosted smoke tests (the "Payments: business rules & test cases" E2E cases + the TICKET-028 hosted demo check), and tick off the README's "Demo day" checklist.
+  - (The former TICKET-039 "Record a backup demo video" was dropped - decision after TICKET-029.)
 
 ---
 
@@ -594,13 +609,13 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
 Not tickets to plan around — only pick these up if everything above is done
 with time to spare:
 
-- Multi-language (Greek/English) — if attempted at all, two JSON label
-  dictionaries, not full Angular i18n tooling.
+- ~~Multi-language (Greek/English)~~ — now planned as TICKET-038.
 - A true native mobile app — the responsive/PWA work in TICKET-031 already
   covers this need.
 
 ## If a day slips
 
-Trim from the bottom up: Epic 7 first, then Epic 6, then reduce Epic 8 to
-just TICKET-039. Do not cut anything in Epic 0–5 — the core booking flow,
+Trim from the bottom up: Epic 7 first, then Epic 6, then TICKET-038 (two
+languages), then reduce Epic 8 to just TICKET-039 (final redeploy + smoke
+test). Do not cut anything in Epic 0–5 — the core booking flow,
 admin visibility, and a stable public URL are what make the demo credible.
