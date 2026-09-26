@@ -146,6 +146,7 @@ backend/
     admin.py           Read-only Payment / StripeEvent lists (dev-only DB inspection)
     tests.py           Model, settings-check, hold, checkout and webhook tests (Stripe mocked, real signatures)
     migrations/        0001 creates the payments and stripe events tables; 0002 makes the session optional until checkout; 0003 adds the `cancelled` payment status
+    (views.py also serves GET /api/payments/config/ - public: enabled, hold minutes, currency)
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -167,11 +168,14 @@ frontend/
     core/auth/                          AuthService (session signals), authInterceptor (Bearer + refresh-on-401),
                                         authGuard + adminGuard + guestOnlyGuard, TokenStorage (localStorage), jwt.ts, models
     core/bookings/                      BookingService (create/get/list/cancel), models, booking-policy.ts (15:00 check-in, 48h cancel preview)
+    core/payments/                      PaymentService (config, checkout), payment models + labels, countdown clock,
+                                        BrowserRedirect (to Stripe) - TICKET-029
     core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas),
                                         AdminPropertiesService (list all / create / update / retire / reactivate),
                                         AdminBadgesService (pending-bookings count for the side nav)
     core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
+    shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     layout/wake-notice/                 "Waking up the demo server" banner under the toolbar (production only)
@@ -180,7 +184,10 @@ frontend/
                                         calendar, sticky booking panel with live availability + Book now
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
-    pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog
+    pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog,
+                                        payment line per card (countdown + Pay now, paid, refund)
+    pages/payment-return/               /bookings/:id/payment - back from Stripe: confirming (polling), confirmed,
+                                        processing, not completed (countdown, Pay now, Cancel), time ran out
     pages/admin/                        Admin shell (side nav), dashboard/ (stat cards + breakdown table),
                                         properties/ (table + form with amenities picker and drag-drop photos),
                                         bookings/ (every guest's bookings: tabs, filters, confirm/cancel)
@@ -1998,9 +2005,10 @@ Guests pay for a booking with **Stripe Checkout in test mode** (no real
 money - pay with the test card `4242 4242 4242 4242`, any future expiry,
 any CVC). This section grows as the ticket is built in steps; **step 1 (data
 model + settings), step 2 (the payment hold + checkout endpoint), step 3
-(the webhook) and step 4 (stale holds + cancelling with a payment page
-open) are done**; the frontend and the Docker/Render webhook setup come
-next, then end-to-end tests.
+(the webhook), step 4 (stale holds + cancelling with a payment page open)
+and step 5 (the frontend) are done**; the Docker/Render webhook setup comes
+next (step 6), then end-to-end tests (step 7) following "Payments: business
+rules & test cases".
 
 ### How it will work (agreed design)
 
@@ -2282,23 +2290,83 @@ guest could then **pay for a cancelled booking**. So `PATCH
 | Payments switched off since the page was made | Can't reach Stripe at all; the change goes ahead (logged) |
 | Already paid, then cancelled | `200`; the payment stays `paid` - that's the refund case for TICKET-040 |
 
-### Trying it (before the frontend step)
+### `GET /api/payments/config/`
 
-With payments on and the backend restarted, book as a guest (the booking
-form still works as before), then:
+Public, no login: `{"enabled": true, "hold_minutes": 30, "currency": "eur"}`.
+The booking form uses it only for **wording before a booking exists**
+("Confirm and pay", "held for 30 minutes"). What actually happens after
+booking is decided by the booking's own `payment` block, so a stale or
+failed config load can never skip a payment.
 
-```bash
-curl -X POST http://localhost:8000/api/bookings/<id>/checkout/ -H "Authorization: Bearer $TOKEN"
-```
+### Payments in the frontend (Angular)
 
-Open the returned `checkout_url` and pay with `4242 4242 4242 4242`. The
-booking only turns `confirmed` once the webhook reaches the backend - which
-needs the `stripe-cli` forwarder (added with the Docker step). Until then it
-stays `pending` after paying; that's expected.
+**Pieces (`src/app/core/payments/`):** `payment.models.ts` (the `payment`
+block, config, checkout response), `PaymentService` (config loaded once - a
+failed load counts as "off" and is retried next time; `checkout(id)`),
+`countdown.ts` (one ticking clock signal per page, `formatRemaining` →
+"24:13", never showing time that's gone), `payment-labels.ts` (one label per
+payment state, and `refundDue` = paid then cancelled), `BrowserRedirect`
+(leaves for Stripe; replaced in tests). `shared/booking-summary.ts` is the
+booking summary card used after booking, so the payments-off confirmation
+and the paid confirmation look the same ("Paid" instead of "Total", and
+"- full refund" in the policy once paid).
+
+**Booking form, step 2** (`pages/booking/`): with payments on it says
+"You'll pay €X securely on Stripe's payment page. Your dates are held for
+30 minutes…", the policy line adds "- full refund", and the button is
+**Confirm and pay**. Clicking it creates the booking, asks for the payment
+page and sends the browser there ("Taking you to secure payment…"). If the
+page can't be opened, the screen says the dates are held (with the booking
+number and until when) and **Try again only re-asks for the payment page -
+it never creates a second booking**. A booking that comes back without a
+payment (payments off) gets the classic "Booking request sent" screen.
+
+**Return page `/bookings/:id/payment`** (`pages/payment-return/`, login
+required) - where Stripe sends the guest back:
+
+| Arrived with | Booking says | Shows |
+| --- | --- | --- |
+| `?session_id=…` (paid) | still `open` | "Confirming your payment…", re-reading the booking every 2 s, up to 15 times |
+| | `confirmed` + `paid` | "Payment received - you're booked!" + summary |
+| | still `open` after 30 s | "Waiting for confirmation" + Check again (e.g. the webhook forwarder isn't running) |
+| | `processing` | "Your payment is being processed" |
+| `?cancelled=1` (backed out) | `open`, hold running | "Payment not completed", live countdown, **Pay now €X**, **Cancel booking** |
+| | hold at 0:00 | "Time ran out" (the countdown flips it on the spot) + Book again with the same dates |
+| any | `cancelled` (expired / failed) | "Time ran out" / "Payment failed" - "You weren't charged" + Book again |
+| any | `cancelled` after paying | "full refund of €X - the host processes it" |
+| any | no online payment / unknown id | → My bookings / "We couldn't find this booking" |
+
+The page never decides a payment worked - only the booking the API returns
+(confirmed by the webhook) does.
+
+**My Bookings** (`pages/my-bookings/`): each card shows its payment -
+"Awaiting payment · dates held for 24:13" + **Pay now €X** (live, one clock
+for the whole page), "Time to pay ran out - the dates are being released",
+"Payment processing at your bank", "Paid €X", and in the Cancelled tab
+"Time to pay ran out - dates released", "Payment failed", or **"Full refund
+of €X - processed by the host"**. "Waiting for the host to confirm" is only
+for bookings without online payment. The cancel dialog now says what
+happens to the money: full refund / payment page closed / nothing to refund.
+
+**Admin bookings** (`pages/admin/bookings/`): a **Payment** column (Paid,
+Awaiting payment until 14:32, Processing, Expired, Failed, Waived, Not paid,
+**Refund due**, or "—" for bookings without online payment). Confirming an
+unpaid booking warns that it closes the guest's payment page and waives the
+payment; cancelling a paid one reminds you to refund the guest from the
+Stripe Dashboard (until TICKET-040).
+
+### Trying it
+
+With payments on, book as a guest and click **Confirm and pay**; pay with
+`4242 4242 4242 4242`. Locally the booking only turns `confirmed` once the
+webhook reaches the backend, which needs the `stripe-cli` forwarder (added
+with the Docker step) - until then the return page ends at "Waiting for
+confirmation", which is expected. Every rule is listed with a test recipe in
+"Payments: business rules & test cases" below.
 
 ### Tests (so far)
 
-`payments/tests.py` - 69 tests (Stripe is always mocked; the suite never
+`payments/tests.py` - 71 tests (Stripe is always mocked; the suite never
 calls it):
 
 - **Model and settings (16):** cents conversion, one payment per booking,
@@ -2336,6 +2404,7 @@ calls it):
     separate DB connections → the handler runs **exactly once**, one
     `handled`, one `duplicate` (passed 6 runs out of 6)
 
+- **Step 5 (2):** `GET /api/payments/config/` on/off, public, no key.
 - **Step 4 (18):** Adaptive Pricing off in the request; stale holds -
   without a session released with no Stripe call, expired at Stripe →
   released and rebookable, **actually paid → confirmed and keeps its
@@ -2348,7 +2417,140 @@ calls it):
   change never calls Stripe, page opened mid-cancel → `409`, cancelling a
   paid booking keeps the payment, payments switched off.
 
-The full backend suite (172 tests) passes on Postgres.
+The full backend suite (174 tests) passes on Postgres.
+
+**Frontend (33 new Vitest tests, 200 in total, all passing; production
+build clean):** countdown helpers, payment labels, `PaymentService` (config
+cached, failure not cached, checkout POST), the booking form (step 2
+wording, Confirm and pay → one booking → Stripe, Try again reuses the
+booking, double click, payments off), the return page (every phase of
+`phaseFor`, polling until confirmed, giving up after 30 s, processing,
+backed out with countdown + Pay now, the countdown reaching zero, Pay now
+refused, cancel, released/refund states, no payment, not found), My
+Bookings (countdown + Pay now, refused Pay now, stale hold, paid /
+processing / refund / expired / failed lines, the cancel dialog's money
+text) and admin bookings (Payment column chips, the confirm "waived"
+warning, the cancel money note, a "payment just went through" refusal).
+
+## Payments: business rules & test cases (TICKET-029)
+
+Every rule of the booking + payment flow, numbered so each one can be
+tested on its own - by the automated suites, and by hand in the end-to-end
+run (TICKET-029 step 7, locally and on Render). **"Auto"** names the
+automated test that covers it (backend `backend/payments/tests.py` /
+`backend/bookings/tests.py`, frontend `*.spec.ts`). **"E2E"** marks the cases
+to run by hand with real Stripe test payments.
+
+**Stripe test cards** (any future expiry, any CVC, any postcode):
+
+| Card | Behaviour |
+| --- | --- |
+| `4242 4242 4242 4242` | Pays successfully |
+| `4000 0025 0000 3155` | Asks for 3-D Secure authentication first, then pays |
+| `4000 0000 0000 9995` | Declined (insufficient funds) - Stripe shows the error on its page; the session stays open, so the guest can try another card |
+
+Stripe's `stripe-cli` can also end a session on purpose, which is how the
+"time ran out" cases are tested without waiting 30 minutes:
+`docker compose exec stripe-cli stripe checkout sessions expire <cs_test_...>`
+(the session id is in Django Admin → Payments). *(The `stripe-cli`
+service arrives with the Docker step.)*
+
+### 1. Configuration and safety
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| CFG-01 | With no `STRIPE_SECRET_KEY`, payments are **off** and booking works exactly as before | Empty the key, restart, book | `GET /api/payments/config/` → `enabled: false`; booking `payment: null`; form says "Confirm booking"; "Waiting for the host to confirm" | `HoldAtBookingTests.test_payments_off_means_no_hold`, `PaymentsConfigTests.test_off_and_public`, booking.spec "classic confirmation screen" | |
+| CFG-02 | Wrong or dangerous keys stop the app at startup | Put `sk_live_…` / `pk_…` / `whsec_…` in `STRIPE_SECRET_KEY`; `manage.py check` | errors `payments.E002` / `E001` / `E003`; a hold outside 30-1440 min → `E004`; full `sk_test_` key → warning `W001`; no webhook secret → warning `W002` | `StripeSettingsCheckTests` | |
+| CFG-03 | The config endpoint is public and never exposes a key | `GET /api/payments/config/` logged out | `{"enabled", "hold_minutes", "currency"}` only | `PaymentsConfigTests` | |
+| CFG-04 | Guests always pay in **euros** (Adaptive Pricing off), so the checked amount is exact | Inspect the Stripe request | `adaptive_pricing.enabled = false`; currency `eur` | `CheckoutEndpointTests.test_creates_session_with_exact_request` | |
+
+### 2. Booking and the 30-minute hold
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| HOLD-01 | Booking (payments on) creates the booking `pending` **plus** an `open` payment in the same transaction; the hold runs from the moment of booking | Book a stay | payment `open`, amount = total (exact cents), `expires_at` ≈ now + 32 min (30 + 2 min retry slack); no Stripe call yet | `HoldAtBookingTests.test_booking_starts_an_open_hold` | ✓ |
+| HOLD-02 | A booking that loses the double-booking race gets **no** payment | Book overlapping dates | `409`, still one payment | `HoldAtBookingTests.test_losing_the_race_creates_no_payment` | |
+| HOLD-03 | While the hold runs, the dates are **taken** for everyone else | Second guest tries the same dates | `409` "no longer available" | `StaleHoldTests.test_live_hold_is_not_touched` | ✓ |
+| HOLD-04 | Seeded bookings / bookings made while payments were off have **no** payment and keep the manual flow | Look at a seeded booking | `payment: null`; admin Confirm works as before; Payment column shows "—" | `test_bookings_without_a_payment_are_not_payable`, admin spec "Payment column" | ✓ |
+| HOLD-05 | The **price is decided by the server** (nights × nightly price); the guest can't change what Stripe charges | Send a different price / edit the Stripe page | ignored; Stripe charges the stored amount | `CreateBookingTests.test_create_computes_price_and_starts_pending`, exact-request test | |
+
+### 3. The payment page (checkout)
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| CHK-01 | Only the booking's **own guest** can open its payment page | Other guest / admin / logged out call `POST /api/bookings/{id}/checkout/` | `404` / `404` / `401` | `test_only_the_bookings_guest_can_pay` | |
+| CHK-02 | The Stripe request is complete and exact | Inspect it | one line item "Title - N nights", amount in integer cents, `eur`, `booking_id` metadata (session, PaymentIntent, `client_reference_id`), guest email, `expires_at` = hold end, success/cancel URLs to `/bookings/{id}/payment`, **no** `payment_method_types` | `test_creates_session_with_exact_request`, `test_expiry_is_taken_from_stripe` | |
+| CHK-03 | **One payment page per booking**: Pay now returns the same page until the hold ends | Back out on Stripe, press Pay now | same Stripe URL; Stripe was asked once | `test_pay_now_reuses_the_same_page` | ✓ |
+| CHK-04 | A retry after a network error sends Stripe the **identical** request with the same idempotency key `booking-<id>-checkout-<n>` - never a second session | Stripe unreachable, then retry | `502` `payment_provider_error`, then success with identical params/key | `test_retry_after_a_failure_repeats_the_identical_request` | |
+| CHK-05 | A retry later than 2 minutes after a failed first attempt starts attempt 2 with a fresh 30-minute expiry | Make the stored expiry < 30.5 min away with no session | key `…-checkout-2`, `expires_at` ≥ 30 min away | `test_late_retry_starts_a_fresh_attempt` | |
+| CHK-06 | A parallel duplicate click gets a friendly answer | Stripe returns an idempotency conflict | `409` `checkout_in_progress` | `test_parallel_duplicate_gets_a_friendly_409` | |
+| CHK-07 | States that can't be paid are refused with a reason | Try to pay a confirmed / cancelled / paid / processing / expired booking | `409` `already_confirmed` / `booking_cancelled` / `already_paid` / `already_paid` / `payment_window_closed`; no payment → `payment_not_required`; payments off → `503` `payments_disabled` | `test_states_that_cant_be_paid`, `test_bookings_without_a_payment_are_not_payable`, `test_payments_switched_off_at_checkout` | |
+| CHK-08 | A booking cancelled **while** its payment page was being created never keeps a payable page | Cancel during the Stripe call | `409` `booking_cancelled`; the new session is expired immediately | `test_cancelled_while_talking_to_stripe` | |
+
+### 4. What Stripe's webhook does
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| WH-01 | Only events **signed by Stripe** are accepted | Post a fake / tampered / 1-hour-old event | `400`, nothing changes | `WebhookSecurityTests` | |
+| WH-02 | Without a signing secret nothing can be confirmed | Remove the secret | `503` + error log; locally the secret comes from the stripe-cli file | `test_no_secret_configured`, `test_secret_from_the_stripe_cli_file` | |
+| WH-03 | **Paid → booking confirmed** (never by the success page) | Pay with 4242 | payment `paid` (+ `paid_at`, PaymentIntent id), booking `confirmed`, `can_pay` false | `test_paid_confirms_the_booking` | ✓ |
+| WH-04 | Each event is handled **once**, even if delivered twice or twice at the same moment | Resend an event from the Stripe Dashboard | `{"duplicate": true}`, no change | `test_duplicate_delivery_is_handled_once`, `WebhookConcurrencyTests` | ✓ (resend) |
+| WH-05 | Delayed methods (e.g. SEPA): completed-but-unpaid → `processing` (dates stay held); then succeeded → confirmed, or failed → cancelled and dates freed | SEPA test IBAN, if enabled in the Dashboard | as described | `test_delayed_payment_then_success`, `test_delayed_payment_then_failure_frees_the_dates` | |
+| WH-06 | **Time ran out → booking cancelled, dates free** | Let the hold expire (or expire the session via stripe-cli) | payment `expired`, booking `cancelled`, dates bookable again | `test_expired_releases_the_dates` | ✓ |
+| WH-07 | An admin's manual confirm wins over a later expiry | Admin confirms, session expires later | booking stays `confirmed` | `test_expired_after_admin_confirmed_keeps_it_confirmed` | |
+| WH-08 | Money arriving for a booking cancelled meanwhile: booking **stays cancelled**, payment recorded `paid`, "refund due" | (rare race) | warning logged; admin chip "Refund due" | `test_paid_after_cancelled_stays_cancelled_and_is_flagged` | |
+| WH-09 | A different charged amount/currency is **never** confirmed | (can't happen by design) | booking stays `pending`, error logged | `test_amount_mismatch_is_never_confirmed` | |
+| WH-10 | Events for sessions we don't know are ignored (local and Render share one sandbox) | Pay on Render while local stripe-cli runs | local ignores it (`200`), nothing changes | `test_unknown_session_is_ignored`, `test_unrelated_event_types_are_acknowledged_only` | ✓ |
+| WH-11 | A crash while handling rolls everything back so Stripe's retry works | Force an error | `500`, event not marked handled; retry confirms | `test_failure_rolls_back_so_stripe_can_retry` | |
+
+### 5. Holds whose webhook never arrived ("stale holds")
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| STALE-01 | A hold that never reached checkout is released when its time is up and someone books those dates | Book, don't pay, stop stripe-cli, wait 32 min, book the same dates as another guest | `201`; old booking `cancelled`, payment `expired`; Stripe not asked | `test_hold_without_session_is_released_directly` | |
+| STALE-02 | With a payment page: **Stripe is asked first**; expired there → released | as above, after opening the payment page | `201`; old booking released | `test_hold_expired_at_stripe_is_released` | |
+| STALE-03 | Stripe says it **was paid** → the booking is **confirmed and keeps its dates** | Pay at the last second with the webhook down | other guest `409`; booking `confirmed`, `paid` | `test_hold_that_was_actually_paid_keeps_its_dates` | |
+| STALE-04 | Stripe unreachable → nothing is released | | other guest `409`, hold untouched | `test_stripe_unreachable_leaves_the_hold_alone` | |
+| STALE-05 | Pay now on a stale hold tells the truth | Pay now after paying (webhook missed) | `409` `already_confirmed`, booking confirmed | `test_pay_now_on_a_stale_hold_tells_the_truth` | |
+| STALE-06 | `manage.py release_stale_holds` settles all of them at once | Run it | "Settled N stale hold(s)" | `test_management_command_settles_all_stale_holds` | ✓ |
+
+### 6. Cancelling and confirming (with online payments)
+
+The complete guest-vs-admin matrix is in "Bookings API" → "Status changes"
+→ "Every case at a glance". Policy: **guests** cancel free (with a **full
+refund** if paid) until **48 hours before 15:00 on check-in day**, never
+after; **admins** have no deadline; **cancelled is final** for everyone.
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| CAN-01 | Guest cancels while the payment page is open → the page is **closed at Stripe first** | Book, back out of Stripe, Cancel booking | `200`; booking + payment `cancelled`; the old Stripe tab can no longer pay; the later "expired" event changes nothing | `test_guest_cancel_closes_the_payment_page_first` | ✓ |
+| CAN-02 | Admin confirms an unpaid booking → payment page closed, payment **waived** | Admin → Confirm (warning shown) | booking `confirmed`, Payment "Waived" | `test_admin_confirm_by_hand_closes_the_payment_page`, admin spec "warns … waived" | ✓ |
+| CAN-03 | Guest paid a moment before a cancel → refused, and the payment is recorded right away | Pay, then cancel in another tab before the webhook | `409` `payment_completed`; booking `confirmed` | `test_cancel_just_after_the_guest_paid` | |
+| CAN-04 | While a delayed payment is processing nobody can cancel | | `409` `payment_processing`; `can_cancel: false` | `test_no_cancelling_while_a_payment_is_processing` | |
+| CAN-05 | Stripe unreachable with a page open → not cancelled | | `502` `payment_provider_error` | `test_stripe_unreachable_means_no_cancel` | |
+| CAN-06 | Payment page opened during the cancel → retry | | `409` `checkout_just_opened` | `test_payment_page_opened_mid_cancel` | |
+| CAN-07 | No payment page yet → no Stripe call | Book, cancel before paying | `200`, payment `cancelled` | `test_cancel_before_checkout_needs_no_stripe` | |
+| CAN-08 | A change that isn't allowed never touches Stripe | Guest tries to confirm | `400`, Stripe not called | `test_refused_change_never_touches_stripe` | |
+| CAN-09 | **Paid then cancelled** (before the deadline) → payment stays `paid` = **full refund due**; the host refunds from the Stripe Dashboard until TICKET-040 automates it | Pay, then cancel | booking `cancelled`; guest sees "Full refund of €X - processed by the host"; admin chip "Refund due" | `test_cancelling_a_paid_booking_keeps_the_payment`, labels spec | ✓ |
+| CAN-10 | Guest deadline: 48 h before 15:00 check-in; after it only an admin can cancel | Cancel a booking < 48 h away | guest `400` "Online cancellation closed…"; admin `200` | `StatusTransitionTests.test_guest_cancellation_closes_48h_before_check_in` | |
+| CAN-11 | Payments switched off with a page still open → cancel goes ahead | | `200` (logged) | `test_payments_switched_off_with_a_page_open` | |
+
+### 7. Screens (frontend)
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| UI-01 | Step 2 explains the payment before booking | Book → Continue | "Confirm and pay"; "You'll pay €X securely on Stripe…held for 30 minutes…"; "Free cancellation until … - full refund" | booking.spec "step 2 says what will happen" | ✓ |
+| UI-02 | Confirm and pay: one booking → Stripe page | Click (twice) | one `POST /bookings/`, one checkout call, browser on Stripe | booking.spec "Confirm and pay…", "double click" | ✓ |
+| UI-03 | Payment page can't be opened → dates held, **Try again reuses the same booking** | Stripe unreachable | "Your dates are held - payment not started", #id, held until HH:MM; Try again → no second booking | booking.spec "Try again reuses the SAME booking" | |
+| UI-04 | Back from Stripe after paying → "Confirming your payment…" (re-reads every 2 s) → "Payment received - you're booked!" with the summary (Paid, full-refund policy) | Pay with 4242 | as described, usually within seconds | payment-return.spec "after paying…" | ✓ |
+| UI-05 | No confirmation within 30 s → "Waiting for confirmation" + Check again | Pay with stripe-cli stopped | as described; polling stops | payment-return.spec "no confirmation within 30 s" | ✓ |
+| UI-06 | Delayed payment → "Your payment is being processed" | SEPA | as described | payment-return.spec "delayed payment" | |
+| UI-07 | Backed out of Stripe → "Payment not completed", **live countdown**, Pay now €X, Cancel booking; at 0:00 → "Time ran out", Book again (keeps the dates) | Press ← on Stripe's page | as described | payment-return.spec "backed out…", "countdown reaching zero" | ✓ |
+| UI-08 | Pay now / Cancel refused by the server → the reason is shown and the booking reloaded | Pay now after the hold ended | message + new state | payment-return.spec "Pay now refused", my-bookings.spec "Pay now refused" | |
+| UI-09 | Return page for other states | Open `/bookings/{id}/payment` | failed / time ran out / cancelled ("You weren't charged" or "full refund of €X"); booking without payment → My bookings; unknown id → "couldn't find this booking" | payment-return.spec | |
+| UI-10 | My Bookings shows the payment on every card | Open My bookings | Awaiting payment + countdown + Pay now; "Time to pay ran out"; processing; "Paid €X"; Cancelled tab: expired / failed / "Full refund of €X"; "Confirmed by the host" for waived | my-bookings.spec "online payments" | ✓ |
+| UI-11 | The cancel dialog says what happens to the money | Cancel a paid / unpaid-open / no-payment booking | "full refund of €X" / "payment page will be closed" / "nothing to refund" | my-bookings.spec "CancelBookingDialog" | ✓ |
+| UI-12 | Admin bookings: **Payment** column + warnings | Open Admin → Bookings | chips Paid / Awaiting payment (until HH:MM) / Processing / Expired / Failed / Waived / Not paid / **Refund due** / "—"; Confirm on unpaid warns "payment waived"; Cancel on paid reminds to refund in Stripe; server refusals in a snackbar | admin-bookings.spec | ✓ |
 
 ## Django Admin (dev-only)
 
@@ -2841,5 +3043,7 @@ and the meetup plan; see "Demo day". **Epic 6 has started:** TICKET-029
 data model, Stripe settings and startup checks), step 2 (the payment
 hold at booking time and the idempotent checkout endpoint) and step 3 (the
 signed, de-duplicated Stripe webhook that confirms or releases bookings)
-and step 4 (settling holds whose webhook was missed, and closing the
-payment page before a cancel) are done; see "Payments (Stripe)".
+step 4 (settling holds whose webhook was missed, and closing the payment
+page before a cancel) and step 5 (the frontend: Confirm and pay, the return
+page, Pay now with a live countdown, the admin Payment column) are done;
+see "Payments (Stripe)" and "Payments: business rules & test cases".

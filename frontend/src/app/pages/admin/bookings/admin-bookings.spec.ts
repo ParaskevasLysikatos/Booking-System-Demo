@@ -148,4 +148,70 @@ describe('AdminBookingsPage', () => {
     harness.detectChanges();
     expect(text()).toContain('No bookings match.');
   });
+
+  // --- TICKET-029: online payments --------------------------------------
+
+  const paid = (id: number, status: Booking['status'], pay: NonNullable<Booking['payment']>['status']) =>
+    booking(id, {
+      status,
+      payment: { status: pay, amount: '182.00', currency: 'eur', expires_at: new Date(2030, 0, 1, 14, 32).toISOString(), paid_at: null, can_pay: false },
+    });
+  const dialogMessage = () => {
+    const calls = vi.mocked(TestBed.inject(MatDialog).open).mock.calls;
+    return (calls[calls.length - 1][1] as { data: { message: string } }).data.message;
+  };
+
+  it('Payment column: one chip per state, refund due, and a dash for bookings without online payment', async () => {
+    await open();
+    listReq().flush(page([
+      paid(1, 'confirmed', 'paid'),
+      paid(2, 'pending', 'open'),
+      paid(3, 'pending', 'processing'),
+      paid(4, 'confirmed', 'cancelled'),
+      paid(5, 'cancelled', 'paid'),
+      booking(6),
+    ]));
+    harness.detectChanges();
+    const chips = [...harness.routeNativeElement!.querySelectorAll('.chip.pay')].map((c) => c.textContent!.trim());
+    expect(chips).toEqual(['Paid', 'Awaiting payment', 'Processing', 'Waived', 'Refund due']);
+    expect(text()).toContain('Awaiting payment until 14:32');
+    expect(text()).toContain('—');
+  });
+
+  it('confirming an unpaid booking warns that the payment is waived', async () => {
+    const cmp = await open();
+    listReq().flush(page([paid(54, 'pending', 'open')]));
+    answer = false;
+    cmp.confirmBooking(paid(54, 'pending', 'open'));
+    expect(dialogMessage()).toContain("hasn't paid online yet");
+    expect(dialogMessage()).toContain('payment is waived');
+    cmp.confirmBooking(booking(55)); // no online payment: no warning
+    expect(dialogMessage()).not.toContain('waived');
+  });
+
+  it('cancel dialog says what happens to the money', async () => {
+    const cmp = await open();
+    listReq().flush(page([]));
+    answer = false;
+    cmp.cancelBooking(paid(1, 'confirmed', 'paid'));
+    expect(dialogMessage()).toContain('owed a full refund');
+    expect(dialogMessage()).toContain('Stripe dashboard');
+    cmp.cancelBooking(paid(2, 'pending', 'open'));
+    expect(dialogMessage()).toContain('payment page will be closed first');
+    cmp.cancelBooking(booking(3));
+    expect(dialogMessage()).toContain('nothing to refund');
+  });
+
+  it('a server "payment just went through" refusal is shown and the list refreshed', async () => {
+    const cmp = await open();
+    listReq().flush(page([paid(54, 'pending', 'open')]));
+    cmp.cancelBooking(paid(54, 'pending', 'open'));
+    http.expectOne({ url: `${BOOKINGS_URL}54/`, method: 'PATCH' }).flush(
+      { detail: "The payment for this booking has just gone through, so it's now confirmed. Please refresh.", code: 'payment_completed' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    expect(snack.mock.calls[0][0]).toContain('just gone through');
+    listReq().flush(page([paid(54, 'confirmed', 'paid')]));
+    badgeReq().flush(page([], 0));
+  });
 });

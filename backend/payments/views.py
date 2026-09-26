@@ -4,13 +4,26 @@ import stripe
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.conf import settings
+from django.views.decorators.http import require_GET, require_POST
 
 from .models import StripeEvent
-from .stripe_client import webhook_secret
+from .stripe_client import payments_enabled, webhook_secret
 from .webhooks import HANDLED_EVENTS, handle_event
 
 logger = logging.getLogger(__name__)
+
+
+@require_GET
+def payments_config(request):
+    """GET /api/payments/config/ - public: lets the booking form say
+    "Confirm and pay" and "dates held for 30 minutes" before a booking
+    exists. No secrets here (the secret key never leaves the server)."""
+    return JsonResponse({
+        "enabled": payments_enabled(),
+        "hold_minutes": settings.STRIPE_CHECKOUT_HOLD_MINUTES,
+        "currency": settings.PAYMENTS_CURRENCY,
+    })
 
 
 @csrf_exempt

@@ -24,6 +24,8 @@ import { BookingService } from '../../../core/bookings/booking.service';
 import { parseIsoDate, todayLocal } from '../../../core/dates';
 import { formatPrice } from '../../../core/money';
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../../core/properties/property.models';
+import { clockTime } from '../../../core/payments/countdown';
+import { paymentLabel } from '../../../core/payments/payment-labels';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 
 export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled';
@@ -100,7 +102,7 @@ export class AdminBookingsPage {
   private readonly badges = inject(AdminBadgesService);
 
   readonly tabs = ADMIN_BOOKING_TABS;
-  readonly columns = ['ref', 'guest', 'property', 'dates', 'guests', 'total', 'status', 'booked', 'actions'];
+  readonly columns = ['ref', 'guest', 'property', 'dates', 'guests', 'total', 'status', 'payment', 'booked', 'actions'];
   readonly pageSize = DEFAULT_PAGE_SIZE;
   readonly formatPrice = formatPrice;
 
@@ -172,9 +174,14 @@ export class AdminBookingsPage {
   }
 
   confirmBooking(b: Booking): void {
+    // TICKET-029: confirming a booking that is still waiting for the guest's
+    // online payment waives it - the server closes their payment page first.
+    const unpaid = b.payment?.status === 'open'
+      ? ` The guest hasn't paid online yet: confirming closes their payment page, so the payment is waived (e.g. they pay you another way).`
+      : '';
     this.ask({
       title: `Confirm booking #${b.id}?`,
-      message: `${b.property.title}, ${this.range(b)} for ${b.guest_email ?? 'the guest'} (${b.guests} ${b.guests === 1 ? 'guest' : 'guests'}, ${formatPrice(b.total_price)}). The guest will see it as Confirmed.`,
+      message: `${b.property.title}, ${this.range(b)} for ${b.guest_email ?? 'the guest'} (${b.guests} ${b.guests === 1 ? 'guest' : 'guests'}, ${formatPrice(b.total_price)}). The guest will see it as Confirmed.${unpaid}`,
       confirmLabel: 'Confirm booking',
       cancelLabel: 'Not now',
     }).subscribe(() => this.run(b, this.bookings.confirm(b.id), `Booking #${b.id} confirmed.`));
@@ -183,12 +190,27 @@ export class AdminBookingsPage {
   cancelBooking(b: Booking): void {
     this.ask({
       title: `Cancel booking #${b.id}?`,
-      message: `${b.property.title}, ${this.range(b)} for ${b.guest_email ?? 'the guest'}. The dates will be released and this can't be undone. No payment is taken yet, so there's nothing to refund.`,
+      message: `${b.property.title}, ${this.range(b)} for ${b.guest_email ?? 'the guest'}. The dates will be released and this can't be undone. ${this.cancelPaymentNote(b)}`,
       confirmLabel: 'Cancel booking',
       cancelLabel: 'Keep booking',
       danger: true,
     }).subscribe(() => this.run(b, this.bookings.cancel(b.id), `Booking #${b.id} cancelled.`));
   }
+
+  /** What cancelling means for the booking's money (TICKET-029). */
+  private cancelPaymentNote(b: Booking): string {
+    switch (b.payment?.status) {
+      case 'paid':
+        return `The guest paid ${formatPrice(b.payment.amount)} online and is owed a full refund - refund it from the Stripe dashboard (TICKET-040 will automate this).`;
+      case 'open':
+        return "The guest's open payment page will be closed first, so they can't pay for a cancelled booking.";
+      default:
+        return 'No online payment was taken, so there is nothing to refund.';
+    }
+  }
+
+  readonly paymentLabel = paymentLabel;
+  readonly clockTime = clockTime;
 
   // --- display helpers ----------------------------------------------------
 

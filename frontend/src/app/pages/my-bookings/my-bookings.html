@@ -65,14 +65,58 @@
                   <span class="muted-inline">· #{{ b.id }} · booked {{ bookedOn(b.created_at) }}</span>
                 </p>
 
-                @if (b.status === 'pending' && isUpcoming(b)) {
+                @if (b.payment; as pay) {
+                  <!-- Online payment (TICKET-029) -->
+                  @switch (pay.status) {
+                    @case ('open') {
+                      @if (b.status === 'pending' && holdLeft(b) > 0) {
+                        <div class="pay-row">
+                          <p class="pay wait">
+                            <mat-icon>schedule</mat-icon>
+                            <span>Awaiting payment · dates held for <strong class="countdown" role="timer">{{ holdLeftText(b) }}</strong></span>
+                          </p>
+                          @if (pay.can_pay) {
+                            <button mat-flat-button type="button" class="pay-now" (click)="payNow(b)" [disabled]="paying() !== null">
+                              @if (paying() === b.id) { <mat-spinner diameter="18" /> } @else { Pay now {{ formatPrice(pay.amount) }} }
+                            </button>
+                          }
+                        </div>
+                      } @else if (b.status === 'pending') {
+                        <p class="pay muted"><mat-icon>timer_off</mat-icon><span>Time to pay ran out - the dates are being released. You weren't charged.</span></p>
+                      }
+                    }
+                    @case ('processing') {
+                      <p class="pay wait"><mat-icon>hourglass_top</mat-icon><span>Payment processing at your bank - your dates stay held.</span></p>
+                    }
+                    @case ('paid') {
+                      @if (refundDue(b)) {
+                        <p class="pay refund"><mat-icon>currency_exchange</mat-icon><span>Full refund of <strong>{{ formatPrice(pay.amount) }}</strong> - processed by the host.</span></p>
+                      } @else {
+                        <p class="pay ok"><mat-icon>check_circle</mat-icon><span>Paid <strong>{{ formatPrice(pay.amount) }}</strong></span></p>
+                      }
+                    }
+                    @case ('expired') {
+                      <p class="pay muted"><mat-icon>timer_off</mat-icon><span>Time to pay ran out - dates released. You weren't charged.</span></p>
+                    }
+                    @case ('failed') {
+                      <p class="pay muted"><mat-icon>credit_card_off</mat-icon><span>Payment failed - you weren't charged.</span></p>
+                    }
+                    @case ('cancelled') {
+                      @if (b.status === 'confirmed') {
+                        <p class="pay ok"><mat-icon>check_circle</mat-icon><span>Confirmed by the host - nothing to pay online.</span></p>
+                      } @else {
+                        <p class="pay muted"><mat-icon>money_off</mat-icon><span>You weren't charged.</span></p>
+                      }
+                    }
+                  }
+                } @else if (b.status === 'pending' && isUpcoming(b)) {
                   <p class="hint">Waiting for the host to confirm.</p>
                 }
 
                 @if (b.status !== 'cancelled' && isUpcoming(b)) {
                   <div class="actions">
                     @if (b.can_cancel) {
-                      <span class="hint">Free cancellation until <strong>{{ deadline(b.cancel_deadline) }}</strong></span>
+                      <span class="hint">Free cancellation until <strong>{{ deadline(b.cancel_deadline) }}</strong>{{ b.payment?.status === 'paid' ? ' - full refund' : '' }}</span>
                       <button mat-stroked-button type="button" class="cancel" (click)="cancel(b)" [disabled]="cancelling() !== null">
                         @if (cancelling() === b.id) {
                           <mat-spinner diameter="18" />
@@ -80,6 +124,8 @@
                           Cancel booking
                         }
                       </button>
+                    } @else if (b.payment?.status === 'processing') {
+                      <span class="hint">Can be cancelled once the bank has finished processing the payment.</span>
                     } @else {
                       <span class="hint">Can no longer be cancelled online (less than 48 hours before check-in).</span>
                     }

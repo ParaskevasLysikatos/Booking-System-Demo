@@ -88,7 +88,10 @@ dd { margin: 0; text-align: right; }
   text-align: center;
   .big { font-size: 56px; width: 56px; height: 56px; color: #2e7d32; }
   .muted { justify-content: center; }
-  .summary { margin-top: 20px; text-align: left; }
+  .summary { display: block; margin-top: 20px; text-align: left; }
+  .big.warn { color: var(--mat-sys-error); }
+  .big-spinner { margin: 8px auto 0; }
+  .error { color: var(--mat-sys-error); }
   .actions { display: flex; justify-content: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
 }
 

@@ -18,6 +18,10 @@ import { BookingService } from '../../core/bookings/booking.service';
 import { parseIsoDate, todayLocal } from '../../core/dates';
 import { formatPrice } from '../../core/money';
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../core/properties/property.models';
+import { BrowserRedirect } from '../../core/payments/browser-redirect';
+import { clockSignal, clockTime, formatRemaining, remainingMs } from '../../core/payments/countdown';
+import { refundDue } from '../../core/payments/payment-labels';
+import { PaymentService } from '../../core/payments/payment.service';
 import { CancelBookingDialog } from './cancel-dialog';
 
 export type BookingsTab = 'upcoming' | 'past' | 'cancelled';
@@ -56,6 +60,11 @@ export class MyBookingsPage {
   private readonly bookings = inject(BookingService);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly payments = inject(PaymentService);
+  private readonly redirect = inject(BrowserRedirect);
+
+  /** One ticking clock for every hold countdown on the page (TICKET-029). */
+  private readonly clock = clockSignal();
 
   readonly tabs = TABS;
   readonly pageSize = DEFAULT_PAGE_SIZE;
@@ -95,6 +104,8 @@ export class MyBookingsPage {
 
   /** Id of the booking whose cancel request is in flight (disables its button). */
   readonly cancelling = signal<number | null>(null);
+  /** Id of the booking whose "Pay now" is opening Stripe's page. */
+  readonly paying = signal<number | null>(null);
 
   constructor() {
     inject(Title).setTitle('My bookings · Booking System Demo');
@@ -150,6 +161,34 @@ export class MyBookingsPage {
         });
       });
   }
+
+  /** Pay now (TICKET-029): back to the booking's Stripe page while its hold runs. */
+  payNow(booking: Booking): void {
+    if (this.paying() !== null) return;
+    this.paying.set(booking.id);
+    this.payments.checkout(booking.id).subscribe({
+      next: (res) => this.redirect.to(res.checkout_url),
+      error: (err) => {
+        this.paying.set(null);
+        this.snackBar.open(parseApiErrors(err).general ?? "Couldn't open the payment page.", 'OK', { duration: 8000 });
+        this.refresh$.next(); // e.g. it was paid or released meanwhile
+      },
+    });
+  }
+
+  // --- payment display (TICKET-029) ---------------------------------------
+
+  /** Ms left on an unpaid booking's date hold (ticks every second). */
+  holdLeft(b: Booking): number {
+    return b.payment?.status === 'open' ? remainingMs(b.payment.expires_at, this.clock()) : 0;
+  }
+
+  holdLeftText(b: Booking): string {
+    return formatRemaining(this.holdLeft(b));
+  }
+
+  readonly refundDue = refundDue;
+  readonly clockTime = clockTime;
 
   // --- display helpers ----------------------------------------------------
 

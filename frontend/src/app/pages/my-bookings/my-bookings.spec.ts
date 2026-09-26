@@ -159,3 +159,131 @@ describe('MyBookingsPage', () => {
     expect(listReq().request.params.get('page')).toBe('2');
   });
 });
+
+// ---------------------------------------------------------------------------
+// TICKET-029: online payment on the booking cards
+// ---------------------------------------------------------------------------
+
+import { MAT_DIALOG_DATA } from '@angular/material/dialog';
+
+import { BrowserRedirect } from '../../core/payments/browser-redirect';
+import { PaymentStatus } from '../../core/payments/payment.models';
+import { CancelBookingDialog } from './cancel-dialog';
+
+const withPayment = (id: number, status: Booking['status'], pay: PaymentStatus, extra: Partial<NonNullable<Booking['payment']>> = {}) =>
+  booking(id, {
+    status,
+    payment: {
+      status: pay, amount: '182.00', currency: 'eur', expires_at: new Date(Date.now() + 24 * 60_000 + 30_000).toISOString(),
+      paid_at: null, can_pay: pay === 'open' && status === 'pending', ...extra,
+    },
+  });
+
+describe('MyBookingsPage - online payments', () => {
+  let harness: RouterTestingHarness;
+  let http: HttpTestingController;
+  let redirectTo: ReturnType<typeof vi.fn>;
+  let snack: ReturnType<typeof vi.fn>;
+
+  async function open(url = '/my-bookings') {
+    redirectTo = vi.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([{ path: 'my-bookings', component: MyBookingsPage }]),
+        { provide: BrowserRedirect, useValue: { to: redirectTo } },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    snack = vi.fn();
+    vi.spyOn(TestBed.inject(MatSnackBar), 'open').mockImplementation(snack as never);
+    harness = await RouterTestingHarness.create();
+    return harness.navigateByUrl(url, MyBookingsPage);
+  }
+  const listReq = () => http.expectOne((r) => r.url === BOOKINGS_URL && r.method === 'GET');
+  const text = () => (harness.routeNativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+  async function settle() {
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+  }
+
+  it('awaiting payment: live countdown + Pay now -> back to Stripe', async () => {
+    const page = await open();
+    listReq().flush(page_([withPayment(77, 'pending', 'open')]));
+    await settle();
+    expect(text()).toMatch(/Awaiting payment · dates held for 2[34]:\d\d/);
+    expect(text()).not.toContain('Waiting for the host to confirm');
+    expect(text()).toContain('Pay now €182');
+
+    page.payNow(withPayment(77, 'pending', 'open'));
+    page.payNow(withPayment(77, 'pending', 'open')); // double click
+    http.expectOne(`${BOOKINGS_URL}77/checkout/`).flush({ checkout_url: 'https://checkout.stripe.com/c/pay/cs_1', expires_at: '' });
+    expect(redirectTo).toHaveBeenCalledExactlyOnceWith('https://checkout.stripe.com/c/pay/cs_1');
+  });
+
+  it('Pay now refused: the reason in a snackbar, and the list is refreshed', async () => {
+    const page = await open();
+    listReq().flush(page_([withPayment(77, 'pending', 'open')]));
+    page.payNow(withPayment(77, 'pending', 'open'));
+    http.expectOne(`${BOOKINGS_URL}77/checkout/`).flush(
+      { detail: 'This booking has already been paid.', code: 'already_paid' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    expect(snack).toHaveBeenCalledWith('This booking has already been paid.', 'OK', { duration: 8000 });
+    listReq().flush(page_([withPayment(77, 'confirmed', 'paid')]));
+    expect(redirectTo).not.toHaveBeenCalled();
+  });
+
+  it('hold ran out (webhook pending): no Pay now, says the dates are being released', async () => {
+    await open();
+    listReq().flush(page_([withPayment(77, 'pending', 'open', { expires_at: new Date(Date.now() - 1000).toISOString(), can_pay: false })]));
+    await settle();
+    expect(text()).toContain('Time to pay ran out - the dates are being released');
+    expect(text()).not.toContain('Pay now');
+  });
+
+  it('paid, processing, and "full refund" lines', async () => {
+    await open();
+    listReq().flush(page_([
+      withPayment(1, 'confirmed', 'paid'),
+      withPayment(2, 'pending', 'processing', { can_pay: false }),
+    ]));
+    await settle();
+    expect(text()).toContain('Paid €182');
+    expect(text()).toContain('Free cancellation until');
+    expect(text()).toContain('- full refund');
+    expect(text()).toContain('Payment processing at your bank');
+  });
+
+  it('Cancelled tab: expired, failed, and refund due', async () => {
+    await open('/my-bookings?tab=cancelled');
+    listReq().flush(page_([
+      withPayment(1, 'cancelled', 'expired'),
+      withPayment(2, 'cancelled', 'failed'),
+      withPayment(3, 'cancelled', 'paid'),
+    ]));
+    await settle();
+    expect(text()).toContain('Time to pay ran out - dates released');
+    expect(text()).toContain('Payment failed');
+    expect(text()).toContain('Full refund of €182 - processed by the host');
+  });
+});
+
+const page_ = (results: Booking[]) => ({ count: results.length, next: null, previous: null, results });
+
+describe('CancelBookingDialog - what happens to the money', () => {
+  function render(b: Booking): string {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [{ provide: MAT_DIALOG_DATA, useValue: b }] });
+    const fixture = TestBed.createComponent(CancelBookingDialog);
+    fixture.detectChanges();
+    return (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+  }
+
+  it('paid -> full refund; awaiting payment -> page closed; otherwise nothing to refund', () => {
+    expect(render(withPayment(1, 'confirmed', 'paid'))).toContain('full refund of €182');
+    expect(render(withPayment(1, 'pending', 'open'))).toContain('Your payment page will be closed');
+    expect(render(booking(1))).toContain("You haven't been charged");
+  });
+});

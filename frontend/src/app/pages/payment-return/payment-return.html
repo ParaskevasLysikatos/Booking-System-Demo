@@ -1,0 +1,114 @@
+<section class="page">
+  @switch (view()) {
+    @case ('loading') {
+      <div class="message" aria-busy="true"><mat-spinner diameter="36" /></div>
+    }
+
+    @case ('not_found') {
+      <div class="message">
+        <mat-icon>search_off</mat-icon>
+        <p>We couldn't find this booking.</p>
+        <a mat-stroked-button routerLink="/my-bookings">My bookings</a>
+      </div>
+    }
+
+    @case ('error') {
+      <div class="message" role="alert">
+        <mat-icon>cloud_off</mat-icon>
+        <p>Couldn't load your booking.</p>
+        <button mat-stroked-button type="button" (click)="load()">Try again</button>
+      </div>
+    }
+
+    @default {
+      @let b = booking()!;
+      <div class="done">
+        @switch (view()) {
+          @case ('confirming') {
+            <mat-spinner diameter="48" class="big-spinner" />
+            <h1>Confirming your payment…</h1>
+            <p class="lead">This usually takes a few seconds. Please don't close this page.</p>
+          }
+          @case ('confirmed') {
+            <mat-icon class="big ok">task_alt</mat-icon>
+            @if (b.payment?.status === 'paid') {
+              <h1>Payment received - you're booked!</h1>
+              <p class="lead">Reference <strong>#{{ b.id }}</strong> · <span class="pill ok">Confirmed</span></p>
+            } @else {
+              <h1>Your booking is confirmed</h1>
+              <p class="lead">Reference <strong>#{{ b.id }}</strong> · confirmed by the host.</p>
+            }
+          }
+          @case ('processing') {
+            <mat-icon class="big wait">hourglass_top</mat-icon>
+            <h1>Your payment is being processed</h1>
+            <p class="lead">Your bank is still processing the payment. Your dates stay held, and your booking is confirmed as soon as it goes through - we'll show it in My bookings.</p>
+          }
+          @case ('not_yet') {
+            <mat-icon class="big wait">schedule</mat-icon>
+            <h1>Waiting for confirmation</h1>
+            <p class="lead">Stripe hasn't confirmed your payment to us yet. This can take a minute - your booking will show as confirmed in My bookings once it has.</p>
+            <button mat-stroked-button type="button" (click)="load()">Check again</button>
+          }
+          @case ('unpaid') {
+            <mat-icon class="big wait">credit_card_off</mat-icon>
+            <h1>Payment not completed</h1>
+            <p class="lead">
+              Your dates are held for
+              <strong class="countdown" role="timer" aria-live="off">{{ remainingText() }}</strong>
+              (until {{ clockTime(b.payment!.expires_at) }}). Pay now to confirm your booking - after that the dates are released.
+            </p>
+          }
+          @case ('timed_out') {
+            <mat-icon class="big muted-icon">timer_off</mat-icon>
+            <h1>Time ran out</h1>
+            <p class="lead">The time to pay for booking <strong>#{{ b.id }}</strong> has run out, so the dates are being released. You weren't charged.</p>
+          }
+          @case ('released') {
+            <mat-icon class="big muted-icon">event_busy</mat-icon>
+            <h1>{{ b.payment?.status === 'failed' ? 'Payment failed' : 'Time ran out' }}</h1>
+            <p class="lead">
+              @if (b.payment?.status === 'failed') {
+                Your bank declined the payment, so booking <strong>#{{ b.id }}</strong> was cancelled and the dates released. You weren't charged.
+              } @else {
+                The time to pay for booking <strong>#{{ b.id }}</strong> ran out, so it was cancelled and the dates released. You weren't charged.
+              }
+            </p>
+          }
+          @case ('cancelled') {
+            <mat-icon class="big muted-icon">event_busy</mat-icon>
+            <h1>This booking was cancelled</h1>
+            <p class="lead">
+              @if (b.payment?.status === 'paid') {
+                You'll get a full refund of <strong>{{ formatPrice(b.payment!.amount) }}</strong> - the host processes it.
+              } @else {
+                You weren't charged.
+              }
+            </p>
+          }
+        }
+
+        @if (actionError(); as e) {
+          <p class="error" role="alert">{{ e }}</p>
+        }
+
+        <app-booking-summary class="summary" [booking]="b" />
+
+        <div class="actions">
+          @if (view() === 'unpaid' && b.payment?.can_pay) {
+            <button mat-flat-button type="button" (click)="payNow()" [disabled]="busy() !== null">
+              @if (busy() === 'pay') { <mat-spinner diameter="18" /> } @else { Pay now {{ formatPrice(b.payment!.amount) }} }
+            </button>
+            <button mat-stroked-button type="button" class="danger" (click)="cancelBooking()" [disabled]="busy() !== null">
+              @if (busy() === 'cancel') { <mat-spinner diameter="18" /> } @else { Cancel booking }
+            </button>
+          }
+          @if ((view() === 'timed_out' || view() === 'released' || view() === 'cancelled') && bookAgain(); as again) {
+            <a mat-flat-button [routerLink]="again.link" [queryParams]="again.params">Book again</a>
+          }
+          <a mat-stroked-button routerLink="/my-bookings">My bookings</a>
+        </div>
+      </div>
+    }
+  }
+</section>

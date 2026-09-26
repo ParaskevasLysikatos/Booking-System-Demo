@@ -21,40 +21,42 @@
       @let p = property()!;
 
       @if (booking(); as b) {
-        <!-- Confirmation screen, built from the server's response. -->
-        <div class="done">
-          <mat-icon class="big">task_alt</mat-icon>
-          <h1>Booking request sent</h1>
-          <p class="muted">Reference <strong>#{{ b.id }}</strong> · Status <span class="pill">{{ b.status === 'pending' ? 'Pending' : b.status }}</span></p>
-          <p>The host will confirm your stay. You haven't been charged.</p>
-
-          <div class="summary card">
-            <h2>{{ b.property.title }}</h2>
-            <p class="muted">{{ b.property.location }}</p>
-            <dl>
-              <div><dt>Check-in</dt><dd>{{ dateText(b.check_in) }} · from 15:00</dd></div>
-              <div><dt>Check-out</dt><dd>{{ dateText(b.check_out) }}</dd></div>
-              <div><dt>Guests</dt><dd>{{ b.guests }}</dd></div>
-              <div><dt>Nights</dt><dd>{{ b.nights }}</dd></div>
-              <div class="sum"><dt>Total</dt><dd>{{ formatPrice(b.total_price) }}</dd></div>
-            </dl>
-            <p class="policy">
-              <mat-icon>event_available</mat-icon>
-              <span>
-                @if (b.can_cancel) {
-                  Free cancellation until <strong>{{ deadlineText(b.cancel_deadline) }}</strong>.
-                } @else {
-                  Check-in is less than {{ cancellationHours }} hours away, so this booking can't be cancelled online.
-                }
-              </span>
-            </p>
+        @if (awaitingPayment()) {
+          <!-- Booked (dates held) - on the way to Stripe's payment page (TICKET-029). -->
+          <div class="done">
+            @if (redirecting()) {
+              <mat-spinner diameter="48" class="big-spinner" />
+              <h1>Taking you to secure payment…</h1>
+              <p>You'll pay <strong>{{ formatPrice(b.payment!.amount) }}</strong> on Stripe's payment page.</p>
+            } @else {
+              <mat-icon class="big warn">credit_card_off</mat-icon>
+              <h1>Your dates are held - payment not started</h1>
+              @if (checkoutError(); as e) {
+                <p class="error" role="alert">{{ e }}</p>
+              }
+              <p class="muted">Reference <strong>#{{ b.id }}</strong> · held until <strong>{{ clockTime(b.payment!.expires_at) }}</strong></p>
+              <div class="actions">
+                <button mat-flat-button type="button" (click)="goToPayment(b)">Try again</button>
+                <a mat-stroked-button routerLink="/my-bookings">My bookings</a>
+              </div>
+            }
           </div>
+        } @else {
+          <!-- Confirmation screen, built from the server's response. -->
+          <div class="done">
+            <mat-icon class="big">task_alt</mat-icon>
+            <h1>Booking request sent</h1>
+            <p class="muted">Reference <strong>#{{ b.id }}</strong> · Status <span class="pill">{{ b.status === 'pending' ? 'Pending' : b.status }}</span></p>
+            <p>The host will confirm your stay. You haven't been charged.</p>
 
-          <div class="actions">
-            <a mat-flat-button routerLink="/my-bookings">My bookings</a>
-            <a mat-stroked-button routerLink="/listings">Browse more stays</a>
+            <app-booking-summary class="summary" [booking]="b" />
+
+            <div class="actions">
+              <a mat-flat-button routerLink="/my-bookings">My bookings</a>
+              <a mat-stroked-button routerLink="/listings">Browse more stays</a>
+            </div>
           </div>
-        </div>
+        }
       } @else {
         <a mat-button class="back" [routerLink]="['/listings', p.id]" [queryParams]="backParams()"><mat-icon>arrow_back</mat-icon> Back to the stay</a>
         <h1>Book your stay</h1>
@@ -118,20 +120,33 @@
                     <mat-icon>event_available</mat-icon>
                     <span>
                       @if (!d.passed) {
-                        Free cancellation until <strong>{{ d.text }}</strong> ({{ cancellationHours }} hours before check-in). After that, only the host can cancel.
+                        Free cancellation until <strong>{{ d.text }}</strong> ({{ cancellationHours }} hours before check-in){{ paymentsOn() ? ' - full refund' : '' }}. After that, only the host can cancel.
                       } @else {
                         Check-in is less than {{ cancellationHours }} hours away - this booking can't be cancelled online.
                       }
                     </span>
                   </p>
                 }
-                <p class="note">Your booking starts as <strong>pending</strong> until the host confirms it. You won't be charged now.</p>
+                @if (paymentsOn()) {
+                  <p class="policy">
+                    <mat-icon>lock</mat-icon>
+                    <span>
+                      You'll pay <strong>{{ total() }}</strong> securely on Stripe's payment page. Your dates are held for
+                      {{ holdMinutes() }} minutes while you pay - if you don't finish, they're released. Your booking is
+                      confirmed as soon as the payment goes through.
+                    </span>
+                  </p>
+                } @else {
+                  <p class="note">Your booking starts as <strong>pending</strong> until the host confirms it. You won't be charged now.</p>
+                }
               }
               <div class="step-actions">
                 <button mat-button type="button" matStepperPrevious [disabled]="submitting()">Back</button>
                 <button mat-flat-button type="button" class="confirm" (click)="confirm()" [disabled]="submitting() || !tripReady()">
                   @if (submitting()) {
                     <mat-spinner diameter="20" />
+                  } @else if (paymentsOn()) {
+                    Confirm and pay
                   } @else {
                     Confirm booking
                   }

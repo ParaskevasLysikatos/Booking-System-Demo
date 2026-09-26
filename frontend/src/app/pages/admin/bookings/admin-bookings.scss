@@ -17,6 +17,11 @@ td a { color: inherit; }
 .chip.confirmed { background: #e8f5e9; color: #1b5e20; }
 .chip.cancelled { background: var(--mat-sys-surface-container-highest); color: var(--mat-sys-on-surface-variant); }
 .chip.ongoing { margin-left: 6px; background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container); }
+/* Payment chips (TICKET-029) */
+.chip.pay.ok { background: #e8f5e9; color: #1b5e20; }
+.chip.pay.wait { background: #fff3e0; color: #8a4b00; }
+.chip.pay.bad { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+.chip.pay.muted { background: var(--mat-sys-surface-container-highest); color: var(--mat-sys-on-surface-variant); }
 .pending-row { background: color-mix(in srgb, #fff3e0 45%, transparent); }
 
 .actions { text-align: right; }

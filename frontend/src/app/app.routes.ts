@@ -24,6 +24,13 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/booking/booking').then((m) => m.BookingFormPage),
   },
   {
+    // Where Stripe sends the guest back after paying (?session_id=...) or
+    // backing out (?cancelled=1) - TICKET-029. Title set by the page.
+    path: 'bookings/:id/payment',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/payment-return/payment-return').then((m) => m.PaymentReturnPage),
+  },
+  {
     path: 'my-bookings',
     title: 'My bookings · Booking System Demo',
     canActivate: [authGuard],

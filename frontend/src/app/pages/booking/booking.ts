@@ -25,6 +25,10 @@ import { BookedNights } from '../../core/properties/availability';
 import { MAX_DAYS_AHEAD, PropertyDetail } from '../../core/properties/property.models';
 import { PropertyService } from '../../core/properties/property.service';
 import { stayDateFilter, stayProblem } from '../../core/properties/stay-rules';
+import { BrowserRedirect } from '../../core/payments/browser-redirect';
+import { clockTime } from '../../core/payments/countdown';
+import { PaymentService } from '../../core/payments/payment.service';
+import { BookingSummary } from '../../shared/booking-summary';
 
 type LoadStatus = 'loading' | 'ok' | 'unavailable' | 'error';
 export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'error';
@@ -40,10 +44,16 @@ function humanize(message: string): string {
  *   2. Review & confirm: summary, cancellation policy, Confirm booking.
  * Then a confirmation screen built from the server's response.
  * Guarded by authGuard (login first, then back here with the stay kept).
+ *
+ * With online payments on (TICKET-029) step 2 says "Confirm and pay": the
+ * booking is created (holding the dates), then the browser goes to Stripe's
+ * payment page. If opening that page fails, "Try again" reuses the booking
+ * that already exists - it never creates a second one.
  */
 @Component({
   selector: 'app-booking',
   imports: [
+    BookingSummary,
     ReactiveFormsModule,
     RouterLink,
     MatButtonModule,
@@ -65,6 +75,8 @@ export class BookingFormPage {
   private readonly properties = inject(PropertyService);
   private readonly bookings = inject(BookingService);
   private readonly titleService = inject(Title);
+  private readonly payments = inject(PaymentService);
+  private readonly redirect = inject(BrowserRedirect);
 
   readonly stepper = viewChild(MatStepper);
 
@@ -133,11 +145,23 @@ export class BookingFormPage {
     () => !!this.property()?.is_active && !this.dateProblem() && !!this.checkIn() && this.availability() === 'available',
   );
 
+  // --- online payment (TICKET-029) -----------------------------------------
+
+  /** Only for wording before booking; what happens after is decided by the booking's own `payment`. */
+  readonly paymentsConfig = toSignal(this.payments.config(), { initialValue: null });
+  readonly paymentsOn = computed(() => this.paymentsConfig()?.enabled === true);
+  readonly holdMinutes = computed(() => this.paymentsConfig()?.hold_minutes ?? 30);
+
   // --- submitting ---------------------------------------------------------
 
   readonly submitting = signal(false);
   readonly submitError = signal<string | null>(null);
   readonly booking = signal<Booking | null>(null);
+
+  /** Created, holding its dates, but not paid yet (we're sending the guest to Stripe). */
+  readonly awaitingPayment = computed(() => this.booking()?.payment?.status === 'open');
+  readonly redirecting = signal(false);
+  readonly checkoutError = signal<string | null>(null);
 
   constructor() {
     this.titleService.setTitle('Book your stay · Booking System Demo');
@@ -216,6 +240,13 @@ export class BookingFormPage {
   }
 
   confirm(): void {
+    // Already booked and waiting for payment: only (re)open the payment page -
+    // never a second booking.
+    const existing = this.booking();
+    if (existing) {
+      if (this.awaitingPayment()) this.goToPayment(existing);
+      return;
+    }
     const p = this.property();
     const a = this.checkIn();
     const b = this.checkOut();
@@ -230,8 +261,13 @@ export class BookingFormPage {
         next: (booking) => {
           this.submitting.set(false);
           this.booking.set(booking);
-          this.titleService.setTitle('Booking request sent · Booking System Demo');
           window.scrollTo?.({ top: 0, behavior: 'smooth' });
+          if (booking.payment?.status === 'open') {
+            this.titleService.setTitle('Secure payment · Booking System Demo');
+            this.goToPayment(booking);
+          } else {
+            this.titleService.setTitle('Booking request sent · Booking System Demo');
+          }
         },
         error: (err) => {
           this.submitting.set(false);
@@ -251,6 +287,26 @@ export class BookingFormPage {
       });
   }
 
+  /**
+   * Ask the server for the booking's Stripe payment page and leave for it.
+   * Safe to repeat (the server hands back the same page), and guarded so a
+   * double click sends one request.
+   */
+  goToPayment(booking: Booking): void {
+    if (this.redirecting()) return;
+    this.redirecting.set(true);
+    this.checkoutError.set(null);
+    this.payments.checkout(booking.id).subscribe({
+      next: (res) => this.redirect.to(res.checkout_url), // stays "redirecting" while the browser leaves
+      error: (err) => {
+        this.redirecting.set(false);
+        this.checkoutError.set(parseApiErrors(err).general ?? "We couldn't open the payment page. Please try again.");
+      },
+    });
+  }
+
+  clockTime = clockTime;
+
   /** "Back to the stay" keeps the chosen dates/guests. */
   readonly backParams = computed(() => {
     const a = this.checkIn();
@@ -259,9 +315,6 @@ export class BookingFormPage {
   });
 
   formatPrice = formatPrice;
-  deadlineText(iso: string): string {
-    return formatDeadline(new Date(iso));
-  }
   dateText(iso: string | Date): string {
     const d = typeof iso === 'string' ? parseIsoDate(iso)! : iso;
     return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });

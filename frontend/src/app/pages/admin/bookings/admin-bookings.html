@@ -80,6 +80,19 @@
             <th mat-header-cell *matHeaderCellDef>Status</th>
             <td mat-cell *matCellDef="let b"><span class="chip" [class]="b.status">{{ label(b.status) }}</span></td>
           </ng-container>
+          <ng-container matColumnDef="payment">
+            <th mat-header-cell *matHeaderCellDef>Payment</th>
+            <td mat-cell *matCellDef="let b">
+              @if (paymentLabel(b); as pl) {
+                <span class="chip pay" [class]="pl.tone">{{ pl.text }}</span>
+                @if (b.payment.status === 'open' && b.status === 'pending') {
+                  <span class="muted"> until {{ clockTime(b.payment.expires_at) }}</span>
+                }
+              } @else {
+                <span class="muted" matTooltip="No online payment (seeded, or booked while payments were off)">—</span>
+              }
+            </td>
+          </ng-container>
           <ng-container matColumnDef="booked">
             <th mat-header-cell *matHeaderCellDef>Booked</th>
             <td mat-cell *matCellDef="let b" class="muted">{{ bookedOn(b.created_at) }}</td>

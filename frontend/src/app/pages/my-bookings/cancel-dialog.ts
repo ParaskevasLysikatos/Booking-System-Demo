@@ -22,7 +22,12 @@ import { formatPrice } from '../../core/money';
       <p class="muted">
         <mat-icon>info</mat-icon>
         <span>This can't be undone - to go back you'd need to book again (if the dates are still free).
-          Payments aren't taken yet, so there's nothing to refund.</span>
+          @switch (b.payment?.status) {
+            @case ('paid') { You'll get a <strong>full refund of {{ paid }}</strong> - the host processes it. }
+            @case ('open') { Your payment page will be closed, and you won't be charged. }
+            @default { You haven't been charged, so there's nothing to refund. }
+          }
+        </span>
       </p>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
@@ -39,6 +44,7 @@ import { formatPrice } from '../../core/money';
 export class CancelBookingDialog {
   readonly b = inject<Booking>(MAT_DIALOG_DATA);
   readonly total = formatPrice(this.b.total_price);
+  readonly paid = formatPrice(this.b.payment?.amount ?? this.b.total_price);
 
   date(iso: string): string {
     return parseIsoDate(iso)!.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });

@@ -858,3 +858,18 @@ class StatusChangeWithPaymentTests(WebhookFixtures, APITestCase):
             res = self.patch("cancelled")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(self.state(), ("cancelled", "cancelled"))
+
+
+
+class PaymentsConfigTests(APITestCase):
+    @override_settings(**PAYMENTS_ON)
+    def test_on(self):
+        res = self.client.get(reverse("payments-config"))
+        self.assertEqual(res.json(), {"enabled": True, "hold_minutes": 30, "currency": "eur"})
+        self.assertNotIn("rk_test", res.content.decode())  # never leaks a key
+
+    @override_settings(PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY="")
+    def test_off_and_public(self):
+        res = self.client.get(reverse("payments-config"))  # no login needed
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.json()["enabled"])

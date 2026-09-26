@@ -1,5 +1,7 @@
 /** Shapes of the Bookings API (backend bookings/serializers.py). */
 
+import { PaymentSummary } from '../payments/payment.models';
+
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
 
 export interface BookingPropertySummary {
@@ -22,6 +24,8 @@ export interface Booking {
   status: BookingStatus;
   can_cancel: boolean;
   cancel_deadline: string; // ISO datetime, local time with offset
+  /** Online payment (TICKET-029); null/absent = this booking doesn't take online payment. */
+  payment?: PaymentSummary | null;
   guest_email: string | null; // admins only
   created_at: string;
 }

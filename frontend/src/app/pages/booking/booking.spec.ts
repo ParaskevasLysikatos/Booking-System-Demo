@@ -155,3 +155,117 @@ describe('BookingFormPage', () => {
     expect(TestBed.inject(Router).url).toBe('/listings');
   });
 });
+
+// ---------------------------------------------------------------------------
+// TICKET-029: Confirm and pay
+// ---------------------------------------------------------------------------
+
+import { BrowserRedirect } from '../../core/payments/browser-redirect';
+import { PAYMENTS_URL } from '../../core/payments/payment.service';
+
+describe('BookingFormPage with online payments', () => {
+  let harness: RouterTestingHarness;
+  let http: HttpTestingController;
+  let redirectTo: ReturnType<typeof vi.fn>;
+
+  const holdEnds = new Date(Date.now() + 31 * 60_000).toISOString();
+  const createdAwaitingPayment: Booking = {
+    ...created,
+    payment: { status: 'open', amount: '182.00', currency: 'eur', expires_at: holdEnds, paid_at: null, can_pay: true },
+  };
+
+  const text = () => (harness.routeNativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+  async function settle() {
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+  }
+
+  async function ready(enabled = true): Promise<BookingFormPage> {
+    localStorage.clear();
+    redirectTo = vi.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([{ path: 'booking/:propertyId', component: BookingFormPage }]),
+        { provide: BrowserRedirect, useValue: { to: redirectTo } },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    harness = await RouterTestingHarness.create();
+    const page = await harness.navigateByUrl(`/booking/5?check_in=${day(10)}&check_out=${day(12)}&guests=2`, BookingFormPage);
+    http.expectOne(`${PAYMENTS_URL}config/`).flush({ enabled, hold_minutes: 30, currency: 'eur' });
+    http.expectOne((r) => r.url === `${PROPERTIES_URL}5/` && !r.params.has('check_in')).flush(property());
+    await settle();
+    http.expectOne((r) => r.url === `${PROPERTIES_URL}5/` && r.params.has('check_in'))
+      .flush(property({ availability: { booked_ranges: [], is_available: true } }));
+    await settle();
+    return page;
+  }
+
+  const checkoutUrl = `${BOOKINGS_URL}77/checkout/`;
+
+  it('step 2 says what will happen: pay on Stripe, dates held 30 minutes, full refund policy', async () => {
+    const page = await ready();
+    page.stepper()!.next();
+    await settle();
+    expect(page.paymentsOn()).toBe(true);
+    expect(text()).toContain('Confirm and pay');
+    expect(text()).toContain("You'll pay €182 securely on Stripe's payment page");
+    expect(text()).toContain('held for 30 minutes');
+    expect(text()).toContain('full refund');
+    expect(text()).not.toContain("You won't be charged now");
+  });
+
+  it('Confirm and pay: one booking, then the Stripe page, then the browser leaves', async () => {
+    const page = await ready();
+    page.confirm();
+    http.expectOne(BOOKINGS_URL).flush(createdAwaitingPayment, { status: 201, statusText: 'Created' });
+    await settle();
+    expect(page.redirecting()).toBe(true);
+    expect(text()).toContain('Taking you to secure payment');
+    const checkout = http.expectOne(checkoutUrl);
+    expect(checkout.request.method).toBe('POST');
+    checkout.flush({ checkout_url: 'https://checkout.stripe.com/c/pay/cs_test_1', expires_at: holdEnds });
+    expect(redirectTo).toHaveBeenCalledExactlyOnceWith('https://checkout.stripe.com/c/pay/cs_test_1');
+  });
+
+  it("if the payment page can't be opened, Try again reuses the SAME booking", async () => {
+    const page = await ready();
+    page.confirm();
+    http.expectOne(BOOKINGS_URL).flush(createdAwaitingPayment, { status: 201, statusText: 'Created' });
+    http.expectOne(checkoutUrl).flush(
+      { detail: "We couldn't reach the payment provider. Please try again.", code: 'payment_provider_error' },
+      { status: 502, statusText: 'Bad Gateway' },
+    );
+    await settle();
+    expect(page.checkoutError()).toContain("couldn't reach the payment provider");
+    expect(text()).toContain('Your dates are held - payment not started');
+    expect(text()).toContain('#77');
+
+    page.confirm(); // same as clicking Try again
+    http.expectNone(BOOKINGS_URL); // no second booking
+    http.expectOne(checkoutUrl).flush({ checkout_url: 'https://checkout.stripe.com/c/pay/cs_test_1', expires_at: holdEnds });
+    expect(redirectTo).toHaveBeenCalledOnce();
+  });
+
+  it('a double click while opening the payment page sends one request', async () => {
+    const page = await ready();
+    page.confirm();
+    http.expectOne(BOOKINGS_URL).flush(createdAwaitingPayment, { status: 201, statusText: 'Created' });
+    page.goToPayment(createdAwaitingPayment);
+    page.goToPayment(createdAwaitingPayment);
+    expect(http.match(checkoutUrl).length).toBe(1);
+  });
+
+  it('a booking without online payment still gets the classic confirmation screen', async () => {
+    const page = await ready(false);
+    page.confirm();
+    http.expectOne(BOOKINGS_URL).flush({ ...created, payment: null }, { status: 201, statusText: 'Created' });
+    await settle();
+    expect(text()).toContain('Booking request sent');
+    expect(text()).toContain("You haven't been charged");
+    http.expectNone(checkoutUrl);
+    expect(redirectTo).not.toHaveBeenCalled();
+  });
+});
