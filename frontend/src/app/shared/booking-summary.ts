@@ -27,16 +27,21 @@ import { formatPrice } from '../core/money';
         <div><dt>Nights</dt><dd>{{ b.nights }}</dd></div>
         <div class="sum"><dt>{{ paid() ? 'Paid' : 'Total' }}</dt><dd>{{ total() }}</dd></div>
       </dl>
-      <p class="policy">
-        <mat-icon>event_available</mat-icon>
-        <span>
-          @if (b.can_cancel) {
-            Free cancellation until <strong>{{ deadline() }}</strong>{{ paid() ? ' - full refund.' : '.' }}
-          } @else {
-            Check-in is less than {{ hours }} hours away, so this booking can't be cancelled online.
-          }
-        </span>
-      </p>
+      <!-- The cancellation policy only means something while the booking is
+           still active (found in the TICKET-029 end-to-end run: a cancelled
+           booking used to say "can't be cancelled online"). -->
+      @if (b.status !== 'cancelled') {
+        <p class="policy">
+          <mat-icon>event_available</mat-icon>
+          <span>
+            @if (b.can_cancel) {
+              Free cancellation until <strong>{{ deadline() }}</strong>{{ paid() ? ' - full refund.' : '.' }}
+            } @else {
+              Check-in is less than {{ hours }} hours away, so this booking can't be cancelled online.
+            }
+          </span>
+        </p>
+      }
     </div>
   `,
   styles: `

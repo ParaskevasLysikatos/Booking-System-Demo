@@ -2012,8 +2012,8 @@ any CVC). This section grows as the ticket is built in steps; **step 1 (data
 model + settings), step 2 (the payment hold + checkout endpoint), step 3
 (the webhook), step 4 (stale holds + cancelling with a payment page open),
 step 5 (the frontend) and step 6 (webhook forwarding in Docker + the Render
-setup) are done**; end-to-end tests (step 7) follow "Payments: business
-rules & test cases".
+setup) are done, and the local end-to-end run (step 7) passed** - see "End-to-end
+results - local". The same run on Render follows once it's deployed.
 
 ### How it will work (agreed design)
 
@@ -2658,6 +2658,40 @@ after; **admins** have no deadline; **cancelled is final** for everyone.
 | UI-10 | My Bookings shows the payment on every card | Open My bookings | Awaiting payment + countdown + Pay now; "Time to pay ran out"; processing; "Paid €X"; Cancelled tab: expired / failed / "Full refund of €X"; "Confirmed by the host" for waived | my-bookings.spec "online payments" | ✓ |
 | UI-11 | The cancel dialog says what happens to the money | Cancel a paid / unpaid-open / no-payment booking | "full refund of €X" / "payment page will be closed" / "nothing to refund" | my-bookings.spec "CancelBookingDialog" | ✓ |
 | UI-12 | Admin bookings: **Payment** column + warnings | Open Admin → Bookings | chips Paid / Awaiting payment (until HH:MM) / Processing / Expired / Failed / Waived / Not paid / **Refund due** / "—"; Confirm on unpaid warns "payment waived"; Cancel on paid reminds to refund in Stripe; server refusals in a snackbar | admin-bookings.spec | ✓ |
+
+### End-to-end results - local (26 Sep 2026)
+
+Run by hand in Chrome against the Docker setup (`stripe-cli` forwarding
+webhooks), with Stripe test cards, as seeded guest `guest_4_rick71` and the
+demo admin. **All passed**; the two issues found are fixed (below).
+
+| Round | What we did | Cases | Result |
+| --- | --- | --- | --- |
+| 1 | Booked a stay, **Confirm and pay** (clicked twice), paid with 4242 | UI-01, UI-02, HOLD-01, CFG-05, UI-04, WH-03 | ✅ One booking (#58); Stripe page €364.00 with the email pre-filled; back → "Confirming…" → **"Payment received - you're booked!"**, Paid €364, full-refund policy |
+| 2 | Checked the dates of a running hold | HOLD-03 | ✅ API reports them taken (`is_available: false`) |
+| 3 | Backed out on Stripe (←), then **Pay now** (from the return page and from My Bookings) | UI-07, CHK-03, UI-10 | ✅ "Payment not completed" with a live countdown; Pay now opened the **same** Checkout Session every time |
+| 4 | Cancelled a booking whose Stripe page was still open | CAN-01, UI-11 | ✅ Dialog "Your payment page will be closed"; the old Stripe link now says "You're all done here… timed out"; Stripe's later `expired` event changed nothing |
+| 5 | Admin confirmed an unpaid booking (#62) | CAN-02, UI-12 | ✅ Warning "…the payment is waived"; row **Confirmed · Waived**; the guest's Stripe link can no longer pay |
+| 6 | Guest cancelled the **paid** booking #58 | CAN-09, UI-10, UI-11, UI-12 | ✅ Dialog "full refund of €364"; Cancelled tab "Full refund of €364 - processed by the host"; admin chip **Refund due** |
+| 7 | `stripe checkout sessions expire …` on an open hold (#63) | WH-06 | ✅ `checkout.session.expired` → `[200]`; **Cancelled · Expired**, dates free |
+| 8 | `stripe events resend` of that same event | WH-04 | ✅ Delivered again (`[200]`), nothing changed |
+| 9a | *Unplanned:* the computer slept for hours with two holds open (#60, #61); their `expired` events were never forwarded | STALE-02, STALE-06 | ✅ Still `pending` afterwards (as expected); `manage.py release_stale_holds` → "Settled 2 stale hold(s)" after asking Stripe → **Cancelled · Expired** |
+| 9b | Stopped `stripe-cli`, paid #65 with 4242 | UI-05 | ✅ "Confirming…" for 30 s, then **"Waiting for confirmation"** + Check again - the booking stayed `pending` (the browser is never trusted) |
+| 9c | Started `stripe-cli`, re-sent the missed `checkout.session.completed` | WH-03, WH-04 | ✅ `[200]`; Check again → "Payment received - you're booked!" |
+| 10 | Declined card `4000 0000 0000 9995`, then 3-D Secure card `4000 0025 0000 3155` on the same page | - | ✅ Stripe showed "declined - insufficient funds" and kept the page payable; the 3-D Secure test challenge → *Complete* → #64 confirmed |
+
+**Found and fixed during the run:**
+
+- A **cancelled** booking's summary card still said "Check-in is less than
+  48 hours away, so this booking can't be cancelled online". The
+  cancellation policy line is now hidden for cancelled bookings
+  (`shared/booking-summary.ts`, new `booking-summary.spec.ts`).
+- The countdown starts at about 31-32 minutes (the hold includes 2 minutes
+  of retry slack) while step 2 said "held for 30 minutes" - it now says
+  "held for **about** 30 minutes".
+- Environment finding: the Stripe sandbox had **Managed Payments** on by
+  default, which broke `stripe trigger`; our sessions now always turn it off
+  (CFG-05) and it was switched off in the Dashboard too.
 
 ## Django Admin (dev-only)
 

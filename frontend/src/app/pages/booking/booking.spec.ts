@@ -212,7 +212,7 @@ describe('BookingFormPage with online payments', () => {
     expect(page.paymentsOn()).toBe(true);
     expect(text()).toContain('Confirm and pay');
     expect(text()).toContain("You'll pay €182 securely on Stripe's payment page");
-    expect(text()).toContain('held for 30 minutes');
+    expect(text()).toContain('held for about 30 minutes');
     expect(text()).toContain('full refund');
     expect(text()).not.toContain("You won't be charged now");
   });
