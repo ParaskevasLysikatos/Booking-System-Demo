@@ -2138,7 +2138,14 @@ step), and `integration_identifier` to tag our sessions in the Dashboard.
 to offer, configured in the Dashboard. **Adaptive Pricing is switched off**
 (`adaptive_pricing.enabled=false`) whatever the Dashboard default: every
 guest pays in euros, so the amount and currency the webhook checks are
-exactly what we asked for.
+exactly what we asked for. **Managed Payments is switched off** too
+(`managed_payments.enabled=false`): that's Stripe acting as *merchant of
+record* (Stripe becomes the seller and handles tax, for an extra 3.5% per
+payment), but only for **digital products** - an apartment stay isn't
+eligible, and the tax it adds would make the paid total differ from the
+booking price, so the webhook would rightly refuse to confirm it. New Stripe
+accounts can have it on by default (Stripe Dashboard → Settings → Managed
+Payments); our sessions never use it either way.
 
 **Can a guest pay a different amount?** No. The price is computed on the
 server (TICKET-015 ignores any client-sent price), the session is created
@@ -2379,6 +2386,11 @@ Stripe's own CLI next to the backend:
    `…async_payment_failed`, `…expired`) to
    `http://backend:8000/api/payments/stripe/webhook/`.
 
+If `stripe trigger` fails with "Shipping parameters cannot be used with
+Managed Payments", your Stripe account has Managed Payments on by default:
+switch it off in the Stripe Dashboard → Settings → Managed Payments (our own
+checkout already turns it off per session - see "The Checkout Session").
+
 **Switch it on** (once, after pulling this code):
 
 ```bash
@@ -2557,6 +2569,7 @@ service arrives with the Docker step.)*
 | CFG-02 | Wrong or dangerous keys stop the app at startup | Put `sk_live_…` / `pk_…` / `whsec_…` in `STRIPE_SECRET_KEY`; `manage.py check` | errors `payments.E002` / `E001` / `E003`; a hold outside 30-1440 min → `E004`; full `sk_test_` key → warning `W001`; no webhook secret → warning `W002` | `StripeSettingsCheckTests` | |
 | CFG-03 | The config endpoint is public and never exposes a key | `GET /api/payments/config/` logged out | `{"enabled", "hold_minutes", "currency"}` only | `PaymentsConfigTests` | |
 | CFG-04 | Guests always pay in **euros** (Adaptive Pricing off), so the checked amount is exact | Inspect the Stripe request | `adaptive_pricing.enabled = false`; currency `eur` | `CheckoutEndpointTests.test_creates_session_with_exact_request` | |
+| CFG-05 | **We are the seller**: Managed Payments (Stripe as merchant of record - digital products only, stays aren't eligible, +3.5% fee, adds tax) is always off for our sessions, whatever the account default | Inspect the Stripe request; pay with 4242 | `managed_payments.enabled = false`; the charged total equals the booking price | `CheckoutEndpointTests.test_creates_session_with_exact_request` | ✓ |
 
 ### 2. Booking and the 30-minute hold
 

@@ -296,6 +296,7 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
         self.assertEqual(params["cancel_url"], f"http://localhost:4200/bookings/{booking.pk}/payment?cancelled=1")
         self.assertNotIn("payment_method_types", params)  # dynamic payment methods
         self.assertEqual(params["adaptive_pricing"], {"enabled": False})  # always charged in EUR
+        self.assertEqual(params["managed_payments"], {"enabled": False})  # we are the seller, no Stripe-added tax
 
         payment = Payment.objects.get(booking=booking)
         self.assertEqual(payment.stripe_checkout_session_id, "cs_test_123")

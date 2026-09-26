@@ -121,6 +121,10 @@ def session_params(booking, payment):
         # conversion) whatever the Dashboard default is, so the amount and
         # currency the webhook checks are exactly what we asked for.
         "adaptive_pricing": {"enabled": False},
+        # We are the seller, not Stripe: Managed Payments (Stripe as merchant
+        # of record, digital products only - stays aren't eligible) would add
+        # tax and change the total. Some accounts have it on by default.
+        "managed_payments": {"enabled": False},
     }
     if booking.guest.email:
         params["customer_email"] = booking.guest.email

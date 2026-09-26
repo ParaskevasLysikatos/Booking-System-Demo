@@ -515,6 +515,7 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
       - `scripts/hosted-check.sh`: new informational line "Payments are ON/OFF" from `/api/payments/config/`.
       - README: "Local webhook forwarding" (how it works, switch on, check the chain, expire a session on purpose for the time-ran-out cases), "Payments on Render" (restricted key, webhook endpoint + events, env vars, check), env tables, troubleshooting ("Waiting for confirmation" locally), quick start services. `.env.example` note.
       - To apply locally: `docker compose up -d` (pulls the CLI image, recreates the backend with the volume).
+    - Found at the start of step 7: the Stripe sandbox has **Managed Payments** (Stripe as merchant of record; digital products only, +3.5%, adds tax) **on by default**, which broke `stripe trigger` and would make paid totals differ from booking prices. Decision (agreed): **off in code** (`managed_payments.enabled=false` on every session, test assertion, README rule CFG-05) **and** off in the dashboard.
     - Agreed for the end of this ticket: **end-to-end tests** (step 7), locally and on Render, with real Stripe test payments (card 4242), covering pay → confirmed, abandon → expired/released, and Pay now.
 
 - [ ] **TICKET-040** — Refunds on cancellation
