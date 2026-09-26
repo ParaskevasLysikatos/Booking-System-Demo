@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'accounts',
     'bookings',
     'reviews',
+    'payments',
 ]
 
 MIDDLEWARE = [
@@ -160,6 +161,29 @@ REST_FRAMEWORK = {
 # Wednesday 15:00. Admins can cancel at any time.
 BOOKING_CHECK_IN_TIME = env('BOOKING_CHECK_IN_TIME', default='15:00')
 BOOKING_GUEST_CANCELLATION_HOURS = env.int('BOOKING_GUEST_CANCELLATION_HOURS', default=48)
+
+# Payments: Stripe test-mode Checkout (TICKET-029). With no secret key set,
+# payments are simply switched off and booking works exactly as before
+# (pending until an admin confirms) - that's also what the test suite and a
+# fresh clone without Stripe keys get. The values are checked at startup by
+# payments/checks.py (e.g. live keys are refused unless explicitly allowed).
+# Prefer a restricted key (rk_test_...) with only "Checkout Sessions: Write".
+STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY', default='')
+STRIPE_ALLOW_LIVE_KEYS = env.bool('STRIPE_ALLOW_LIVE_KEYS', default=False)
+PAYMENTS_ENABLED = bool(STRIPE_SECRET_KEY)
+# Pinned so a Stripe account upgrade can't change response shapes under us.
+STRIPE_API_VERSION = env('STRIPE_API_VERSION', default='2026-08-26.dahlia')
+# Webhook signing secret (whsec_...). Locally it doesn't need setting: the
+# stripe-cli Docker service writes it to STRIPE_WEBHOOK_SECRET_FILE on a
+# shared volume, and the webhook reads it from there.
+STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET', default='')
+STRIPE_WEBHOOK_SECRET_FILE = env('STRIPE_WEBHOOK_SECRET_FILE', default='')
+# How long an unpaid booking holds its dates = the Checkout Session's
+# lifetime. Stripe allows 30 minutes .. 24 hours.
+STRIPE_CHECKOUT_HOLD_MINUTES = env.int('STRIPE_CHECKOUT_HOLD_MINUTES', default=30)
+PAYMENTS_CURRENCY = 'eur'
+# Where Stripe sends the guest back after paying (or giving up).
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:4200').rstrip('/')
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env.int('JWT_ACCESS_MINUTES', default=30)),

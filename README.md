@@ -23,7 +23,8 @@ detail with availability, admin-only create/edit/soft-delete) and the
 Bookings API (race-proof booking creation, locked status changes) and
 the admin stats endpoint are done, which completes Epic 2.
 See "Authentication (JWT)", "Permissions", "Properties API", "Bookings
-API", "Admin stats API" and "Admin bookings". See "Next
+API", "Admin stats API" and "Admin bookings". Stripe test-mode payments
+(TICKET-029) are being built; see "Payments (Stripe)". See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -133,6 +134,12 @@ backend/
     models.py          Review model (rating 1-5, one review per guest per property)
     admin.py           Filterable/searchable Review list (dev-only DB inspection)
     migrations/        0001_initial.py creates the reviews table
+  payments/            Stripe test-mode Checkout for bookings (TICKET-029, in progress)
+    models.py          Payment (one per booking: Checkout Session, amount, status, hold expiry) + StripeEvent (webhook de-dup)
+    checks.py          Startup checks for the Stripe settings (live keys refused, hold length, missing webhook secret)
+    admin.py           Read-only Payment / StripeEvent lists (dev-only DB inspection)
+    tests.py           Model + settings-check tests
+    migrations/        0001_initial.py creates the payments and stripe events tables
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -1930,6 +1937,103 @@ showing 7, searching "sara" with Pending only down to booking #54, and
 the Confirm dialog, closed with **Not now**, so **nothing was changed**
 in the database.
 
+## Payments (Stripe, TICKET-029 - in progress)
+
+Guests pay for a booking with **Stripe Checkout in test mode** (no real
+money - pay with the test card `4242 4242 4242 4242`, any future expiry,
+any CVC). This section grows as the ticket is built in steps; **step 1 (data
+model + settings) is done**, the checkout endpoint, webhook and frontend
+come next.
+
+### How it will work (agreed design)
+
+1. **Confirm and pay** creates the booking as `pending` exactly as before
+   (`POST /api/bookings/`, same overlap checks and race protection).
+2. Only once that row is committed, `POST /api/bookings/{id}/checkout/`
+   creates a Stripe **Checkout Session** (Stripe's hosted payment page) and
+   the guest is redirected there. The session is created with an
+   **idempotency key derived from the booking id**, so a double click or a
+   network retry can never create a second payment for the same booking.
+3. **Stripe's webhook decides**, never the browser: `checkout.session.completed`
+   / `async_payment_succeeded` with the money actually paid → booking
+   **confirmed**; the session expiring unpaid (or a delayed payment failing)
+   → booking **cancelled**, which frees the dates.
+4. An unpaid booking **holds its dates for 30 minutes** (the session's
+   lifetime). The guest can come back and **Pay now** from My Bookings
+   within that window.
+5. Bookings without a payment (the seeded ones, or everything when
+   payments are switched off) keep the old behaviour: pending until an
+   admin confirms.
+
+### Switching payments on
+
+Payments are **off unless `STRIPE_SECRET_KEY` is set** - a fresh clone, the
+test suite and CI need no Stripe account at all. To switch them on locally,
+put these in `.env` (see `.env.example`):
+
+| Variable | Value |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | A **restricted key** `rk_test_...` (Stripe recommends it over the full `sk_test_` key); it needs **Checkout Sessions: Write** |
+| `STRIPE_CLI_API_KEY` | Your full `sk_test_...` key - only for the local `stripe-cli` webhook forwarder (added in a later step), never on Render |
+| `STRIPE_PUBLISHABLE_KEY` | Not used by Stripe's hosted page; harmless to keep |
+
+Then rebuild the backend image once (the `stripe` Python package is new):
+`docker compose up -d --build backend`. The container runs `migrate` on
+start, which creates the two new tables.
+
+Optional settings (defaults shown): `STRIPE_CHECKOUT_HOLD_MINUTES=30`
+(Stripe allows 30 minutes to 24 hours), `FRONTEND_URL=http://localhost:4200`
+(where Stripe sends the guest back), `STRIPE_API_VERSION=2026-08-26.dahlia`
+(pinned so an account upgrade can't change response shapes), and
+`STRIPE_WEBHOOK_SECRET` (Render only - locally the `stripe-cli` service
+provides it through `STRIPE_WEBHOOK_SECRET_FILE`).
+
+### Safety checks at startup (`payments/checks.py`)
+
+Django system checks run on `manage.py check`, `runserver` and `migrate` -
+and `migrate` runs on every container start and every Render deploy, so a
+bad configuration fails loudly:
+
+| Check | Level | When |
+| --- | --- | --- |
+| `payments.E001` | error | The "secret" key is a publishable key (`pk_...`) |
+| `payments.E002` | error | A **live** key (`sk_live_`/`rk_live_`) - this demo only takes test payments. Override only on purpose with `STRIPE_ALLOW_LIVE_KEYS=True` |
+| `payments.E003` | error | Doesn't look like a Stripe key at all (e.g. a `whsec_` pasted into the wrong variable) |
+| `payments.E004` | error | `STRIPE_CHECKOUT_HOLD_MINUTES` outside Stripe's 30-1440 minutes |
+| `payments.W001` | warning | A full-access `sk_test_` key - works, but a restricted key is safer |
+| `payments.W002` | warning | Payments on but no webhook secret - no payment could ever confirm a booking |
+
+### Data model (`payments/models.py`)
+
+**`Payment`** - one per booking (`OneToOneField`, `related_name="payment"`):
+
+| Field | Notes |
+| --- | --- |
+| `booking` | `CASCADE` - follows the booking (and its guest); Stripe keeps the real payment record either way |
+| `status` | `open` (awaiting payment, dates held) → `paid`, or `processing` (a delayed method like SEPA, not settled yet) → `paid` / `failed`, or `expired` (session ran out unpaid) |
+| `amount`, `currency` | Snapshot of `Booking.total_price` in `eur` at checkout. `Decimal`, never float; `amount_cents` converts exactly (e.g. `364.10` → `36410`). DB check: `amount > 0` |
+| `stripe_checkout_session_id` | Unique |
+| `checkout_url` | Stripe's hosted page - reused by **Pay now** until `expires_at` |
+| `stripe_payment_intent_id` | Filled in from the webhook once paid; TICKET-040's refunds use it |
+| `expires_at` | End of the Checkout Session = end of the date hold. `is_holding()` = still `open` and not yet expired |
+| `paid_at`, `created_at`, `updated_at` | Timestamps |
+
+**`StripeEvent`** - one row per webhook event handled, keyed by Stripe's
+event id. Stripe delivers events *at least once*, so the same event can
+arrive twice: the webhook will insert this row in the **same transaction**
+as the booking/payment update, so a duplicate is skipped, and a failed
+attempt rolls back completely and Stripe's automatic retry starts clean.
+
+### Tests (so far)
+
+`payments/tests.py` - 16 tests: cents conversion, one payment per booking,
+unique session id, the `amount > 0` constraint, `is_holding()` at the
+exact expiry moment, payment deleted with its booking, duplicate event ids
+rejected, and every startup check (payments off, restricted vs full key,
+live keys refused/allowed, wrong key types, hold-length limits, missing
+webhook secret, error vs warning levels). The full backend suite (119
+tests) passes on Postgres.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -1943,6 +2047,8 @@ written the code:
 | `Profile` | `accounts/admin.py` | Inline on the built-in `User` admin page |
 | `Booking` | `bookings/admin.py` | Filterable by status, date-hierarchy on `check_in` |
 | `Review` | `reviews/admin.py` | Filterable by rating |
+| `Payment` | `payments/admin.py` | Filterable by status; Stripe fields read-only (Stripe owns them) |
+| `StripeEvent` | `payments/admin.py` | Read-only log of handled webhook events |
 
 The admin site itself is relabeled (`core/admin.py` - `core` has no models
 of its own, so that's just where the site-wide branding lives) so it reads
@@ -2322,6 +2428,10 @@ you ever need to regenerate it.
 | `SEED_DEMO_DATA` / `WEB_CONCURRENCY` / `DJANGO_LOG_LEVEL` / `DJANGO_HSTS_SECONDS` | backend (Render) | First-deploy seed, gunicorn workers, log level (default `ERROR`), HSTS seconds (default 3600) |
 | `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` | backend | Optional token lifetimes (defaults 30 minutes / 1 day) |
 | `BOOKING_CHECK_IN_TIME` / `BOOKING_GUEST_CANCELLATION_HOURS` | backend | Optional: check-in time used for the guest cancellation deadline, and how many hours before it guests can still cancel (defaults `15:00` / `48`) |
+| `STRIPE_SECRET_KEY` | backend | Stripe restricted key `rk_test_...` (Checkout Sessions: Write). Empty = payments off. See "Payments (Stripe)" |
+| `STRIPE_CLI_API_KEY` | stripe-cli (local only) | Full `sk_test_...` key for the local webhook forwarder. Never on Render |
+| `STRIPE_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET_FILE` | backend | Webhook signing secret (Render), or the file the local stripe-cli service writes it to |
+| `STRIPE_CHECKOUT_HOLD_MINUTES` / `FRONTEND_URL` / `STRIPE_API_VERSION` / `STRIPE_ALLOW_LIVE_KEYS` | backend | Optional: date-hold length (default 30), where Stripe returns the guest (default `http://localhost:4200`), pinned API version, live-key override (default off) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
 
@@ -2368,7 +2478,8 @@ down` / `up` - only `docker compose down -v` wipes them.
   case; if you see it anyway, share the log output and it can be fixed.
 - **After pulling new code: `ModuleNotFoundError`, or the backend won't
   start**: a ticket added a Python package (e.g. `djangorestframework-simplejwt`
-  in TICKET-012, or gunicorn + whitenoise in TICKET-026). Rebuild the image
+  in TICKET-012, gunicorn + whitenoise in TICKET-026, or stripe in
+  TICKET-029). Rebuild the image
   with `docker compose up -d --build backend`.
 - **After pulling new code: "relation/column does not exist"**: a ticket
   added a migration (e.g. TICKET-015's `bookings/0002`). The container runs
@@ -2409,4 +2520,7 @@ has started: TICKET-026 (the API + Postgres on Render from `render.yaml`)
 is live at https://booking-demo-api.onrender.com, and TICKET-027 adds the
 Angular site at https://booking-demo-g4aw.onrender.com; see "Deploying to Render"
 and "Frontend on Render". TICKET-028 adds the "Hosted demo check" button
-and the meetup plan; see "Demo day".
+and the meetup plan; see "Demo day". **Epic 6 has started:** TICKET-029
+(Stripe test-mode checkout) is in progress - step 1 (the `payments` app's
+data model, Stripe settings and startup checks) is done; see "Payments
+(Stripe)".

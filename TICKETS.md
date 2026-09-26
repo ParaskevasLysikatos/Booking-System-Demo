@@ -472,6 +472,16 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
     - Only start payment after the booking row has been committed (i.e. it already survived TICKET-015's exclusion-constraint check) — never take payment for a booking that lost the race and was rejected.
     - Drive `Booking.status -> confirmed` from a Stripe webhook confirming payment actually succeeded, not optimistically the moment the client calls confirm — a booking should never read as confirmed before money has actually moved.
     - Refunds for cancelled bookings are a separate follow-up: see TICKET-040.
+  - Decisions (agreed before building):
+    - **Stripe-hosted Checkout** (redirect to Stripe's page, then back); Checkout Sessions API, not raw PaymentIntents, per Stripe's best-practice guidance. Payments only - Invoicing and Identity were suggested by Stripe's onboarding but are out of scope.
+    - **Auto-confirm:** the webhook moves `pending → confirmed` once the money has actually arrived. Bookings without a payment (seeded ones, or payments switched off) keep the admin's manual Confirm.
+    - **Unpaid bookings hold their dates for 30 minutes** (the Checkout Session's lifetime, Stripe's minimum). The guest can **Pay now** from My Bookings in that window; on expiry the webhook cancels the booking and frees the dates. A lazy check (asking Stripe, so a paid booking with a late webhook is never cancelled) covers missed expiry webhooks.
+    - **Local + Render:** a `stripe-cli` Docker service forwards webhooks locally (sharing its signing secret with the backend through a volume, so nothing to copy); Render gets a Stripe webhook endpoint and its own minimal restricted key.
+    - Keys: a **restricted key** (`rk_test_`) as `STRIPE_SECRET_KEY`; the full `sk_test_` key only as `STRIPE_CLI_API_KEY` for the local forwarder. Live keys are refused at startup.
+  - Build steps: 1) model + settings, 2) checkout endpoint, 3) webhook, 4) hold cleanup + cancel handling, 5) frontend, 6) Docker + Render, 7) end-to-end test with card 4242, 8) docs + push.
+  - Progress:
+    - **Step 1 done:** new `payments` app. `Payment` (one per booking: Checkout Session id + URL, amount snapshot in `Decimal` with exact `amount_cents`, status `open/processing/paid/expired/failed`, `expires_at`, PaymentIntent id for TICKET-040, DB check `amount > 0`) and `StripeEvent` (webhook event ids, for at-least-once de-dup in the same transaction as the update), migration `payments/0001_initial.py`, read-only admin. Settings: `STRIPE_SECRET_KEY` (empty = payments off), `STRIPE_API_VERSION=2026-08-26.dahlia`, `STRIPE_WEBHOOK_SECRET` / `_FILE`, `STRIPE_CHECKOUT_HOLD_MINUTES=30`, `FRONTEND_URL`, `STRIPE_ALLOW_LIVE_KEYS`; `stripe>=15.6,<16` in requirements. `payments/checks.py` system checks (publishable/live/unknown keys and out-of-range hold = errors; full `sk_` key and missing webhook secret = warnings). 16 new tests; all 119 backend tests pass on Postgres; `makemigrations --check` clean. README: new "Payments (Stripe)" section, env vars, layout, admin table.
+    - To apply locally: `docker compose up -d --build backend` (new package + migration).
 
 - [ ] **TICKET-040** — Refunds on cancellation
   - Priority: P1 · Depends on: TICKET-029 (payments must exist first), TICKET-015 (cancellation rules)
