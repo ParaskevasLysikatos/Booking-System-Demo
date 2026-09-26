@@ -27,7 +27,9 @@ class Payment(models.Model):
         open ──completed + paid──────────────▶ paid        (booking -> confirmed)
           │ └─completed, payment pending──▶ processing ─succeeded─▶ paid
           │                                          └─failed───▶ failed (booking -> cancelled)
-          └─session expired unpaid─────────────▶ expired     (booking -> cancelled, dates freed)
+          ├─session expired unpaid─────────────▶ expired     (booking -> cancelled, dates freed)
+          └─booking cancelled / confirmed by hand ▶ cancelled (the open payment page is closed at
+                                                                Stripe first, so it can't take money)
     """
 
     class Status(models.TextChoices):
@@ -36,6 +38,7 @@ class Payment(models.Model):
         PAID = "paid", "Paid"
         EXPIRED = "expired", "Expired"  # session ran out unpaid
         FAILED = "failed", "Failed"  # delayed payment failed
+        CANCELLED = "cancelled", "Cancelled"  # called off unpaid: the booking was cancelled, or confirmed by hand
 
     booking = models.OneToOneField(
         "bookings.Booking",

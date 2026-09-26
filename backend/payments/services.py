@@ -4,6 +4,14 @@ start_hold()     - called inside the booking-creation transaction: creates the
                    `open` Payment that holds the dates while the guest pays.
 start_checkout() - POST /api/bookings/{id}/checkout/: returns the booking's
                    Stripe Checkout page, creating the session the first time.
+sync_stale_hold() / release_stale_holds()
+                 - (step 4) a hold whose time ran out but whose "expired"
+                   webhook never arrived: ask Stripe what really happened
+                   before touching it, never guess.
+close_checkout_for_status_change()
+                 - (step 4) before a booking is cancelled or confirmed by
+                   hand, close its open payment page at Stripe so it can't
+                   take money any more.
 
 The Stripe call is made *outside* any database transaction, so no row lock is
 held while waiting on the network:
@@ -31,6 +39,7 @@ from bookings.models import Booking
 
 from .models import Payment
 from .stripe_client import PaymentsDisabled, get_client
+from .webhooks import apply_session_state
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +117,10 @@ def session_params(booking, payment):
         "success_url": f"{settings.FRONTEND_URL}/bookings/{booking.pk}/payment?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{settings.FRONTEND_URL}/bookings/{booking.pk}/payment?cancelled=1",
         "integration_identifier": INTEGRATION_IDENTIFIER,
+        # Always charge in euros: no Adaptive Pricing (local-currency
+        # conversion) whatever the Dashboard default is, so the amount and
+        # currency the webhook checks are exactly what we asked for.
+        "adaptive_pricing": {"enabled": False},
     }
     if booking.guest.email:
         params["customer_email"] = booking.guest.email
@@ -144,6 +157,13 @@ def _locked(booking_id):
 def start_checkout(booking_id):
     """Return the booking's Payment with a usable checkout_url, creating the
     Stripe Checkout Session if there isn't one yet. Raises CheckoutError."""
+    # A hold that ran out without its webhook: find out what really happened
+    # first (the guest may even have paid at the last second), so the answer
+    # below is the true one - "already confirmed" rather than "time ran out".
+    try:
+        sync_stale_hold(booking_id)
+    except (stripe.StripeError, PaymentsDisabled):
+        logger.warning("Couldn't check stale hold of booking %s with Stripe", booking_id, exc_info=True)
     # 1) Decide - under lock - exactly what to send.
     with transaction.atomic():
         booking, payment = _locked(booking_id)
@@ -215,3 +235,129 @@ def expire_session_quietly(session_id):
         # Best effort: it expires on its own anyway, and the webhook ignores
         # sessions that aren't the booking's recorded one.
         logger.warning("Couldn't expire Stripe Checkout Session %s", session_id, exc_info=True)
+
+
+# --------------------------------------------------------------------------
+# Step 4: stale holds, and closing the payment page before a status change
+# --------------------------------------------------------------------------
+
+def fetch_closed_session(session_id):
+    """Make sure a Checkout Session can't take money any more, and return its
+    final state (as a plain dict). An open session is expired; one that is
+    already complete or expired can't be, so it's fetched instead."""
+    client = get_client()
+    try:
+        session = client.v1.checkout.sessions.expire(session_id)
+    except stripe.InvalidRequestError:
+        session = client.v1.checkout.sessions.retrieve(session_id)
+    return session.to_dict()
+
+
+def sync_stale_hold(booking_id):
+    """Settle a hold that is still `open` although its time has run out -
+    i.e. the "expired" (or "completed") webhook never reached us.
+
+    Never guesses: if the guest went to checkout, Stripe is asked first, and
+    what it says is applied exactly as the webhook would have (paid ->
+    confirmed, expired -> cancelled and the dates freed). A hold that never
+    got a Checkout Session can't have been paid, so it's released directly.
+    Raises stripe.StripeError / PaymentsDisabled if Stripe can't be asked -
+    then nothing is changed. Returns True if it changed anything.
+    """
+    payment = Payment.objects.filter(booking_id=booking_id).first()
+    if payment is None or payment.status != Payment.Status.OPEN or payment.is_holding():
+        return False
+    session = None
+    if payment.stripe_checkout_session_id:
+        session = fetch_closed_session(payment.stripe_checkout_session_id)  # no DB lock held
+    with transaction.atomic():
+        booking, payment = _locked(booking_id)
+        if payment.status != Payment.Status.OPEN:
+            return False  # the webhook got there in the meantime
+        if session is not None:
+            apply_session_state(booking, payment, session)
+        else:
+            _release_unpaid(booking, payment, Payment.Status.EXPIRED)
+    return True
+
+
+def release_stale_holds(prop, check_in, check_out, limit=5):
+    """Before booking these dates: settle expired holds that block them, so a
+    missed webhook doesn't keep dates blocked. If Stripe can't be reached the
+    hold is left alone and the normal overlap check answers 409."""
+    stale = (
+        Booking.objects.overlapping(prop, check_in, check_out)
+        .filter(status=Booking.Status.PENDING, payment__status=Payment.Status.OPEN,
+                payment__expires_at__lte=timezone.now())
+        .values_list("pk", flat=True)[:limit]
+    )
+    for booking_id in list(stale):
+        try:
+            sync_stale_hold(booking_id)
+        except (stripe.StripeError, PaymentsDisabled):
+            logger.warning("Couldn't check stale hold of booking %s with Stripe", booking_id, exc_info=True)
+
+
+def _release_unpaid(booking, payment, payment_status):
+    payment.status = payment_status
+    payment.save(update_fields=["status", "updated_at"])
+    if booking.status == Booking.Status.PENDING:
+        booking.status = Booking.Status.CANCELLED
+        booking.save(update_fields=["status"])
+
+
+def close_checkout_for_status_change(booking_id):
+    """Call before cancelling a booking or confirming it by hand (outside any
+    transaction). Makes sure its payment page can't take money any more.
+
+    Returns the Checkout Session id it closed (or None if there was nothing
+    to close). Raises CheckoutError when the change must not go ahead:
+      - the guest's payment just went through (the booking is now confirmed)
+      - a delayed payment is still processing at the bank
+      - Stripe can't be reached (then the page might still take money)
+    """
+    payment = Payment.objects.filter(booking_id=booking_id).first()
+    if payment is None:
+        return None
+    if payment.status == Payment.Status.PROCESSING:
+        raise CheckoutError(
+            "A payment for this booking is still being processed by the bank. "
+            "Please try again once it has gone through or failed.",
+            "payment_processing",
+        )
+    if payment.status != Payment.Status.OPEN or not payment.stripe_checkout_session_id:
+        return None
+    session_id = payment.stripe_checkout_session_id
+    try:
+        session = fetch_closed_session(session_id)
+    except PaymentsDisabled:
+        # Payments were switched off after this page was made: we can't reach
+        # Stripe at all, so there's nothing we can close. Go ahead.
+        logger.warning("Payments are off; couldn't close Checkout Session %s", session_id)
+        return session_id
+    except stripe.StripeError:
+        logger.exception("Couldn't close Checkout Session %s", session_id)
+        raise CheckoutError(
+            "We couldn't reach the payment provider to close this booking's payment page. "
+            "Please try again.",
+            "payment_provider_error",
+            502,
+        )
+    if session.get("status") == "complete":
+        # Too late to close: the guest paid (or started a delayed payment)
+        # a moment ago. Record it now instead of waiting for the webhook.
+        with transaction.atomic():
+            booking, payment = _locked(booking_id)
+            apply_session_state(booking, payment, session)
+        if session.get("payment_status") == "paid":
+            raise CheckoutError(
+                "The payment for this booking has just gone through, so it's now confirmed. "
+                "Please refresh.",
+                "payment_completed",
+            )
+        raise CheckoutError(
+            "A payment for this booking is now being processed by the bank. "
+            "Please try again once it has gone through or failed.",
+            "payment_processing",
+        )
+    return session_id

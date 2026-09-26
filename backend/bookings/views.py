@@ -14,7 +14,14 @@ from rest_framework.views import APIView
 from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 from listings.models import PropertyImage
-from payments.services import CheckoutError, start_checkout, start_hold
+from payments.models import Payment
+from payments.services import (
+    CheckoutError,
+    close_checkout_for_status_change,
+    release_stale_holds,
+    start_checkout,
+    start_hold,
+)
 from payments.stripe_client import payments_enabled
 
 from .models import Booking
@@ -158,6 +165,12 @@ class BookingViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # 0) TICKET-029: a payment hold whose time ran out but whose
+        #    "expired" webhook never arrived would still block these dates.
+        #    Settle such holds first - after asking Stripe what really
+        #    happened, so a booking that was in fact paid keeps its dates.
+        release_stale_holds(data["property"], data["check_in"], data["check_out"])
+
         # 1) Friendly pre-check: covers the normal "those dates are taken"
         #    case with a clear message. NOT race-proof on its own.
         if Booking.objects.overlapping(data["property"], data["check_in"], data["check_out"]).exists():
@@ -221,6 +234,19 @@ class BookingViewSet(
         body.is_valid(raise_exception=True)
         new_status = body.validated_data["status"]
 
+        # Cheap first check without a lock, so a change that isn't allowed
+        # anyway never touches Stripe below.
+        self._check_transition(get_object_or_404(self.get_queryset(), pk=kwargs["pk"]), new_status)
+
+        # TICKET-029: an open payment page must be closed at Stripe *before*
+        # the booking is cancelled or confirmed by hand - otherwise the guest
+        # could still pay for a cancelled booking. Done outside the lock (it's
+        # a network call); refuses if the payment just went through.
+        try:
+            closed_session = close_checkout_for_status_change(kwargs["pk"])
+        except CheckoutError as exc:
+            return Response({"detail": exc.detail, "code": exc.code}, status=exc.http_status)
+
         # Single atomic read-modify-write: lock this booking's row so a
         # guest's cancel and an admin's status change landing at the same
         # time are serialised - the second one sees the first one's result
@@ -230,6 +256,17 @@ class BookingViewSet(
                 self.get_queryset().select_for_update(of=("self",)), pk=kwargs["pk"]
             )
             self._check_transition(booking, new_status)
+            payment = Payment.objects.select_for_update().filter(booking=booking).first()
+            if payment is not None and payment.status == Payment.Status.OPEN:
+                if payment.stripe_checkout_session_id and payment.stripe_checkout_session_id != closed_session:
+                    # The guest opened the payment page between our close
+                    # and this lock - it's open again. Nothing changed; retry.
+                    return Response({
+                        "detail": "The payment page for this booking was just opened. Please try again.",
+                        "code": "checkout_just_opened",
+                    }, status=status.HTTP_409_CONFLICT)
+                payment.status = Payment.Status.CANCELLED
+                payment.save(update_fields=["status", "updated_at"])
             booking.status = new_status
             booking.save(update_fields=["status"])
         return self._respond(booking, status.HTTP_200_OK)

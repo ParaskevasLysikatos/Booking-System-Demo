@@ -140,11 +140,12 @@ backend/
     views.py + urls.py POST /api/payments/stripe/webhook/ - signature check, event de-dup
     webhooks.py        What each Stripe event does (paid -> confirmed, expired/failed -> cancelled, ...)
     stripe_client.py   The one StripeClient (pinned API version); payments_enabled(); webhook_secret()
+    management/commands/release_stale_holds.py   Settle holds whose webhook was missed (asks Stripe first)
     serializers.py     The `payment` block in booking responses (incl. can_pay)
     checks.py          Startup checks for the Stripe settings (live keys refused, hold length, missing webhook secret)
     admin.py           Read-only Payment / StripeEvent lists (dev-only DB inspection)
     tests.py           Model, settings-check, hold, checkout and webhook tests (Stripe mocked, real signatures)
-    migrations/        0001 creates the payments and stripe events tables; 0002 makes the session optional until checkout
+    migrations/        0001 creates the payments and stripe events tables; 0002 makes the session optional until checkout; 0003 adds the `cancelled` payment status
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -1956,9 +1957,10 @@ in the database.
 Guests pay for a booking with **Stripe Checkout in test mode** (no real
 money - pay with the test card `4242 4242 4242 4242`, any future expiry,
 any CVC). This section grows as the ticket is built in steps; **step 1 (data
-model + settings), step 2 (the payment hold + checkout endpoint) and step
-3 (the webhook) are done**; releasing stale holds, the frontend and the
-Docker/Render webhook setup come next, then end-to-end tests.
+model + settings), step 2 (the payment hold + checkout endpoint), step 3
+(the webhook) and step 4 (stale holds + cancelling with a payment page
+open) are done**; the frontend and the Docker/Render webhook setup come
+next, then end-to-end tests.
 
 ### How it will work (agreed design)
 
@@ -2025,7 +2027,7 @@ bad configuration fails loudly:
 | Field | Notes |
 | --- | --- |
 | `booking` | `CASCADE` - follows the booking (and its guest); Stripe keeps the real payment record either way |
-| `status` | `open` (awaiting payment, dates held) → `paid`, or `processing` (a delayed method like SEPA, not settled yet) → `paid` / `failed`, or `expired` (session ran out unpaid) |
+| `status` | `open` (awaiting payment, dates held) → `paid`, or `processing` (a delayed method like SEPA, not settled yet) → `paid` / `failed`, or `expired` (session ran out unpaid), or `cancelled` (called off unpaid: the booking was cancelled, or an admin confirmed it by hand) |
 | `amount`, `currency` | Snapshot of `Booking.total_price` in `eur` at checkout. `Decimal`, never float; `amount_cents` converts exactly (e.g. `364.10` → `36410`). DB check: `amount > 0` |
 | `stripe_checkout_session_id` | Unique |
 | `checkout_url` | Stripe's hosted page - reused by **Pay now** until `expires_at` |
@@ -2080,7 +2082,19 @@ end, `success_url` / `cancel_url` back to
 `FRONTEND_URL/bookings/{id}/payment` (the page arrives with the frontend
 step), and `integration_identifier` to tag our sessions in the Dashboard.
 **No `payment_method_types`**: Stripe's dynamic payment methods decide what
-to offer, configured in the Dashboard.
+to offer, configured in the Dashboard. **Adaptive Pricing is switched off**
+(`adaptive_pricing.enabled=false`) whatever the Dashboard default: every
+guest pays in euros, so the amount and currency the webhook checks are
+exactly what we asked for.
+
+**Can a guest pay a different amount?** No. The price is computed on the
+server (TICKET-015 ignores any client-sent price), the session is created
+server-side with the secret key the browser never sees, and Stripe's page
+only *displays* the fixed line item - editing it in dev tools changes
+nothing Stripe charges. Everything that could change the total (adjustable
+quantity, customer-chosen amounts, promotion codes, automatic tax,
+shipping) is simply not enabled. The webhook's amount check is a safety
+net against our own future changes.
 
 **No double sessions, no double charges.** The Stripe call is made
 **outside** any database transaction (no row lock is held while waiting on
@@ -2174,6 +2188,55 @@ How it's made safe (`payments/views.py`, `payments/webhooks.py`):
   currency than the booking costs (it can't - the server sets it), the
   booking is **not** confirmed and an error is logged.
 
+### Stale holds: when the "expired" webhook never arrives
+
+If a hold's 30 minutes are up but no webhook came (e.g. the local
+`stripe-cli` wasn't running), the booking would sit at `pending` and keep
+blocking its dates. It's settled - **never guessed** - by
+`payments/services.py:sync_stale_hold`:
+
+- the guest never reached checkout (no session) → it can't have been paid:
+  payment `expired`, booking `cancelled`, dates free;
+- otherwise **Stripe is asked first**: the session is expired if it's
+  somehow still open, or fetched if it's already finished, and its real
+  state is applied exactly as the webhook would have - **paid → the booking
+  is confirmed and keeps its dates**, expired → released;
+- Stripe unreachable → nothing is changed (a paid booking must never lose
+  its dates because of a network error).
+
+When it runs:
+
+| Where | Why |
+| --- | --- |
+| `POST /api/bookings/`, before the overlap check | Someone else wants those dates: stale holds on them are settled first, so they get a `201` instead of a `409` caused by a missed webhook |
+| `POST /api/bookings/{id}/checkout/` | The guest's own **Pay now** gets the true answer ("already confirmed" if they did pay at the last second) instead of "time ran out" |
+| `python manage.py release_stale_holds` | Settles every stale hold at once - handy after the forwarder was down (`docker compose exec backend python manage.py release_stale_holds`) |
+
+### Cancelling or confirming by hand while a payment page is open
+
+A pending booking can be cancelled (guest or admin) or confirmed by an
+admin while its Stripe page is still open. If nothing else happened, the
+guest could then **pay for a cancelled booking**. So `PATCH
+/api/bookings/{id}/` now:
+
+1. checks the transition is allowed at all (without a lock) - a refused
+   change never touches Stripe;
+2. **closes the payment page at Stripe first** (expires the session),
+   outside the lock since it's a network call;
+3. then, under the row lock as before, re-checks the transition, marks the
+   payment `cancelled` and changes the booking.
+
+| Situation | Result |
+| --- | --- |
+| Page closed at Stripe | `200`; payment `cancelled`. Stripe's own "expired" event for it later changes nothing |
+| The guest paid a moment ago (the page can't be closed any more) | `409` `payment_completed` - the payment is recorded **right away** (booking now `confirmed`), not lost. Cancelling a paid booking is still possible afterwards (refund: TICKET-040) |
+| A delayed payment is processing at the bank | `409` `payment_processing` (also `can_cancel: false`) - wait until it succeeds or fails |
+| Stripe unreachable | `502` `payment_provider_error` - **not cancelled**, because the page might still take money; try again |
+| The guest opened the page between step 2 and step 3 | `409` `checkout_just_opened` - nothing changed; try again |
+| No payment page yet (never reached checkout) | No Stripe call; payment `cancelled` |
+| Payments switched off since the page was made | Can't reach Stripe at all; the change goes ahead (logged) |
+| Already paid, then cancelled | `200`; the payment stays `paid` - that's the refund case for TICKET-040 |
+
 ### Trying it (before the frontend step)
 
 With payments on and the backend restarted, book as a guest (the booking
@@ -2190,7 +2253,7 @@ stays `pending` after paying; that's expected.
 
 ### Tests (so far)
 
-`payments/tests.py` - 51 tests (Stripe is always mocked; the suite never
+`payments/tests.py` - 69 tests (Stripe is always mocked; the suite never
 calls it):
 
 - **Model and settings (16):** cents conversion, one payment per booking,
@@ -2228,7 +2291,19 @@ calls it):
     separate DB connections → the handler runs **exactly once**, one
     `handled`, one `duplicate` (passed 6 runs out of 6)
 
-The full backend suite (154 tests) passes on Postgres.
+- **Step 4 (18):** Adaptive Pricing off in the request; stale holds -
+  without a session released with no Stripe call, expired at Stripe →
+  released and rebookable, **actually paid → confirmed and keeps its
+  dates**, Stripe unreachable → untouched, a live hold never touched, Pay
+  now on a stale paid hold → `already_confirmed`, the management command;
+  status changes - guest cancel and admin confirm close the page first (and
+  the later "expired" event is a no-op), paid just before cancelling →
+  `409` + confirmed, delayed payment just started / processing → `409`,
+  Stripe down → `502` and not cancelled, no page → no Stripe call, a refused
+  change never calls Stripe, page opened mid-cancel → `409`, cancelling a
+  paid booking keeps the payment, payments switched off.
+
+The full backend suite (172 tests) passes on Postgres.
 
 ## Django Admin (dev-only)
 
@@ -2721,4 +2796,5 @@ and the meetup plan; see "Demo day". **Epic 6 has started:** TICKET-029
 data model, Stripe settings and startup checks), step 2 (the payment
 hold at booking time and the idempotent checkout endpoint) and step 3 (the
 signed, de-duplicated Stripe webhook that confirms or releases bookings)
-are done; see "Payments (Stripe)".
+and step 4 (settling holds whose webhook was missed, and closing the
+payment page before a cancel) are done; see "Payments (Stripe)".

@@ -14,6 +14,9 @@ Stripe proves the money moved.
     checkout.session.expired                         -> payment expired, booking cancelled
                                                         (the dates are free again)
 
+apply_session_state() does the same from a session *fetched* from Stripe, for
+when an event may have been missed (see payments/services.py).
+
 Every handler runs inside the caller's transaction, with the booking and
 payment rows locked in the same order as the checkout endpoint (booking,
 then payment), and is safe to run twice (it checks the current state
@@ -39,7 +42,7 @@ HANDLED_EVENTS = {
 
 def handle_event(event):
     session = event["data"]["object"]
-    found = _lock_for_session(session.get("id"))
+    found = lock_for_session(session.get("id"))
     if found is None:
         # Not one of ours: an attempt that was never shown to anyone, or -
         # since one Stripe sandbox serves both - a session made by the other
@@ -49,10 +52,7 @@ def handle_event(event):
     booking, payment = found
     kind = event["type"]
     if kind == "checkout.session.completed":
-        if session.get("payment_status") == "paid":
-            _paid(booking, payment, session)
-        else:
-            _processing(payment, session)
+        _completed(booking, payment, session)
     elif kind == "checkout.session.async_payment_succeeded":
         _paid(booking, payment, session)
     elif kind == "checkout.session.async_payment_failed":
@@ -61,7 +61,26 @@ def handle_event(event):
         _release(booking, payment, Payment.Status.EXPIRED)
 
 
-def _lock_for_session(session_id):
+def apply_session_state(booking, payment, session):
+    """Bring our (locked) rows in line with a Checkout Session *fetched* from
+    Stripe, rather than announced by an event - used when a webhook may have
+    been missed (payments/services.py)."""
+    status = session.get("status")
+    if status == "complete":
+        _completed(booking, payment, session)
+    elif status == "expired":
+        _release(booking, payment, Payment.Status.EXPIRED)
+    # "open": nothing has happened yet
+
+
+def _completed(booking, payment, session):
+    if session.get("payment_status") == "paid":
+        _paid(booking, payment, session)
+    else:
+        _processing(payment, session)
+
+
+def lock_for_session(session_id):
     if not session_id:
         return None
     booking_id = (
@@ -123,8 +142,8 @@ def _release(booking, payment, new_status):
     """Payment didn't happen: record why, and free the dates if the booking
     was still waiting for it. A booking an admin already confirmed by hand
     is left alone - their decision wins."""
-    if payment.status in (Payment.Status.PAID, Payment.Status.EXPIRED, Payment.Status.FAILED):
-        return
+    if payment.status not in (Payment.Status.OPEN, Payment.Status.PROCESSING):
+        return  # already paid, or already closed (expired / failed / cancelled)
     payment.status = new_status
     payment.save(update_fields=["status", "updated_at"])
     if booking.status == Booking.Status.PENDING:

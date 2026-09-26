@@ -175,15 +175,19 @@ def checkout_url(pk):
     return reverse("booking-checkout", args=[pk])
 
 
-def fake_session(session_id="cs_test_123", expires_at=None):
+def fake_session(session_id="cs_test_123", expires_at=None, status="open", payment_status="unpaid", **extra):
     expires_at = expires_at or int((timezone.now() + timedelta(minutes=32)).timestamp())
     return stripe.checkout.Session.construct_from({
         "id": session_id,
         "object": "checkout.session",
         "url": f"https://checkout.stripe.com/c/pay/{session_id}",
         "expires_at": expires_at,
-        "status": "open",
-        "payment_status": "unpaid",
+        "status": status,
+        "payment_status": payment_status,
+        "amount_total": 24015,
+        "currency": "eur",
+        "payment_intent": "pi_test_123" if status == "complete" else None,
+        **extra,
     }, "rk_test_dummy")
 
 
@@ -199,6 +203,7 @@ class CheckoutFixtures:
         self.stripe = mock.MagicMock()
         self.sessions = self.stripe.v1.checkout.sessions
         self.sessions.create.return_value = fake_session()
+        self.sessions.expire.return_value = fake_session(status="expired")
         patcher = mock.patch("payments.services.get_client", return_value=self.stripe)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -290,6 +295,7 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
         )
         self.assertEqual(params["cancel_url"], f"http://localhost:4200/bookings/{booking.pk}/payment?cancelled=1")
         self.assertNotIn("payment_method_types", params)  # dynamic payment methods
+        self.assertEqual(params["adaptive_pricing"], {"enabled": False})  # always charged in EUR
 
         payment = Payment.objects.get(booking=booking)
         self.assertEqual(payment.stripe_checkout_session_id, "cs_test_123")
@@ -370,7 +376,7 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
             (dict(payment_status=Payment.Status.PAID), "already_paid"),
             (dict(payment_status=Payment.Status.PROCESSING), "already_paid"),
             (dict(payment_status=Payment.Status.EXPIRED), "payment_window_closed"),
-            (dict(expires_at=timezone.now() - timedelta(seconds=1)), "payment_window_closed"),
+            (dict(payment_status=Payment.Status.CANCELLED), "payment_window_closed"),
         ]
         for change, code in cases:
             with self.subTest(code=code, change=change), transaction.atomic():
@@ -659,3 +665,196 @@ class WebhookConcurrencyTests(WebhookFixtures, TransactionTestCase):
             results, [{"received": True, "handled": True}, {"received": True, "duplicate": True}]
         )
         self.assertEqual(self.state(), ("confirmed", "paid"))
+
+
+
+# --------------------------------------------------------------------------
+# Step 4: stale holds (missed webhooks) and status changes with a payment page open
+# --------------------------------------------------------------------------
+
+from django.core.management import call_command  # noqa: E402
+from io import StringIO  # noqa: E402
+
+
+def stale(booking):
+    """Make the hold look as if its time ran out and no webhook came."""
+    Payment.objects.filter(booking=booking).update(expires_at=timezone.now() - timedelta(minutes=1))
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class StaleHoldTests(CheckoutFixtures, APITestCase):
+    def other_books_same_dates(self):
+        self.client.force_authenticate(self.other)
+        today = timezone.localdate()
+        res = self.client.post(reverse("booking-list"), {
+            "property": self.prop.id, "check_in": (today + timedelta(days=10)).isoformat(),
+            "check_out": (today + timedelta(days=13)).isoformat(), "guests": 1,
+        }, format="json")
+        self.client.force_authenticate(self.guest)
+        return res.status_code
+
+    def state(self, booking):
+        booking.refresh_from_db()
+        return booking.status, Payment.objects.get(booking=booking).status
+
+    def test_hold_without_session_is_released_directly(self):
+        booking, _ = self.book_via_api()
+        stale(booking)
+        self.assertEqual(self.other_books_same_dates(), 201)
+        self.assertEqual(self.state(booking), ("cancelled", "expired"))
+        self.sessions.expire.assert_not_called()  # never went to checkout: nothing to ask
+        self.sessions.retrieve.assert_not_called()
+
+    def test_hold_expired_at_stripe_is_released(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk))
+        stale(booking)
+        self.assertEqual(self.other_books_same_dates(), 201)
+        self.sessions.expire.assert_called_once_with("cs_test_123")
+        self.assertEqual(self.state(booking), ("cancelled", "expired"))
+
+    def test_hold_that_was_actually_paid_keeps_its_dates(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk))
+        stale(booking)
+        self.sessions.expire.side_effect = stripe.InvalidRequestError("not open", "session")
+        self.sessions.retrieve.return_value = fake_session(status="complete", payment_status="paid")
+        self.assertEqual(self.other_books_same_dates(), 409)
+        self.assertEqual(self.state(booking), ("confirmed", "paid"))
+
+    def test_stripe_unreachable_leaves_the_hold_alone(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk))
+        stale(booking)
+        self.sessions.expire.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.services", "WARNING"):
+            self.assertEqual(self.other_books_same_dates(), 409)
+        self.assertEqual(self.state(booking), ("pending", "open"))
+
+    def test_live_hold_is_not_touched(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk))
+        self.assertEqual(self.other_books_same_dates(), 409)
+        self.sessions.expire.assert_not_called()
+        self.assertEqual(self.state(booking), ("pending", "open"))
+
+    def test_pay_now_on_a_stale_hold_tells_the_truth(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk))
+        stale(booking)
+        self.sessions.expire.side_effect = stripe.InvalidRequestError("not open", "session")
+        self.sessions.retrieve.return_value = fake_session(status="complete", payment_status="paid")
+        res = self.client.post(checkout_url(booking.pk))
+        self.assertEqual((res.status_code, res.data["code"]), (409, "already_confirmed"))
+        self.assertEqual(self.state(booking), ("confirmed", "paid"))
+
+    def test_management_command_settles_all_stale_holds(self):
+        no_session, _ = self.book_via_api(10, 12)
+        with_session, _ = self.book_via_api(20, 22)
+        live, _ = self.book_via_api(30, 32)
+        self.client.post(checkout_url(with_session.pk))
+        stale(no_session)
+        stale(with_session)
+        out = StringIO()
+        call_command("release_stale_holds", stdout=out)
+        self.assertIn("Settled 2 stale hold(s); 0 couldn't be checked.", out.getvalue())
+        self.assertEqual(self.state(no_session), ("cancelled", "expired"))
+        self.assertEqual(self.state(with_session), ("cancelled", "expired"))
+        self.assertEqual(self.state(live), ("pending", "open"))
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class StatusChangeWithPaymentTests(WebhookFixtures, APITestCase):
+    """setUp: self.booking is pending with an open payment page (cs_test_123)."""
+
+    def patch(self, status_, user=None, booking=None):
+        self.client.force_authenticate(user or self.guest)
+        return self.client.patch(reverse("booking-detail", args=[(booking or self.booking).pk]),
+                                 {"status": status_}, format="json")
+
+    def test_guest_cancel_closes_the_payment_page_first(self):
+        res = self.patch("cancelled")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.sessions.expire.assert_called_once_with("cs_test_123")
+        self.assertEqual(self.state(), ("cancelled", "cancelled"))
+        self.assertEqual(res.data["payment"]["status"], "cancelled")
+        # Stripe's own "expired" event for that page arrives later: no change.
+        self.deliver(session_event("checkout.session.expired", "cs_test_123", payment_status="unpaid"))
+        self.assertEqual(self.state(), ("cancelled", "cancelled"))
+
+    def test_admin_confirm_by_hand_closes_the_payment_page(self):
+        res = self.patch("confirmed", user=self.admin)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.sessions.expire.assert_called_once_with("cs_test_123")
+        self.assertEqual(self.state(), ("confirmed", "cancelled"))
+
+    def test_cancel_just_after_the_guest_paid(self):
+        self.sessions.expire.side_effect = stripe.InvalidRequestError("not open", "session")
+        self.sessions.retrieve.return_value = fake_session(status="complete", payment_status="paid")
+        res = self.patch("cancelled")
+        self.assertEqual((res.status_code, res.data["code"]), (409, "payment_completed"))
+        self.assertEqual(self.state(), ("confirmed", "paid"))  # recorded right away, not lost
+
+    def test_cancel_just_after_a_delayed_payment_started(self):
+        self.sessions.expire.side_effect = stripe.InvalidRequestError("not open", "session")
+        self.sessions.retrieve.return_value = fake_session(status="complete", payment_status="unpaid")
+        res = self.patch("cancelled")
+        self.assertEqual((res.status_code, res.data["code"]), (409, "payment_processing"))
+        self.assertEqual(self.state(), ("pending", "processing"))
+
+    def test_no_cancelling_while_a_payment_is_processing(self):
+        Payment.objects.filter(booking=self.booking).update(status=Payment.Status.PROCESSING)
+        detail = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data
+        self.assertFalse(detail["can_cancel"])
+        for user in (self.guest, self.admin):
+            res = self.patch("cancelled", user=user)
+            self.assertEqual((res.status_code, res.data["code"]), (409, "payment_processing"))
+        self.sessions.expire.assert_not_called()
+        self.assertEqual(self.state(), ("pending", "processing"))
+
+    def test_stripe_unreachable_means_no_cancel(self):
+        self.sessions.expire.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.services", "ERROR"), self.assertLogs("django.request", "ERROR"):
+            res = self.patch("cancelled")
+        self.assertEqual((res.status_code, res.data["code"]), (502, "payment_provider_error"))
+        self.assertEqual(self.state(), ("pending", "open"))  # the page may still take money
+
+    def test_cancel_before_checkout_needs_no_stripe(self):
+        other, _ = self.book_via_api(20, 22)  # never went to checkout
+        res = self.patch("cancelled", booking=other)
+        self.assertEqual(res.status_code, 200)
+        self.sessions.expire.assert_not_called()
+        self.assertEqual(Payment.objects.get(booking=other).status, Payment.Status.CANCELLED)
+
+    def test_refused_change_never_touches_stripe(self):
+        res = self.patch("confirmed")  # guests can't confirm
+        self.assertEqual(res.status_code, 400)
+        self.sessions.expire.assert_not_called()
+
+    def test_payment_page_opened_mid_cancel(self):
+        other, _ = self.book_via_api(20, 22)
+
+        def opened_meanwhile(booking_id):
+            Payment.objects.filter(booking_id=booking_id).update(stripe_checkout_session_id="cs_test_new")
+            return None  # at close time there was nothing to close
+
+        with mock.patch("bookings.views.close_checkout_for_status_change", side_effect=opened_meanwhile):
+            res = self.patch("cancelled", booking=other)
+        self.assertEqual((res.status_code, res.data["code"]), (409, "checkout_just_opened"))
+        other.refresh_from_db()
+        self.assertEqual(other.status, Booking.Status.PENDING)
+
+    def test_cancelling_a_paid_booking_keeps_the_payment(self):
+        self.deliver(session_event("checkout.session.completed", "cs_test_123"))
+        res = self.patch("cancelled")
+        self.assertEqual(res.status_code, 200)
+        self.sessions.expire.assert_not_called()
+        self.assertEqual(self.state(), ("cancelled", "paid"))  # refund: TICKET-040
+
+    def test_payments_switched_off_with_a_page_open(self):
+        with override_settings(PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY=""), \
+                mock.patch("payments.services.get_client", side_effect=services.PaymentsDisabled), \
+                self.assertLogs("payments.services", "WARNING"):
+            res = self.patch("cancelled")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.state(), ("cancelled", "cancelled"))

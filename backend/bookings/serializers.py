@@ -69,6 +69,10 @@ class BookingSerializer(serializers.ModelSerializer):
         the rules."""
         if obj.status == Booking.Status.CANCELLED:
             return False
+        # (a missing reverse one-to-one raises an AttributeError subclass)
+        payment = getattr(obj, "payment", None)
+        if payment is not None and payment.status == "processing":
+            return False  # a delayed payment is in flight (TICKET-029)
         if self.context.get("is_admin"):
             return True
         return obj.guest_can_cancel()
