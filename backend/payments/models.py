@@ -7,12 +7,19 @@ from django.utils import timezone
 class Payment(models.Model):
     """The Stripe Checkout payment for one Booking (TICKET-029).
 
-    One per booking, ever: the Checkout Session is created with an
-    idempotency key derived from the booking id, so a double click or a
-    network retry gets the same session back instead of a second charge.
-    A booking only exists here once its row has been committed (so it
-    already passed the no-overlap exclusion constraint) - payment never
-    starts for a booking that lost the race.
+    Created (status `open`, no Stripe session yet) in the same transaction
+    as the booking itself when payments are on - so it only ever exists for
+    a booking that already passed the no-overlap exclusion constraint, and
+    the 30-minute date hold is measured from the moment of booking. A
+    booking without a Payment (seeded, or made while payments were off)
+    simply doesn't take online payment.
+
+    The Checkout Session is created later by POST /api/bookings/{id}/checkout/
+    with the idempotency key "booking-<id>-checkout-<checkout_attempt>" and
+    parameters built only from stored values, so a double click or a retry
+    after a lost response gets the *same* session back from Stripe instead
+    of a second one. One session per booking once it exists ("Pay now"
+    reuses checkout_url).
 
     The status is driven by Stripe's webhook, never by the browser coming
     back to the success page:
@@ -43,9 +50,21 @@ class Payment(models.Model):
         help_text="Booking.total_price at checkout time (a snapshot - what Stripe was asked to charge).",
     )
     currency = models.CharField(max_length=3, default="eur")
-    stripe_checkout_session_id = models.CharField(max_length=255, unique=True)
+    stripe_checkout_session_id = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="Empty until the guest reaches checkout (unique once set).",
+    )
     checkout_url = models.TextField(
+        blank=True,
         help_text="Stripe-hosted payment page; valid until expires_at, so 'Pay now' can reuse it.",
+    )
+    checkout_attempt = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="Part of the Stripe idempotency key. Only goes up if an attempt never produced a "
+                  "session and its stored expiry got too close for Stripe to accept again.",
     )
     stripe_payment_intent_id = models.CharField(
         max_length=255,

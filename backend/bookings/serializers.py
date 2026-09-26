@@ -4,6 +4,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from listings.models import Property
+from payments.serializers import payment_summary
 
 from .models import Booking
 
@@ -33,6 +34,7 @@ class BookingSerializer(serializers.ModelSerializer):
     guest_email = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
     cancel_deadline = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -47,6 +49,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "status",
             "can_cancel",
             "cancel_deadline",
+            "payment",
             "guest_email",
             "created_at",
         ]
@@ -76,14 +79,20 @@ class BookingSerializer(serializers.ModelSerializer):
         until Wed 15:00"."""
         return serializers.DateTimeField().to_representation(obj.cancel_deadline())
 
+    def get_payment(self, obj):
+        """Online payment state (TICKET-029), or null when this booking
+        doesn't take online payment (seeded / made while payments were off)."""
+        return payment_summary(obj, self.context.get("request"))
+
 
 class BookingCreateSerializer(serializers.Serializer):
     """POST body: property, check_in, check_out, guests.
 
     Everything else is decided by the server: total_price is computed from
     the property's current nightly price (any client-sent price is ignored),
-    status always starts as pending (TICKET-029's payment webhook will
-    confirm it later), and guest is the logged-in user.
+    status always starts as pending (with payments on, the Stripe webhook
+    confirms it once the money has arrived - TICKET-029), and guest is the
+    logged-in user.
     """
 
     property = serializers.PrimaryKeyRelatedField(queryset=Property.objects.all())

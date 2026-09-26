@@ -6,6 +6,7 @@ from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, permissions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,6 +14,8 @@ from rest_framework.views import APIView
 from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 from listings.models import PropertyImage
+from payments.services import CheckoutError, start_checkout, start_hold
+from payments.stripe_client import payments_enabled
 
 from .models import Booking
 from .serializers import BookingCreateSerializer, BookingSerializer, BookingStatusSerializer
@@ -84,6 +87,8 @@ class BookingViewSet(
       ?property= and ?search= (guest email or property title) - admin only.
       Paginated.
     - POST            - any logged-in user books for themselves.
+    - POST {id}/checkout/ - the booking's own guest gets the Stripe
+                        Checkout page to pay (TICKET-029).
     - PATCH           - status only: guest may cancel their own booking
                         until 48h before check-in (15:00 local on the
                         check-in date); admin: pending->confirmed/cancelled,
@@ -106,7 +111,7 @@ class BookingViewSet(
         return context
 
     def get_queryset(self):
-        qs = Booking.objects.select_related("property", "guest").prefetch_related(
+        qs = Booking.objects.select_related("property", "guest", "payment").prefetch_related(
             Prefetch("property__images", queryset=PropertyImage.objects.all())
         )
         if not self._is_admin():
@@ -173,6 +178,12 @@ class BookingViewSet(
             try:
                 with transaction.atomic():
                     booking = serializer.save()
+                    # TICKET-029: with payments on, the booking starts
+                    # holding its dates for the guest to pay (same
+                    # transaction - a booking that loses the race above
+                    # never gets a payment).
+                    if payments_enabled():
+                        start_hold(booking)
                 break
             except IntegrityError as exc:
                 if is_overlap_violation(exc):
@@ -184,6 +195,26 @@ class BookingViewSet(
                 if attempt == 2:
                     return just_taken
         return self._respond(booking, status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def checkout(self, request, pk=None):
+        """POST /api/bookings/{id}/checkout/ (TICKET-029) - Stripe's hosted
+        payment page for this booking: {"checkout_url", "expires_at"}.
+
+        Only the booking's own guest can pay for it (anyone else - admins
+        included - gets a 404, like any other booking that isn't theirs).
+        Safe to repeat: the first call creates the Checkout Session, later
+        ones ("Pay now") return the same page until the hold runs out.
+        """
+        booking = get_object_or_404(Booking.objects.filter(guest=request.user), pk=pk)
+        try:
+            payment = start_checkout(booking.pk)
+        except CheckoutError as exc:
+            return Response({"detail": exc.detail, "code": exc.code}, status=exc.http_status)
+        return Response({
+            "checkout_url": payment.checkout_url,
+            "expires_at": serializers.DateTimeField().to_representation(payment.expires_at),
+        })
 
     def partial_update(self, request, *args, **kwargs):
         body = BookingStatusSerializer(data=request.data)
