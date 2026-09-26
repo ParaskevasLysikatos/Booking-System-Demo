@@ -489,6 +489,12 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
       - Errors: 409 `payment_not_required` / `already_confirmed` / `booking_cancelled` / `already_paid` / `payment_window_closed` / `checkout_in_progress`, 502 `payment_provider_error`, 503 `payments_disabled`; a booking cancelled mid-call gets its new session expired immediately. Only the booking's own guest (others and admins 404).
       - Every booking response has a `payment` block (`status`, `amount`, `currency`, `expires_at`, `paid_at`, `can_pay`), LEFT JOINed - still 3 queries per page.
       - 16 new tests (32 in `payments`); all 135 backend tests pass on Postgres. README: hold, endpoint, idempotency design, error table, curl.
+    - **Step 3 done:** the webhook, `POST /api/payments/stripe/webhook/` (`payments/views.py` + `payments/webhooks.py`).
+      - Plain Django view (raw body): `stripe.Webhook.construct_event` verifies the signature first → 400 on a bad/missing/old signature or tampered body; no login/CSRF. Secret from `STRIPE_WEBHOOK_SECRET` or the stripe-cli file (read per request); none → 503.
+      - De-dup: `StripeEvent` insert in the same transaction as the changes → repeat = skipped, simultaneous repeat waits then skipped, failure rolls everything back (500) so Stripe's retry is clean.
+      - Events: completed+paid / async_payment_succeeded → payment `paid`, booking `confirmed`; completed+unpaid → `processing`; async_payment_failed / expired → `failed` / `expired`, booking `cancelled` (dates freed). Matched by stored session id only (one sandbox serves local + Render). Admin-confirmed bookings stay confirmed on expiry; paid-after-cancelled stays cancelled + refund warning (TICKET-040); amount/currency mismatch never confirms.
+      - 19 new tests with real HMAC signatures, incl. two simultaneous deliveries of one event → handler runs exactly once (6/6 runs). All 154 backend tests pass on Postgres. README: event table, safety design, tests.
+    - Agreed for the end of this ticket: **end-to-end tests** (step 7), locally and on Render, with real Stripe test payments (card 4242), covering pay → confirmed, abandon → expired/released, and Pay now.
 
 - [ ] **TICKET-040** — Refunds on cancellation
   - Priority: P1 · Depends on: TICKET-029 (payments must exist first), TICKET-015 (cancellation rules)

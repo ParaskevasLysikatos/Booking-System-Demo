@@ -137,11 +137,13 @@ backend/
   payments/            Stripe test-mode Checkout for bookings (TICKET-029, in progress)
     models.py          Payment (one per booking: Checkout Session, amount, status, hold expiry) + StripeEvent (webhook de-dup)
     services.py        start_hold() at booking time; start_checkout() - idempotent Checkout Session creation
-    stripe_client.py   The one StripeClient (pinned API version); payments_enabled()
+    views.py + urls.py POST /api/payments/stripe/webhook/ - signature check, event de-dup
+    webhooks.py        What each Stripe event does (paid -> confirmed, expired/failed -> cancelled, ...)
+    stripe_client.py   The one StripeClient (pinned API version); payments_enabled(); webhook_secret()
     serializers.py     The `payment` block in booking responses (incl. can_pay)
     checks.py          Startup checks for the Stripe settings (live keys refused, hold length, missing webhook secret)
     admin.py           Read-only Payment / StripeEvent lists (dev-only DB inspection)
-    tests.py           Model, settings-check, hold and checkout tests (Stripe mocked)
+    tests.py           Model, settings-check, hold, checkout and webhook tests (Stripe mocked, real signatures)
     migrations/        0001 creates the payments and stripe events tables; 0002 makes the session optional until checkout
 
 frontend/
@@ -1954,8 +1956,9 @@ in the database.
 Guests pay for a booking with **Stripe Checkout in test mode** (no real
 money - pay with the test card `4242 4242 4242 4242`, any future expiry,
 any CVC). This section grows as the ticket is built in steps; **step 1 (data
-model + settings) and step 2 (the payment hold + checkout endpoint) are
-done**; the webhook and the frontend come next.
+model + settings), step 2 (the payment hold + checkout endpoint) and step
+3 (the webhook) are done**; releasing stale holds, the frontend and the
+Docker/Render webhook setup come next, then end-to-end tests.
 
 ### How it will work (agreed design)
 
@@ -2117,6 +2120,60 @@ for a booking.
 | Payments switched off | `503` `payments_disabled` |
 | Cancelled while we were talking to Stripe | `409` `booking_cancelled`, and the new session is **expired immediately** so it can never be paid |
 
+### The webhook: `POST /api/payments/stripe/webhook/`
+
+**This is what confirms a booking** - never the browser coming back from
+Stripe. A guest can pay and lose their connection before the success page
+loads, and anyone can open a success URL; only an event **signed by
+Stripe** proves the money moved.
+
+| Stripe event | Payment | Booking |
+| --- | --- | --- |
+| `checkout.session.completed`, `payment_status=paid` | `paid` (+ `paid_at`, PaymentIntent id) | `pending` → **`confirmed`** |
+| `checkout.session.completed`, `payment_status=unpaid` (a delayed method, e.g. SEPA) | `processing` - the hold stops expiring, nothing more to pay | stays `pending`, dates stay held |
+| `checkout.session.async_payment_succeeded` | `paid` | `pending` → **`confirmed`** |
+| `checkout.session.async_payment_failed` | `failed` | `pending` → **`cancelled`**, dates free again |
+| `checkout.session.expired` (the 30 minutes ran out unpaid) | `expired` | `pending` → **`cancelled`**, dates free again |
+| anything else | - | - (acknowledged with `200`, ignored) |
+
+How it's made safe (`payments/views.py`, `payments/webhooks.py`):
+
+- **Signature first.** A plain Django view (not DRF), because Stripe signs
+  the *raw* body: `stripe.Webhook.construct_event` checks the
+  `Stripe-Signature` header against the signing secret before anything
+  else runs. Wrong secret, tampered body, missing header, or a timestamp
+  older than 5 minutes (a replay) → `400`, nothing touched. No login and no
+  CSRF token - the signature *is* the authentication.
+- **The secret** comes from `STRIPE_WEBHOOK_SECRET` (Render) or, locally,
+  from the file the `stripe-cli` Docker service writes
+  (`STRIPE_WEBHOOK_SECRET_FILE`, read on every request since the CLI may
+  start after the backend). None configured → `503` + an error in the log
+  (and the `payments.W002` startup warning).
+- **Each event handled once.** Stripe delivers events *at least* once. The
+  event id goes into `StripeEvent` **in the same transaction** as the
+  changes it causes: a repeat delivery hits the primary key and is skipped
+  (`{"duplicate": true}`); a *simultaneous* repeat waits for the first
+  transaction to commit, then is skipped; and if handling fails, everything
+  including the event row rolls back, the response is a `500`, and Stripe's
+  automatic retry (for up to 3 days) starts clean.
+- **Same locks as checkout.** The booking and payment rows are locked in the
+  same order as `POST .../checkout/` (booking first, then payment), and
+  every handler checks the current state before changing anything, so it's
+  also safe to run twice on its own.
+- **Unknown sessions are ignored.** Events are matched by the Checkout
+  Session id we stored, never by `metadata.booking_id` alone. That matters
+  because one Stripe sandbox serves both copies of the app: the local
+  `stripe-cli` forwards Render's events too (and vice versa), and booking
+  #12 locally isn't booking #12 on Render.
+- **Human decisions win.** A session expiring on a booking an admin already
+  confirmed by hand leaves it confirmed. A payment arriving for a booking
+  that was cancelled meanwhile is recorded as `paid`, the booking **stays
+  cancelled**, and a warning is logged - the money has to go back, which is
+  TICKET-040's refund flow.
+- **The amount is checked.** If Stripe ever reported a different amount or
+  currency than the booking costs (it can't - the server sets it), the
+  booking is **not** confirmed and an error is logged.
+
 ### Trying it (before the frontend step)
 
 With payments on and the backend restarted, book as a guest (the booking
@@ -2126,13 +2183,14 @@ form still works as before), then:
 curl -X POST http://localhost:8000/api/bookings/<id>/checkout/ -H "Authorization: Bearer $TOKEN"
 ```
 
-Open the returned `checkout_url` and pay with `4242 4242 4242 4242`. Until
-the webhook step lands, the booking stays `pending` after paying - that's
-expected.
+Open the returned `checkout_url` and pay with `4242 4242 4242 4242`. The
+booking only turns `confirmed` once the webhook reaches the backend - which
+needs the `stripe-cli` forwarder (added with the Docker step). Until then it
+stays `pending` after paying; that's expected.
 
 ### Tests (so far)
 
-`payments/tests.py` - 32 tests (Stripe is always mocked; the suite never
+`payments/tests.py` - 51 tests (Stripe is always mocked; the suite never
 calls it):
 
 - **Model and settings (16):** cents conversion, one payment per booking,
@@ -2151,8 +2209,26 @@ calls it):
   owner (others and admins `404`, anonymous `401`); unpayable states; the
   booking cancelled mid-call → session expired; payments off → `503`; the
   bookings list stays at 3 queries.
+- **Webhook (19):** built with **real Stripe signatures** (HMAC-SHA256 over
+  `timestamp.body`, exactly as Stripe signs), so the verification code runs
+  for real:
+  - security: missing / wrong-secret / garbage / 1-hour-old signatures and
+    a body changed after signing → `400` with nothing changed; no secret →
+    `503`; the secret read from the stripe-cli file; GET → `405`; works
+    without login or CSRF
+  - events: paid → confirmed (and the guest's `can_pay` goes false); a
+    duplicate delivery changes nothing the second time; delayed payment →
+    processing → paid, or → failed with the dates bookable again; expired →
+    cancelled and rebookable; expired after an admin confirmed → still
+    confirmed; expired after paid → nothing; paid after cancelled → stays
+    cancelled + refund warning; amount mismatch → not confirmed; unknown
+    session and unrelated event types ignored; a handler crash rolls back
+    the event row, and Stripe's retry then succeeds
+  - **concurrency:** two simultaneous deliveries of the same event, on
+    separate DB connections → the handler runs **exactly once**, one
+    `handled`, one `duplicate` (passed 6 runs out of 6)
 
-The full backend suite (135 tests) passes on Postgres.
+The full backend suite (154 tests) passes on Postgres.
 
 ## Django Admin (dev-only)
 
@@ -2642,6 +2718,7 @@ Angular site at https://booking-demo-g4aw.onrender.com; see "Deploying to Render
 and "Frontend on Render". TICKET-028 adds the "Hosted demo check" button
 and the meetup plan; see "Demo day". **Epic 6 has started:** TICKET-029
 (Stripe test-mode checkout) is in progress - step 1 (the `payments` app's
-data model, Stripe settings and startup checks) and step 2 (the payment
-hold at booking time and the idempotent checkout endpoint) are done; see
-"Payments (Stripe)".
+data model, Stripe settings and startup checks), step 2 (the payment
+hold at booking time and the idempotent checkout endpoint) and step 3 (the
+signed, de-duplicated Stripe webhook that confirms or releases bookings)
+are done; see "Payments (Stripe)".

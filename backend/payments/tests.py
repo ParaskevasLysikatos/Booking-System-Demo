@@ -155,7 +155,7 @@ from unittest import mock  # noqa: E402
 import stripe  # noqa: E402
 from django.urls import reverse  # noqa: E402
 from rest_framework import status  # noqa: E402
-from rest_framework.test import APITestCase  # noqa: E402
+from rest_framework.test import APIClient, APITestCase  # noqa: E402
 
 from listings.models import PropertyImage  # noqa: E402
 
@@ -411,3 +411,251 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
         with self.assertNumQueries(3):  # count + one page query (payment LEFT JOINed) + images prefetch
             res = self.client.get(reverse("booking-list"))
         self.assertEqual([b["payment"]["status"] for b in res.data["results"]], ["open"] * 3)
+
+
+# --------------------------------------------------------------------------
+# Step 3: the webhook - real signed payloads, verified exactly like Stripe's
+# --------------------------------------------------------------------------
+
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+import json  # noqa: E402
+import tempfile  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+from django.db import connection  # noqa: E402
+from django.test import Client, TransactionTestCase  # noqa: E402
+
+WEBHOOK_URL = reverse("stripe-webhook")
+WEBHOOK_SECRET = "whsec_test_secret"
+
+
+def signed(payload: bytes, secret=WEBHOOK_SECRET, timestamp=None):
+    """The Stripe-Signature header Stripe would send for this body."""
+    timestamp = int(timestamp or time.time())
+    mac = hmac.new(secret.encode(), f"{timestamp}.".encode() + payload, hashlib.sha256).hexdigest()
+    return f"t={timestamp},v1={mac}"
+
+
+def session_event(event_type, session_id, event_id=None, **session_fields):
+    session = {
+        "id": session_id, "object": "checkout.session", "payment_status": "paid",
+        "status": "complete", "payment_intent": "pi_test_123", "amount_total": 24015,
+        "currency": "eur", "metadata": {},
+    }
+    session.update(session_fields)
+    return {
+        "id": event_id or f"evt_{event_type.replace('.', '_')}_{session_id}",
+        "object": "event", "type": event_type, "api_version": "2026-08-26.dahlia",
+        "data": {"object": session},
+    }
+
+
+class WebhookFixtures(CheckoutFixtures):
+    """A booking made through the API and taken to checkout (session cs_test_123)."""
+
+    def setUp(self):
+        super().setUp()
+        self.booking, _ = self.book_via_api()
+        self.assertEqual(self.client.post(checkout_url(self.booking.pk)).status_code, 200)
+        self.hook = Client()  # Stripe doesn't log in
+
+    def deliver(self, event, secret=WEBHOOK_SECRET, header=None):
+        body = json.dumps(event).encode()
+        return self.hook.post(
+            WEBHOOK_URL, body, content_type="application/json",
+            HTTP_STRIPE_SIGNATURE=header if header is not None else signed(body, secret),
+        )
+
+    def state(self):
+        self.booking.refresh_from_db()
+        payment = Payment.objects.get(booking=self.booking)
+        return self.booking.status, payment.status
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class WebhookSecurityTests(WebhookFixtures, APITestCase):
+    def test_bad_or_missing_signature_is_rejected(self):
+        event = session_event("checkout.session.completed", "cs_test_123")
+        body = json.dumps(event).encode()
+        cases = {
+            "missing": "",
+            "wrong secret": signed(body, "whsec_attacker"),
+            "garbage": "t=1,v1=deadbeef",
+            "too old (replay)": signed(body, timestamp=time.time() - 3600),
+        }
+        for name, header in cases.items():
+            with self.subTest(name), self.assertLogs("payments.views", "WARNING"), \
+                    self.assertLogs("django.request", "WARNING"):
+                res = self.deliver(event, header=header)
+                self.assertEqual(res.status_code, 400)
+        self.assertEqual(self.state(), ("pending", "open"))
+        self.assertFalse(StripeEvent.objects.exists())
+
+    def test_tampered_body_is_rejected(self):
+        event = session_event("checkout.session.completed", "cs_test_123")
+        header = signed(json.dumps(event).encode())
+        event["data"]["object"]["amount_total"] = 1  # changed after signing
+        with self.assertLogs("payments.views", "WARNING"), self.assertLogs("django.request", "WARNING"):
+            self.assertEqual(self.deliver(event, header=header).status_code, 400)
+        self.assertEqual(self.state(), ("pending", "open"))
+
+    def test_no_secret_configured(self):
+        with override_settings(STRIPE_WEBHOOK_SECRET="", STRIPE_WEBHOOK_SECRET_FILE=""), \
+                self.assertLogs("payments.views", "ERROR"), self.assertLogs("django.request", "ERROR"):
+            res = self.deliver(session_event("checkout.session.completed", "cs_test_123"))
+        self.assertEqual(res.status_code, 503)
+
+    def test_secret_from_the_stripe_cli_file(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write("whsec_from_cli\n")
+        with override_settings(STRIPE_WEBHOOK_SECRET="", STRIPE_WEBHOOK_SECRET_FILE=f.name):
+            res = self.deliver(session_event("checkout.session.completed", "cs_test_123"), secret="whsec_from_cli")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+
+    def test_only_post(self):
+        self.assertEqual(self.hook.get(WEBHOOK_URL).status_code, 405)
+
+    def test_no_login_or_csrf_needed(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        body = json.dumps(session_event("checkout.session.completed", "cs_test_123")).encode()
+        res = csrf_client.post(WEBHOOK_URL, body, content_type="application/json",
+                               HTTP_STRIPE_SIGNATURE=signed(body))
+        self.assertEqual(res.status_code, 200)
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class WebhookEventTests(WebhookFixtures, APITestCase):
+    def test_paid_confirms_the_booking(self):
+        res = self.deliver(session_event("checkout.session.completed", "cs_test_123"))
+        self.assertEqual(res.json(), {"received": True, "handled": True})
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+        payment = Payment.objects.get(booking=self.booking)
+        self.assertEqual(payment.stripe_payment_intent_id, "pi_test_123")
+        self.assertIsNotNone(payment.paid_at)
+        self.assertTrue(StripeEvent.objects.filter(type="checkout.session.completed").exists())
+        # and the guest now sees it as paid, with nothing left to pay
+        detail = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data
+        self.assertEqual((detail["status"], detail["payment"]["status"], detail["payment"]["can_pay"]),
+                         ("confirmed", "paid", False))
+
+    def test_duplicate_delivery_is_handled_once(self):
+        event = session_event("checkout.session.expired", "cs_test_123", payment_status="unpaid", status="expired")
+        self.deliver(event)
+        self.assertEqual(self.state(), ("cancelled", "expired"))
+        # Put things back to prove the second delivery changes nothing.
+        Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.PENDING)
+        Payment.objects.filter(booking=self.booking).update(status=Payment.Status.OPEN)
+        res = self.deliver(event)
+        self.assertEqual(res.json(), {"received": True, "duplicate": True})
+        self.assertEqual(self.state(), ("pending", "open"))
+        self.assertEqual(StripeEvent.objects.count(), 1)
+
+    def test_delayed_payment_then_success(self):
+        self.deliver(session_event("checkout.session.completed", "cs_test_123", payment_status="unpaid"))
+        self.assertEqual(self.state(), ("pending", "processing"))
+        # still holding the dates, but nothing more to pay
+        detail = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data
+        self.assertFalse(detail["payment"]["can_pay"])
+        self.deliver(session_event("checkout.session.async_payment_succeeded", "cs_test_123"))
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+
+    def test_delayed_payment_then_failure_frees_the_dates(self):
+        self.deliver(session_event("checkout.session.completed", "cs_test_123", payment_status="unpaid"))
+        self.deliver(session_event("checkout.session.async_payment_failed", "cs_test_123", payment_status="unpaid"))
+        self.assertEqual(self.state(), ("cancelled", "failed"))
+        self.book_via_api()  # same dates are bookable again (asserts 201)
+
+    def test_expired_releases_the_dates(self):
+        self.deliver(session_event("checkout.session.expired", "cs_test_123", payment_status="unpaid", status="expired"))
+        self.assertEqual(self.state(), ("cancelled", "expired"))
+        self.book_via_api()  # asserts 201
+
+    def test_expired_after_admin_confirmed_keeps_it_confirmed(self):
+        Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.CONFIRMED)
+        self.deliver(session_event("checkout.session.expired", "cs_test_123", payment_status="unpaid", status="expired"))
+        self.assertEqual(self.state(), ("confirmed", "expired"))
+
+    def test_expired_after_paid_changes_nothing(self):
+        self.deliver(session_event("checkout.session.completed", "cs_test_123"))
+        self.deliver(session_event("checkout.session.expired", "cs_test_123"))
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+
+    def test_paid_after_cancelled_stays_cancelled_and_is_flagged(self):
+        Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.CANCELLED)
+        with self.assertLogs("payments.webhooks", "WARNING") as logs:
+            self.deliver(session_event("checkout.session.completed", "cs_test_123"))
+        self.assertIn("needs a refund", logs.output[0])
+        self.assertEqual(self.state(), ("cancelled", "paid"))
+
+    def test_amount_mismatch_is_never_confirmed(self):
+        with self.assertLogs("payments.webhooks", "ERROR"):
+            self.deliver(session_event("checkout.session.completed", "cs_test_123", amount_total=100))
+        self.assertEqual(self.state(), ("pending", "paid"))
+
+    def test_unknown_session_is_ignored(self):
+        res = self.deliver(session_event("checkout.session.completed", "cs_test_someone_else"))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.state(), ("pending", "open"))
+
+    def test_unrelated_event_types_are_acknowledged_only(self):
+        res = self.deliver({"id": "evt_other", "object": "event", "type": "customer.created",
+                            "data": {"object": {"id": "cus_1", "object": "customer"}}})
+        self.assertEqual(res.json(), {"received": True, "handled": False})
+        self.assertFalse(StripeEvent.objects.exists())
+
+    def test_failure_rolls_back_so_stripe_can_retry(self):
+        event = session_event("checkout.session.completed", "cs_test_123")
+        with mock.patch("payments.views.handle_event", side_effect=RuntimeError("db hiccup")), \
+                self.assertLogs("django.request", "ERROR"), self.assertRaises(RuntimeError):
+            self.deliver(event)  # Django's test client re-raises; in production -> 500
+        self.assertFalse(StripeEvent.objects.exists())  # not marked as handled
+        self.assertEqual(self.state(), ("pending", "open"))
+        self.assertEqual(self.deliver(event).json()["handled"], True)  # Stripe's retry works
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class WebhookConcurrencyTests(WebhookFixtures, TransactionTestCase):
+    client_class = APIClient
+    def test_simultaneous_duplicate_deliveries_are_handled_once(self):
+        """Stripe can send the same event twice at the same moment: the second
+        insert of the event id waits for the first transaction, then is
+        skipped - the handler runs exactly once."""
+        from . import webhooks
+
+        calls, lock = [], threading.Lock()
+        real = webhooks.handle_event
+
+        def slow_handle(event):
+            with lock:
+                calls.append(event["id"])
+            time.sleep(0.3)  # keep the first transaction open while the second arrives
+            real(event)
+
+        event = session_event("checkout.session.completed", "cs_test_123")
+        results, errors = [None, None], []
+
+        def go(i):
+            try:
+                results[i] = self.deliver(event).json()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        with mock.patch("payments.views.handle_event", side_effect=slow_handle):
+            threads = [threading.Thread(target=go, args=(i,)) for i in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(calls), 1)
+        self.assertCountEqual(
+            results, [{"received": True, "handled": True}, {"received": True, "duplicate": True}]
+        )
+        self.assertEqual(self.state(), ("confirmed", "paid"))
