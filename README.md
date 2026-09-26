@@ -23,9 +23,11 @@ detail with availability, admin-only create/edit/soft-delete) and the
 Bookings API (race-proof booking creation, locked status changes) and
 the admin stats endpoint are done, which completes Epic 2.
 See "Authentication (JWT)", "Permissions", "Properties API", "Bookings
-API", "Admin stats API" and "Admin bookings". Stripe test-mode payments
-(TICKET-029) are being built; see "Payments (Stripe)". See "Next
-steps" at the bottom for what's next.
+API", "Admin stats API" and "Admin bookings". Guests now **pay online
+with Stripe (test mode)** - Confirm and pay, a 30-minute date hold, the
+webhook confirming bookings, Pay now, refunds flagged for the host
+(TICKET-029, tested end to end locally and on Render); see "Payments
+(Stripe)". See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
 
@@ -139,7 +141,7 @@ backend/
     models.py          Review model (rating 1-5, one review per guest per property)
     admin.py           Filterable/searchable Review list (dev-only DB inspection)
     migrations/        0001_initial.py creates the reviews table
-  payments/            Stripe test-mode Checkout for bookings (TICKET-029, in progress)
+  payments/            Stripe test-mode Checkout for bookings (TICKET-029)
     models.py          Payment (one per booking: Checkout Session, amount, status, hold expiry) + StripeEvent (webhook de-dup)
     services.py        start_hold() at booking time; start_checkout() - idempotent Checkout Session creation
     views.py + urls.py POST /api/payments/stripe/webhook/ - signature check, event de-dup
@@ -2004,16 +2006,14 @@ showing 7, searching "sara" with Pending only down to booking #54, and
 the Confirm dialog, closed with **Not now**, so **nothing was changed**
 in the database.
 
-## Payments (Stripe, TICKET-029 - in progress)
+## Payments (Stripe, TICKET-029)
 
 Guests pay for a booking with **Stripe Checkout in test mode** (no real
 money - pay with the test card `4242 4242 4242 4242`, any future expiry,
-any CVC). This section grows as the ticket is built in steps; **step 1 (data
-model + settings), step 2 (the payment hold + checkout endpoint), step 3
-(the webhook), step 4 (stale holds + cancelling with a payment page open),
-step 5 (the frontend) and step 6 (webhook forwarding in Docker + the Render
-setup) are done, and the local end-to-end run (step 7) passed** - see "End-to-end
-results - local". The same run on Render follows once it's deployed.
+any CVC). Built in steps - data model + settings, the payment hold +
+checkout endpoint, the webhook, stale holds + cancelling with a payment
+page open, the frontend, webhook forwarding in Docker + the Render setup -
+and **tested end to end, locally and on Render**; see "End-to-end results".
 
 ### How it will work (agreed design)
 
@@ -2659,6 +2659,26 @@ after; **admins** have no deadline; **cancelled is final** for everyone.
 | UI-11 | The cancel dialog says what happens to the money | Cancel a paid / unpaid-open / no-payment booking | "full refund of €X" / "payment page will be closed" / "nothing to refund" | my-bookings.spec "CancelBookingDialog" | ✓ |
 | UI-12 | Admin bookings: **Payment** column + warnings | Open Admin → Bookings | chips Paid / Awaiting payment (until HH:MM) / Processing / Expired / Failed / Waived / Not paid / **Refund due** / "—"; Confirm on unpaid warns "payment waived"; Cancel on paid reminds to refund in Stripe; server refusals in a snackbar | admin-bookings.spec | ✓ |
 
+### End-to-end results - Render (26 Sep 2026)
+
+The same flow on the hosted demo (`booking-demo-g4aw.onrender.com` + the
+API on Render, Stripe webhook endpoint → `…/api/payments/stripe/webhook/`,
+its own restricted key), property "Spacious Loft in Mykonos" (€212/night).
+The guest typed the logins and test cards; everything else was driven and
+checked in Chrome. **All passed.**
+
+| Round | What we did | Cases | Result |
+| --- | --- | --- | --- |
+| R1 | Confirm and pay, card 4242 (twice: #38, #40) | UI-01, UI-02, WH-03, CFG-05 | ✅ Step 2 wording incl. "about 30 minutes" and "full refund"; "Payment received - you're booked!", **Paid €424** - the Render webhook endpoint + secret work |
+| R2 | Backed out, Pay now, backed out, Cancel booking (#39) | UI-07, CHK-03, CAN-01, UI-11 | ✅ Countdown; the same Checkout Session on Pay now; dialog "payment page will be closed"; Stripe link → "You're all done here"; the cancelled screen shows no policy line (the local-run fix is live) |
+| R3 | 3-D Secure card `4000 0025 0000 3155` (#41) | - | ✅ Test challenge → Complete → confirmed, Paid €424 |
+| R4 | Guest cancelled paid #38; left #42 unpaid; admin confirmed #42 | CAN-09, UI-10, UI-11, UI-12, CAN-02 | ✅ "full refund of €424" / "Full refund of €424 - processed by the host"; admin: #40, #41 **Paid**, #38 **Refund due**, #39 **Not paid**; "…payment is waived" warning → #42 **Confirmed · Waived** |
+| R5 | Local `stripe-cli` log while testing Render | WH-10 | ✅ All five Render events (3 completed, 2 expired) also reached the local forwarder → `[200]`, and the local backend ignored them (not its sessions) - local bookings unchanged |
+| R6 | GitHub **Hosted demo check** workflow | - | ✅ Green (`/api/payments/config/` → `"enabled": true`) |
+
+Stripe settings checked in the Dashboard: Managed Payments **inactive** and
+off by default (its tax and refund-request settings only apply when it's on).
+
 ### End-to-end results - local (26 Sep 2026)
 
 Run by hand in Chrome against the Docker setup (`stripe-cli` forwarding
@@ -3191,13 +3211,14 @@ is live at https://booking-demo-api.onrender.com, and TICKET-027 adds the
 Angular site at https://booking-demo-g4aw.onrender.com; see "Deploying to Render"
 and "Frontend on Render". TICKET-028 adds the "Hosted demo check" button
 and the meetup plan; see "Demo day". **Epic 6 has started:** TICKET-029
-(Stripe test-mode checkout) is in progress - step 1 (the `payments` app's
-data model, Stripe settings and startup checks), step 2 (the payment
-hold at booking time and the idempotent checkout endpoint) and step 3 (the
-signed, de-duplicated Stripe webhook that confirms or releases bookings)
-step 4 (settling holds whose webhook was missed, and closing the payment
-page before a cancel), step 5 (the frontend: Confirm and pay, the return
-page, Pay now with a live countdown, the admin Payment column) and step 6
-(the `stripe-cli` webhook forwarder in Docker, the Render env vars and
-Stripe webhook endpoint) are done;
-see "Payments (Stripe)" and "Payments: business rules & test cases".
+(Stripe test-mode checkout) is **done** - the `payments` app (data model,
+Stripe settings and startup checks), the payment hold at booking time and
+the idempotent checkout endpoint, the signed, de-duplicated webhook that
+confirms or releases bookings, settling holds whose webhook was missed,
+closing the payment page before a cancel, the frontend (Confirm and pay,
+the return page, Pay now with a live countdown, the admin Payment column),
+the `stripe-cli` forwarder in Docker and the Render setup - all tested end
+to end locally and on Render; see "Payments (Stripe)", "Payments: business
+rules & test cases" and "End-to-end results". Next in Epic 6: TICKET-040
+(automatic refunds, building on the "Refund due" flag) and TICKET-030
+(booking-confirmation email).
