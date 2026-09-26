@@ -20,8 +20,12 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # TICKET-029: the Stripe webhook signing secret, written by the
+      # stripe-cli service below (so it never has to be copied into .env).
+      STRIPE_WEBHOOK_SECRET_FILE: /stripe/webhook_secret
     volumes:
       - ./backend:/app
+      - stripe_cli:/stripe:ro
     ports:
       - "8000:8000"
     depends_on:
@@ -39,6 +43,37 @@ services:
     depends_on:
       - backend
 
+  # TICKET-029: forwards Stripe's (test-mode) webhook events to the local
+  # backend - Stripe can't reach localhost itself. Needs STRIPE_CLI_API_KEY
+  # (the full sk_test_ key) in .env; without it this service just idles and
+  # payments can't be confirmed locally. Watch it: docker compose logs -f stripe-cli
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    restart: unless-stopped
+    environment:
+      STRIPE_API_KEY: ${STRIPE_CLI_API_KEY:-}
+      STRIPE_DEVICE_NAME: booking-demo-docker
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ -z "$$STRIPE_API_KEY" ]; then
+          echo "STRIPE_CLI_API_KEY isn't set in .env - Stripe webhook forwarding is OFF."
+          while true; do sleep 3600; done
+        fi
+        # 1) Share this forwarder's signing secret with the backend (shared volume).
+        stripe listen --print-secret > /stripe/webhook_secret.tmp
+        mv /stripe/webhook_secret.tmp /stripe/webhook_secret
+        echo "Webhook signing secret shared with the backend."
+        # 2) Forward only the events the backend handles.
+        exec stripe listen \
+          --forward-to http://backend:8000/api/payments/stripe/webhook/ \
+          --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired
+    volumes:
+      - stripe_cli:/stripe
+    depends_on:
+      - backend
+
   pgadmin:
     image: dpage/pgadmin4
     restart: unless-stopped
@@ -53,3 +88,4 @@ services:
 volumes:
   postgres_data:
   pgadmin_data:
+  stripe_cli:     # just the webhook signing secret, shared stripe-cli -> backend

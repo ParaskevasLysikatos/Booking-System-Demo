@@ -56,5 +56,14 @@ xfo=$(curl -sS --max-time 30 -o /dev/null -D - "$SITE/" | tr -d '\r' | awk -F': 
 [ "$xfo" = "DENY" ] || fail "Site is missing X-Frame-Options: DENY (got '${xfo:-nothing}')"
 ok "Security headers present"
 
+# 6. Online payments (TICKET-029): report whether they're switched on.
+#    Informational - the demo works either way (off = the host confirms bookings).
+payments=$(curl -sS --max-time 30 -H 'Accept: application/json' "$API/api/payments/config/" | json "d['enabled']" 2>/dev/null || echo "unknown")
+case "$payments" in
+  True)  ok "Payments are ON (Stripe test mode)" ;;
+  False) ok "Payments are OFF - set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET on Render to switch them on" ;;
+  *)     ok "Payments state unknown (this API version has no /api/payments/config/ yet)" ;;
+esac
+
 echo "All good - the hosted demo is awake for the next ~15 minutes."
 echo "**All good** - the API stays awake for ~15 minutes after this." >> "$SUMMARY"

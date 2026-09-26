@@ -509,6 +509,12 @@ next if schedule allows · P2 = nice-to-have / first to cut if behind.
       - My Bookings: payment line per card (countdown + Pay now, processing, paid, refund, expired, failed, waived) and money-aware cancel dialog. Admin bookings: Payment column with chips incl. **Refund due**, confirm "waived" warning, cancel refund reminder.
       - 33 new frontend tests (200 total) + production build clean; 174 backend tests pass on Postgres. Checked in Chrome as the demo admin without booking anything: config endpoint live, step 2 wording + Confirm and pay, My bookings (no-payment booking unchanged), admin Payment column ("—" for seeded).
       - README: "Payments in the frontend" + a new **"Payments: business rules & test cases"** section - every rule numbered (CFG, HOLD, CHK, WH, STALE, CAN, UI) with how to test, expected result, the automated test that covers it, and which ones to run by hand in step 7 (plus Stripe test cards).
+    - **Step 6 done (Docker + Render):**
+      - `docker-compose.yml`: new `stripe-cli` service (`stripe/stripe-cli`, logs in with `STRIPE_CLI_API_KEY`; idles with a clear message if unset). On start it writes its signing secret to a shared volume `stripe_cli` (read-only in the backend at `/stripe`, `STRIPE_WEBHOOK_SECRET_FILE=/stripe/webhook_secret`) - nothing to copy into `.env` - then forwards only the 4 handled `checkout.session.*` events to `http://backend:8000/api/payments/stripe/webhook/`. Verify with `stripe trigger checkout.session.completed` → `<-- [200]`.
+      - `render.yaml`: `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` as `sync: false` (dashboard-only secrets), `FRONTEND_URL` = the Render site. Payments stay off on Render until both are set, so deploying first is safe.
+      - `scripts/hosted-check.sh`: new informational line "Payments are ON/OFF" from `/api/payments/config/`.
+      - README: "Local webhook forwarding" (how it works, switch on, check the chain, expire a session on purpose for the time-ran-out cases), "Payments on Render" (restricted key, webhook endpoint + events, env vars, check), env tables, troubleshooting ("Waiting for confirmation" locally), quick start services. `.env.example` note.
+      - To apply locally: `docker compose up -d` (pulls the CLI image, recreates the backend with the volume).
     - Agreed for the end of this ticket: **end-to-end tests** (step 7), locally and on Render, with real Stripe test payments (card 4242), covering pay → confirmed, abandon → expired/released, and Pay now.
 
 - [ ] **TICKET-040** — Refunds on cancellation

@@ -45,6 +45,11 @@ files under `backend/` or `frontend/` hot-reloads inside the containers
 Stop everything with `docker compose down` (add `-v` to also wipe the
 Postgres data volume for a clean slate - you'll lose any data in the DB).
 
+Services: `db` (Postgres), `backend` (Django, :8000), `frontend` (Angular,
+:4200), `pgadmin` (:5050) and `stripe-cli` (forwards Stripe's test-mode
+webhooks to the backend - only active when `STRIPE_CLI_API_KEY` is set; see
+"Payments (Stripe)" → "Local webhook forwarding").
+
 ## How it fits together
 
 Four containers, defined in `docker-compose.yml`:
@@ -2005,9 +2010,9 @@ Guests pay for a booking with **Stripe Checkout in test mode** (no real
 money - pay with the test card `4242 4242 4242 4242`, any future expiry,
 any CVC). This section grows as the ticket is built in steps; **step 1 (data
 model + settings), step 2 (the payment hold + checkout endpoint), step 3
-(the webhook), step 4 (stale holds + cancelling with a payment page open)
-and step 5 (the frontend) are done**; the Docker/Render webhook setup comes
-next (step 6), then end-to-end tests (step 7) following "Payments: business
+(the webhook), step 4 (stale holds + cancelling with a payment page open),
+step 5 (the frontend) and step 6 (webhook forwarding in Docker + the Render
+setup) are done**; end-to-end tests (step 7) follow "Payments: business
 rules & test cases".
 
 ### How it will work (agreed design)
@@ -2355,14 +2360,103 @@ unpaid booking warns that it closes the guest's payment page and waives the
 payment; cancelling a paid one reminds you to refund the guest from the
 Stripe Dashboard (until TICKET-040).
 
+### Local webhook forwarding (Docker, `stripe-cli` service)
+
+Stripe can't send webhooks to `localhost`, so `docker-compose.yml` runs
+Stripe's own CLI next to the backend:
+
+1. It logs in with **`STRIPE_CLI_API_KEY`** from `.env` (your full
+   `sk_test_…` key - the CLI needs it; the backend itself uses the
+   restricted `STRIPE_SECRET_KEY`). Without that variable the service just
+   idles and prints "Stripe webhook forwarding is OFF".
+2. It writes its **webhook signing secret** to a small shared Docker volume
+   (`stripe_cli`, mounted read-only into the backend at `/stripe`). The
+   backend reads it from `STRIPE_WEBHOOK_SECRET_FILE=/stripe/webhook_secret`
+   on every webhook, so there's **nothing to copy into `.env`** and it keeps
+   working if the CLI restarts after the backend.
+3. It forwards only the four events the backend handles
+   (`checkout.session.completed`, `…async_payment_succeeded`,
+   `…async_payment_failed`, `…expired`) to
+   `http://backend:8000/api/payments/stripe/webhook/`.
+
+**Switch it on** (once, after pulling this code):
+
+```bash
+docker compose up -d            # pulls stripe/stripe-cli, recreates the backend with the volume
+docker compose logs -f stripe-cli
+```
+
+The log should show `Webhook signing secret shared with the backend.` and
+then `Ready! … Your webhook signing secret is whsec_…`. **Check the whole
+chain** without booking anything:
+
+```bash
+docker compose exec stripe-cli stripe trigger checkout.session.completed
+```
+
+Stripe creates a throw-away test session and completes it; the log shows
+`--> checkout.session.completed` and **`<-- [200] POST
+http://backend:8000/api/payments/stripe/webhook/`**. A `200` proves the
+signature check passed (that session isn't one of our bookings, so the
+backend acknowledges and ignores it - rule WH-10). A `400` means the secrets
+don't match: `docker compose restart stripe-cli`. A `503` means the backend
+has no secret: `docker compose up -d` (the backend needs the volume).
+
+**Ending a hold on purpose** (instead of waiting 30 minutes), for the "time
+ran out" test cases: find the session id in Django Admin → Payments, then
+`docker compose exec stripe-cli stripe checkout sessions expire cs_test_…`.
+Stripe sends `checkout.session.expired`, and the booking is cancelled and
+its dates freed (rule WH-06).
+
+Note: one Stripe sandbox serves both the local app and Render, so the local
+forwarder also receives Render's events (and Render receives local ones).
+Each side ignores sessions it didn't create - they're matched by the stored
+Checkout Session id, never by booking number (rule WH-10).
+
+### Payments on Render
+
+The code is the same; Render just needs its own key, its own webhook
+endpoint in Stripe, and the site URL. **Payments stay off on Render until
+both secrets are set**, so deploying this code first is safe.
+
+1. **Restricted key for Render.** Stripe Dashboard (sandbox) → Developers →
+   API keys → *Create restricted key* → name `booking-demo-render`,
+   **Checkout Sessions: Write**, everything else None → copy the `rk_test_…`.
+   (A separate key from your local one, so either can be rolled on its own.)
+2. **Webhook endpoint.** Stripe Dashboard → Developers → Webhooks → *Add
+   destination* (event destination, your account):
+   - URL: `https://booking-demo-api.onrender.com/api/payments/stripe/webhook/`
+   - Events: `checkout.session.completed`,
+     `checkout.session.async_payment_succeeded`,
+     `checkout.session.async_payment_failed`, `checkout.session.expired`
+   - API version: the latest (the backend pins `2026-08-26.dahlia`)
+   - Save, then reveal and copy its **signing secret** `whsec_…` (different
+     from the local CLI's).
+3. **Render env vars.** Render Dashboard → `booking-demo-api` →
+   Environment: set `STRIPE_SECRET_KEY` = the `rk_test_…` from step 1 and
+   `STRIPE_WEBHOOK_SECRET` = the `whsec_…` from step 2 (both are declared
+   `sync: false` in `render.yaml`, so they only ever live in Render). Save →
+   Render redeploys. `FRONTEND_URL` (where Stripe sends guests back) is set
+   in `render.yaml` to `https://booking-demo-g4aw.onrender.com`.
+4. **Check.** `https://booking-demo-api.onrender.com/api/payments/config/`
+   → `"enabled": true`, and the **Hosted demo check** workflow now reports
+   "Payments are ON". In Stripe → Webhooks → the endpoint, *Send test event*
+   (`checkout.session.completed`) should get a `200`.
+
+Never put `STRIPE_CLI_API_KEY` (the full `sk_test_` key) on Render - it's
+only for the local forwarder. Render's free API sleeps after 15 minutes; if
+a webhook arrives while it's waking up and times out, Stripe retries it
+automatically (for up to 3 days), and a hold whose webhook never makes it is
+settled by the stale-hold check (rules STALE-01…07).
+
 ### Trying it
 
-With payments on, book as a guest and click **Confirm and pay**; pay with
-`4242 4242 4242 4242`. Locally the booking only turns `confirmed` once the
-webhook reaches the backend, which needs the `stripe-cli` forwarder (added
-with the Docker step) - until then the return page ends at "Waiting for
-confirmation", which is expected. Every rule is listed with a test recipe in
-"Payments: business rules & test cases" below.
+With payments on and the `stripe-cli` service running, book as a guest,
+click **Confirm and pay**, and pay with `4242 4242 4242 4242`: the return
+page shows "Confirming your payment…" and then "Payment received - you're
+booked!" within a few seconds. Without the forwarder it ends at "Waiting
+for confirmation". Every rule is listed with a test recipe in "Payments:
+business rules & test cases" below.
 
 ### Tests (so far)
 
@@ -2682,6 +2776,9 @@ Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 | `WEB_CONCURRENCY` | `2` gunicorn workers |
 | `RENDER_EXTERNAL_HOSTNAME` | Set by Render itself (e.g. `booking-demo-api.onrender.com`). Added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically |
 | `CORS_ALLOWED_ORIGINS` | `https://booking-demo-g4aw.onrender.com`, the Angular site (TICKET-027). Without it the browser blocks the site's calls to the API |
+| `STRIPE_SECRET_KEY` | Set by hand in the Render dashboard (`sync: false`): a restricted `rk_test_…` key with Checkout Sessions: Write. Empty = payments off (TICKET-029, see "Payments on Render") |
+| `STRIPE_WEBHOOK_SECRET` | Set by hand (`sync: false`): the `whsec_…` of the Stripe webhook endpoint pointing at this API |
+| `FRONTEND_URL` | `https://booking-demo-g4aw.onrender.com` - where Stripe sends guests back after paying |
 
 ### What changes when `DJANGO_DEBUG=False`
 
@@ -2947,8 +3044,8 @@ you ever need to regenerate it.
 | `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` | backend | Optional token lifetimes (defaults 30 minutes / 1 day) |
 | `BOOKING_CHECK_IN_TIME` / `BOOKING_GUEST_CANCELLATION_HOURS` | backend | Optional: check-in time used for the guest cancellation deadline, and how many hours before it guests can still cancel (defaults `15:00` / `48`) |
 | `STRIPE_SECRET_KEY` | backend | Stripe restricted key `rk_test_...` (Checkout Sessions: Write). Empty = payments off. See "Payments (Stripe)" |
-| `STRIPE_CLI_API_KEY` | stripe-cli (local only) | Full `sk_test_...` key for the local webhook forwarder. Never on Render |
-| `STRIPE_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET_FILE` | backend | Webhook signing secret (Render), or the file the local stripe-cli service writes it to |
+| `STRIPE_CLI_API_KEY` | stripe-cli (local only) | Full `sk_test_...` key for the local webhook forwarder (`docker-compose.yml`). Unset = forwarding off. Never on Render |
+| `STRIPE_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET_FILE` | backend | Webhook signing secret (Render), or the file the local stripe-cli service writes it to (`/stripe/webhook_secret`, set in `docker-compose.yml` - leave `STRIPE_WEBHOOK_SECRET` unset locally) |
 | `STRIPE_CHECKOUT_HOLD_MINUTES` / `FRONTEND_URL` / `STRIPE_API_VERSION` / `STRIPE_ALLOW_LIVE_KEYS` | backend | Optional: date-hold length (default 30), where Stripe returns the guest (default `http://localhost:4200`), pinned API version, live-key override (default off) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
@@ -3004,6 +3101,14 @@ down` / `up` - only `docker compose down -v` wipes them.
   `migrate` only when it starts, and hot reload doesn't. Either restart it
   (`docker compose restart backend`) or run
   `docker compose exec backend python manage.py migrate`.
+- **Paid locally, but the page stays on "Waiting for confirmation"**
+  (TICKET-029): the webhook isn't reaching the backend. `docker compose
+  logs stripe-cli` - "forwarding is OFF" → add `STRIPE_CLI_API_KEY` to
+  `.env` and `docker compose up -d`; `<-- [400]` → secrets don't match,
+  `docker compose restart stripe-cli`; `<-- [503]` → the backend has no
+  secret, `docker compose up -d` (it needs the shared volume). Then run
+  `docker compose exec backend python manage.py release_stale_holds` to
+  settle any booking whose webhook was missed (it asks Stripe first).
 - **Ports already in use**: something else on your machine is using 4200,
   8000, 5432, or 5050. Either stop it or change the left-hand side of the
   port mapping in `docker-compose.yml` (e.g. `"4300:4200"`).
@@ -3044,6 +3149,8 @@ data model, Stripe settings and startup checks), step 2 (the payment
 hold at booking time and the idempotent checkout endpoint) and step 3 (the
 signed, de-duplicated Stripe webhook that confirms or releases bookings)
 step 4 (settling holds whose webhook was missed, and closing the payment
-page before a cancel) and step 5 (the frontend: Confirm and pay, the return
-page, Pay now with a live countdown, the admin Payment column) are done;
+page before a cancel), step 5 (the frontend: Confirm and pay, the return
+page, Pay now with a live countdown, the admin Payment column) and step 6
+(the `stripe-cli` webhook forwarder in Docker, the Render env vars and
+Stripe webhook endpoint) are done;
 see "Payments (Stripe)" and "Payments: business rules & test cases".

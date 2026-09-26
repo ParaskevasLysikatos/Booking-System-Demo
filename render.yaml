@@ -37,6 +37,16 @@ services:
         value: "2"              # gunicorn workers; the free instance has 512 MB
       - key: CORS_ALLOWED_ORIGINS
         value: https://booking-demo-g4aw.onrender.com   # the Angular site below (TICKET-027)
+      # Stripe test-mode payments (TICKET-029). Secrets: set in the Render
+      # dashboard, never in this file. Leave STRIPE_SECRET_KEY empty and
+      # payments stay off (the site works as before). See the README's
+      # "Payments on Render".
+      - key: STRIPE_SECRET_KEY
+        sync: false             # restricted key rk_test_... (Checkout Sessions: Write)
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false             # whsec_... of the Stripe webhook endpoint for this API
+      - key: FRONTEND_URL
+        value: https://booking-demo-g4aw.onrender.com   # where Stripe sends guests back
 
   # The Angular app (TICKET-027): built once per push, served from Render's CDN.
   # Static sites are free and never sleep (only the API above does).
