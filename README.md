@@ -785,9 +785,49 @@ The logic lives on the model (`Booking.check_in_datetime()`,
 `cancel_deadline()`, `guest_can_cancel()`), so the API check, the
 `can_cancel` flag and future refund rules all share one definition.
 
-**Refunds are not handled yet.** There are no payments until TICKET-029
-(Stripe). Refunding a cancelled booking is its own ticket, TICKET-040, and
-will build on this deadline.
+**Admins have no deadline.** An admin can cancel a `pending` or
+`confirmed` booking at any time - before the guest deadline, after it,
+after check-in, even after the stay - and confirm a `pending` one at any
+time. The only thing an admin can never do is change a **cancelled**
+booking (cancelled is final for everyone). The only moments an admin's
+change is *held back* are the payment-safety cases below: each is
+temporary (retry in a moment, or once the bank has finished), and each
+exists so that nobody - admin included - can accidentally leave a guest
+paying for a booking that no longer exists.
+
+**Refunds are not automatic yet.** Since TICKET-029 guests pay online, but
+cancelling a *paid* booking (guest or admin) only cancels it: the payment
+stays `paid`, and the money goes back with TICKET-040 (refunds), which
+builds on this deadline.
+
+#### Every case at a glance (guest vs admin, with online payments)
+
+"✓" = allowed (`200`). The payment column says what happens to the
+booking's online payment, if it has one (see "Payments (Stripe)").
+
+| Booking's situation | Guest cancels (own booking) | Admin cancels | Admin confirms (`pending` only) | What happens to the payment |
+| --- | --- | --- | --- | --- |
+| `pending`, no online payment (seeded, or booked while payments were off) | ✓ until the deadline | ✓ any time | ✓ any time | - (there is none) |
+| `pending`, awaiting payment, guest never opened the payment page | ✓ until the deadline | ✓ any time | ✓ any time (payment waived) | `cancelled`; no Stripe call needed |
+| `pending`, **payment page open** at Stripe | ✓ until the deadline | ✓ any time | ✓ any time (payment waived) | the page is **closed at Stripe first**, then `cancelled`; Stripe's later "expired" event changes nothing |
+| `pending`, the guest **paid a moment ago** (page already completed) | `409` `payment_completed` | `409` `payment_completed` | `409` `payment_completed` | recorded as `paid` on the spot and the booking is now `confirmed`; the same cancel then works (next row) |
+| `confirmed` and **paid** online | ✓ until the deadline | ✓ any time | - | stays `paid` → refund in TICKET-040 |
+| `confirmed` without an online payment (confirmed by hand, or seeded) | ✓ until the deadline | ✓ any time | - | nothing to do: it was already `cancelled` (waived) when the admin confirmed, or there is none |
+| a **delayed payment is processing** at the bank (e.g. SEPA) | `409` `payment_processing` (`can_cancel: false`) | `409` `payment_processing` | `409` `payment_processing` | wait: the bank's result arrives by webhook (paid → confirmed, failed → cancelled) |
+| **Stripe unreachable** while a payment page is open | `502` `payment_provider_error` | `502` `payment_provider_error` | `502` `payment_provider_error` | untouched - the page might still take money; retry |
+| the guest **opened the payment page during** the cancel | `409` `checkout_just_opened` | `409` `checkout_just_opened` | `409` `checkout_just_opened` | untouched; retry closes the new page |
+| payments were **switched off** after a page was opened | ✓ until the deadline | ✓ any time | ✓ any time | `cancelled` (Stripe can't be reached at all; logged) |
+| **after the guest deadline** (48h before 15:00 on check-in day) | `400` "Online cancellation closed on …" | ✓ any time | ✓ any time | as in the rows above |
+| after check-in, or the stay is over | `400` (deadline passed) | ✓ | ✓ | as in the rows above |
+| already **cancelled** | `400` (final) | `400` (final) | `400` (final) | - |
+| someone else's booking | `404` (guests only see their own) | ✓ (admins see all) | ✓ | - |
+
+The order inside a `PATCH` is always: (1) check the transition is allowed
+at all (without a lock, so a refused change never contacts Stripe); (2)
+close an open payment page at Stripe (a network call, outside the lock);
+(3) under the row lock, re-check the transition, mark the payment
+`cancelled`, change the booking. Details in "Payments (Stripe)" →
+"Cancelling or confirming by hand while a payment page is open".
 
 Anything not allowed gets a `400` with the reason, e.g. "Booking is
 already cancelled.". Because cancelled is final, a status change never
@@ -2213,6 +2253,11 @@ When it runs:
 | `python manage.py release_stale_holds` | Settles every stale hold at once - handy after the forwarder was down (`docker compose exec backend python manage.py release_stale_holds`) |
 
 ### Cancelling or confirming by hand while a payment page is open
+
+(The complete guest-vs-admin list of every cancel/confirm case is in
+"Bookings API" → "Status changes" → "Every case at a glance". Admins have
+no deadline; they're only held back by the temporary payment-safety cases
+below.)
 
 A pending booking can be cancelled (guest or admin) or confirmed by an
 admin while its Stripe page is still open. If nothing else happened, the
