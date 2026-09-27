@@ -23,6 +23,12 @@ services:
       # TICKET-029: the Stripe webhook signing secret, written by the
       # stripe-cli service below (so it never has to be copied into .env).
       STRIPE_WEBHOOK_SECRET_FILE: /stripe/webhook_secret
+      # TICKET-030: emails go to the Mailpit service below (open
+      # http://localhost:8025 to read them). Set EMAIL_PROVIDER=brevo in .env
+      # (plus BREVO_API_KEY) to send real emails from Docker instead.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: 1025
     volumes:
       - ./backend:/app
       - stripe_cli:/stripe:ro
@@ -31,6 +37,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   frontend:
     build: ./frontend
@@ -74,6 +82,15 @@ services:
       - stripe_cli:/stripe
     depends_on:
       - backend
+
+  # TICKET-030: a local mail catcher. Every email the backend sends locally
+  # lands here instead of a real inbox - read them at http://localhost:8025.
+  # Kept in memory: emails are gone when the container is recreated.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
 
   pgadmin:
     image: dpage/pgadmin4

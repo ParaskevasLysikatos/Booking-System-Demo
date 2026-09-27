@@ -552,6 +552,13 @@ test, always last).
 
 - [ ] **TICKET-030** — Booking-confirmation email (Brevo or Resend free tier)
   - Priority: P1 · Depends on: TICKET-020
+  - Decisions (agreed before building):
+    - **Brevo, HTTP API** (free: 300 emails/day; one verified sender address, no domain needed). Not SMTP: Render's free web services block outbound SMTP ports. A small custom Django email backend using the standard library, so no new package.
+    - **Four emails:** `booking_received` (guest, on booking, with Pay now + the 30-minute hold), `booking_confirmed` (guest, on pending → confirmed by webhook, stale-hold settle or admin Confirm), `booking_cancelled` (guest, on any cancel incl. an expired hold, with the refund amount when paid), `admin_new_booking` (admin alert on confirmation). "Received" and "confirmed" are sent separately, even when the guest pays straight away.
+    - **Outbox:** one `BookingEmail` row per (booking, kind), created in the same transaction as the status change and sent after commit → never sent twice (a repeated webhook is safe), never blocks or rolls back a booking; failures recorded and retried (`manage.py send_pending_emails` + a Django Admin action, since Render's free plan has no shell).
+    - **Local:** a **Mailpit** Docker service catches every email (UI at `localhost:8025`). Tests use Django's in-memory backend.
+    - **Sender:** the owner's Gmail (verified in Brevo). **Admin alert recipients:** a fixed list in `.env` (`BOOKING_ALERT_EMAILS`), for now the same Gmail. Both are set in `.env` / the Render dashboard only, never committed (the repo is public).
+  - Steps: 1) outbox model + settings + Brevo backend + Mailpit; 2) templates + hooks at every status change; 3) retry command + Django Admin; 4) docs/config; 5) local E2E in Mailpit → push → Brevo on Render → Render E2E.
 
 - [ ] **TICKET-031** — Responsive layout + PWA manifest
   - Priority: P1 · Depends on: Epic 3 complete

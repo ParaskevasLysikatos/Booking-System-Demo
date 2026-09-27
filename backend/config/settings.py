@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'bookings',
     'reviews',
     'payments',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -185,6 +186,47 @@ STRIPE_CHECKOUT_HOLD_MINUTES = env.int('STRIPE_CHECKOUT_HOLD_MINUTES', default=3
 PAYMENTS_CURRENCY = 'eur'
 # Where Stripe sends the guest back after paying (or giving up).
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:4200').rstrip('/')
+
+# Emails (TICKET-030). Booking emails go through Django's normal email API;
+# EMAIL_PROVIDER picks where they actually go:
+#   console - printed in the backend's log (default: nothing to set up)
+#   smtp    - an SMTP server: locally the Mailpit Docker service (see
+#             docker-compose.yml, UI at http://localhost:8025)
+#   brevo   - Brevo's HTTP API (Render: its free plan blocks SMTP ports),
+#             needs BREVO_API_KEY and a sender address verified in Brevo
+# Tests always use Django's in-memory backend, whatever is set here.
+# Every email is recorded in the notifications.BookingEmail outbox first, so
+# it is sent at most once and a failed one can be retried.
+EMAIL_PROVIDER = env('EMAIL_PROVIDER', default='console').strip().lower()
+BREVO_API_KEY = env('BREVO_API_KEY', default='')
+BREVO_API_URL = env('BREVO_API_URL', default='https://api.brevo.com/v3/smtp/email')
+EMAIL_BACKENDS = {
+    'console': 'django.core.mail.backends.console.EmailBackend',
+    'smtp': 'django.core.mail.backends.smtp.EmailBackend',
+    'brevo': 'notifications.backends.BrevoEmailBackend',
+}
+if EMAIL_PROVIDER == 'brevo' and not BREVO_API_KEY:
+    # Brevo chosen but not set up yet (e.g. the first Render deploy): print
+    # the emails instead of failing them. notifications/checks.py warns.
+    EMAIL_BACKEND = EMAIL_BACKENDS['console']
+else:
+    EMAIL_BACKEND = EMAIL_BACKENDS.get(EMAIL_PROVIDER, EMAIL_BACKENDS['console'])
+EMAIL_HOST = env('EMAIL_HOST', default='localhost')
+EMAIL_PORT = env.int('EMAIL_PORT', default=1025)
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=False)
+# Seconds to wait for the mail server / Brevo before giving up (the email is
+# then recorded as failed and can be retried).
+EMAIL_TIMEOUT = env.int('EMAIL_TIMEOUT', default=10)
+# The sender. With Brevo it must be an address verified in Brevo (Senders).
+# Set the real one in .env / the Render dashboard - the repo is public.
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='Booking System Demo <bookings@example.com>')
+# Who gets the "new booking" alert: a comma-separated list. Empty = no alert.
+BOOKING_ALERT_EMAILS = [e for e in env.list('BOOKING_ALERT_EMAILS', default=[]) if e]
+# Minutes after which an email stuck in "sending" (e.g. the server restarted
+# mid-send) may be tried again.
+EMAIL_SENDING_STALE_MINUTES = env.int('EMAIL_SENDING_STALE_MINUTES', default=10)
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env.int('JWT_ACCESS_MINUTES', default=30)),
