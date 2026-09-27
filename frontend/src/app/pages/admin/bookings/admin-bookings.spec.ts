@@ -269,7 +269,7 @@ describe('AdminBookingsPage', () => {
     cmp.refundNow(row);
     http.expectOne({ url: `${BOOKINGS_URL}38/refund/`, method: 'POST' })
       .flush(refunded(38, { ...failedRefund, failure_reason: "Couldn't reach Stripe." }, { can_refund: true }));
-    expect(snack.mock.calls[0][0]).toBe("The refund for booking #38 failed: Couldn't reach Stripe..");
+    expect(snack.mock.calls[0][0]).toBe("The refund for booking #38 failed: Couldn't reach Stripe."); // one full stop
     listReq().flush(page([]));
     badgeReq().flush(page([], 0));
   });

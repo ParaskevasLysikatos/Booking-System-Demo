@@ -22,11 +22,15 @@ confirms it, or `manage.py sync_refunds` asks Stripe when a webhook was missed.
 A refund that couldn't be sent is marked `failed` - an admin can retry it
 ("Refund now") and the retry can never refund twice:
 
-  - Stripe unreachable / refused the request -> same attempt number, so the
-    retry repeats the identical request with the same key (if Stripe did
-    create the refund the first time, it just returns it);
+  - outcome unknown (Stripe unreachable, a 5xx, 409, 429) -> same attempt
+    number, so the retry repeats the identical request with the same key (if
+    Stripe did create the refund the first time, it just returns it);
+  - Stripe refused the request (a 4xx, e.g. missing permission, or an agent
+    key waiting for human approval) -> attempt + 1: nothing was created, and
+    Stripe would only replay its stored refusal for the old key;
   - Stripe created the refund but reports it `failed` (e.g. the card was
     closed) -> attempt + 1, a genuinely new refund next time.
+  Either way a *full* refund can only ever succeed once per payment at Stripe.
 """
 import logging
 from decimal import Decimal
@@ -110,6 +114,16 @@ def _fail(booking_id, reason, next_attempt=False):
         return payment
 
 
+def _refused(exc):
+    """A 4xx answer means Stripe rejected the request - no refund was made,
+    and Stripe stores that answer under the idempotency key, so a retry needs
+    the next attempt number. Unknown outcomes (5xx, 409 "request in
+    progress", 429 rate limit) keep the same key so a retry can never refund
+    twice."""
+    status = getattr(exc, "http_status", None)
+    return status is not None and 400 <= status < 500 and status not in (409, 429)
+
+
 def send_refund(booking_id):
     """Ask Stripe to refund a `pending` refund that hasn't been sent yet.
     Never raises - problems are recorded on the payment as `failed`."""
@@ -130,17 +144,29 @@ def send_refund(booking_id):
         refund = get_client().v1.refunds.create(params=params, options={"idempotency_key": key})
     except PaymentsDisabled:
         return _fail(booking_id, "Online payments are switched off, so Stripe can't be reached.")
-    except stripe.PermissionError:
-        logger.error("Stripe key may not create refunds (booking %s)", booking_id)
-        return _fail(booking_id, "The Stripe key isn't allowed to create refunds "
-                                 "(it needs 'Charges and Refunds: Write').")
+    except stripe.PermissionError as exc:
+        # Stripe refused: no refund exists, and Stripe would replay this same
+        # answer for the same idempotency key - so the next try uses a new one.
+        if getattr(exc, "code", None) == "approval_required":
+            logger.error("Stripe is holding the refund for booking %s for human approval (agent key)", booking_id)
+            reason = ("Stripe is holding this refund for human approval - the Stripe key is an agent key. "
+                      "Use a normal restricted key (or approve it in the Stripe Dashboard)")
+        else:
+            logger.error("Stripe key may not create refunds (booking %s)", booking_id)
+            reason = "The Stripe key isn't allowed to create refunds (it needs 'Charges and Refunds: Write')"
+        return _fail(booking_id, reason, next_attempt=True)
     except stripe.APIConnectionError:
+        # We don't know if Stripe got it: the retry must repeat the same key.
         logger.exception("Couldn't reach Stripe to refund booking %s", booking_id)
-        return _fail(booking_id, "Couldn't reach Stripe.")
+        return _fail(booking_id, "Couldn't reach Stripe")
     except stripe.StripeError as exc:
-        logger.exception("Stripe refused the refund for booking %s", booking_id)
+        if _refused(exc):  # a clear answer from Stripe - no traceback needed
+            logger.error("Stripe refused the refund for booking %s: %s", booking_id, exc)
+        else:
+            logger.exception("Stripe error while refunding booking %s", booking_id)
         # Admin-only text (guests just see "the host is arranging your refund").
-        return _fail(booking_id, getattr(exc, "user_message", None) or "Stripe refused the refund.")
+        return _fail(booking_id, (getattr(exc, "user_message", None) or "Stripe refused the refund").rstrip("."),
+                     next_attempt=_refused(exc))
 
     with transaction.atomic():
         payment = _locked_payment(booking_id)

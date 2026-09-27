@@ -975,16 +975,53 @@ class RefundOnCancelTests(PaidBookingFixtures, APITestCase):
         payment = self.payment()
         self.assertEqual((payment.refund_status, payment.refund_attempt, payment.stripe_refund_id),
                          ("failed", 1, ""))
-        self.assertEqual(payment.refund_failure_reason, "Couldn't reach Stripe.")
+        self.assertEqual(payment.refund_failure_reason, "Couldn't reach Stripe")
         self.assertEqual(res.data["payment"]["refund"]["status"], "failed")
 
     def test_key_without_refund_permission(self):
-        self.refunds.create.side_effect = stripe.PermissionError("no")
+        self.refunds.create.side_effect = stripe.PermissionError("no", http_status=403)
         with self.assertLogs("payments.refunds", "ERROR"):
             self.cancel()
         payment = self.payment()
         self.assertEqual(payment.refund_status, "failed")
         self.assertIn("Charges and Refunds: Write", payment.refund_failure_reason)
+        # Stripe stores that refusal under the key -> the retry uses a new one
+        self.assertEqual(payment.refund_attempt, 2)
+
+    def test_agent_key_waiting_for_human_approval(self):
+        # Found in the local end-to-end run: an agent key's refund comes back
+        # 403 approval_required, and Stripe replays that for the same key.
+        self.refunds.create.side_effect = stripe.PermissionError(
+            "This action requires human approval", http_status=403, code="approval_required")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_attempt), ("failed", 2))
+        self.assertIn("human approval", payment.refund_failure_reason)
+        self.assertIn("agent key", payment.refund_failure_reason)
+        self.refunds.create.side_effect = None
+        self.assertEqual(self.refund_now().status_code, 200)
+        self.assertEqual(self.refunds.create.call_args.kwargs["options"],
+                         {"idempotency_key": f"booking-{self.booking.pk}-refund-2"})
+
+    def test_refused_by_stripe_moves_on_unknown_outcome_does_not(self):
+        cases = [
+            (stripe.InvalidRequestError("charge already refunded", "charge", http_status=400), 2),
+            (stripe.APIError("Stripe had a problem", http_status=500), 1),
+            (stripe.RateLimitError("slow down", http_status=429), 1),
+            (stripe.IdempotencyError("request in progress", http_status=409), 1),
+        ]
+        for exc, attempt in cases:
+            with self.subTest(exc=type(exc).__name__):
+                Payment.objects.filter(booking=self.booking).update(
+                    refund_status=Payment.RefundStatus.NONE, refund_attempt=1, stripe_refund_id="")
+                Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.CANCELLED)
+                self.refunds.create.side_effect = exc
+                with self.assertLogs("payments.refunds", "ERROR"):
+                    refund_service.refund_now(self.booking.pk)
+                payment = self.payment()
+                self.assertEqual((payment.refund_status, payment.refund_attempt), ("failed", attempt))
+                self.assertFalse(payment.refund_failure_reason.endswith("."))
 
     def test_payments_switched_off_marks_it_failed(self):
         with mock.patch("payments.refunds.get_client", side_effect=services.PaymentsDisabled):
@@ -1044,7 +1081,7 @@ class RefundOnCancelTests(PaidBookingFixtures, APITestCase):
             self.cancel()
         self.client.force_authenticate(self.admin)
         refund = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["refund"]
-        self.assertEqual((refund["status"], refund["failure_reason"]), ("failed", "Couldn't reach Stripe."))
+        self.assertEqual((refund["status"], refund["failure_reason"]), ("failed", "Couldn't reach Stripe"))
         self.client.force_authenticate(self.guest)
         refund = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["refund"]
         self.assertNotIn("failure_reason", refund)

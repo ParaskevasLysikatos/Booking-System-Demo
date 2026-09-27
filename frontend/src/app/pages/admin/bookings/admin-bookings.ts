@@ -71,6 +71,11 @@ export function toApiQuery(q: AdminBookingsQuery): BookingListQuery {
 
 type ListState = { status: 'loading' } | { status: 'ok'; data: Paginated<Booking> } | { status: 'error' };
 
+/** A server reason as one sentence with exactly one full stop. */
+function sentence(reason: string | null): string {
+  return `${(reason ?? 'unknown reason').replace(/[.\s]+$/, '')}.`;
+}
+
 const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confirmed: 'Confirmed', cancelled: 'Cancelled' };
 
 /** /admin/bookings (TICKET-025) - every guest's bookings, with Confirm / Cancel. */
@@ -203,7 +208,7 @@ export class AdminBookingsPage {
    */
   refundNow(b: Booking): void {
     const r = refundView(b);
-    const last = r?.kind === 'failed' && r.reason ? ` The last attempt failed: ${r.reason}` : '';
+    const last = r?.kind === 'failed' && r.reason ? ` The last attempt failed: ${sentence(r.reason)}` : '';
     this.ask({
       title: `Refund booking #${b.id}?`,
       message: `Stripe will refund the full ${formatPrice(b.payment?.amount ?? b.total_price)} to the card ${b.guest_email ?? 'the guest'} paid with. It can never be refunded twice.${last}`,
@@ -215,13 +220,13 @@ export class AdminBookingsPage {
   private cancelOutcome(res: Booking): string {
     const r = refundView(res);
     if (r?.kind === 'pending') return `Booking #${res.id} cancelled - refund of ${r.amount} sent to Stripe.`;
-    if (r?.kind === 'failed') return `Booking #${res.id} cancelled, but the refund failed: ${r.reason ?? 'unknown reason'}. Use Refund now to retry.`;
+    if (r?.kind === 'failed') return `Booking #${res.id} cancelled, but the refund failed: ${sentence(r.reason)} Use Refund now to retry.`;
     return `Booking #${res.id} cancelled.`;
   }
 
   private refundOutcome(res: Booking): string {
     const r = refundView(res);
-    if (r?.kind === 'failed') return `The refund for booking #${res.id} failed: ${r.reason ?? 'unknown reason'}.`;
+    if (r?.kind === 'failed') return `The refund for booking #${res.id} failed: ${sentence(r.reason)}`;
     return `Refund of ${r?.amount ?? formatPrice(res.total_price)} for booking #${res.id} sent to Stripe.`;
   }
 

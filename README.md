@@ -2771,7 +2771,8 @@ partial refunds or fees.
 3. Frontend: guest texts, admin chips and the Refund now button - **done**.
 4. Docker `stripe-cli` events + Render settings + docs - **done** (see
    "Local webhook forwarding" and "Payments on Render" → Refunds).
-5. Local end-to-end run → push → Render end-to-end run → done.
+5. Local end-to-end run (**passed**, see "Refunds: end-to-end results -
+   local") → push → Render end-to-end run → done.
 
 ### Refund fields on `Payment` (migration `payments/0004_refunds.py`)
 
@@ -2813,9 +2814,10 @@ the booking is still cancelled and the refund is marked `failed`:
 
 | What went wrong | Stored reason (admin only) | Attempt | Retry |
 | --- | --- | --- | --- |
-| Stripe unreachable | "Couldn't reach Stripe." | same | identical request, same key - if Stripe did create it the first time it just returns it |
-| Key lacks the refund permission | "…needs 'Charges and Refunds: Write'" | same | same key, after fixing the key |
-| Stripe refused the request | Stripe's message | same | same key |
+| Stripe unreachable, or an unclear answer (5xx, `409` request in progress, `429` rate limit) | "Couldn't reach Stripe" / Stripe's message | same | identical request, same key - if Stripe did create it the first time it just returns it |
+| Key lacks the refund permission | "…needs 'Charges and Refunds: Write'" | **+1** | new key, after fixing the key (Stripe replays a stored refusal for the old key) |
+| The key is an **agent** key (Stripe answers `403 approval_required`) | "Stripe is holding this refund for human approval - the Stripe key is an agent key…" | **+1** | new key, after switching to a normal restricted key |
+| Stripe refused the request (any other 4xx, e.g. expired key, already refunded) | Stripe's message | **+1** | new key |
 | Payments switched off | "Online payments are switched off…" | same | same key |
 | No PaymentIntent recorded | "No Stripe payment is recorded for this booking." | same | - (Stripe isn't called) |
 | Stripe created the refund but reports it `failed`/`canceled` (e.g. the card was closed) | Stripe's `failure_reason` | **+1** | a **new** refund with a new key |
@@ -2966,7 +2968,8 @@ existed) counts as **due**.
 
 Same format as the payment rules above. Step 1: REF-01 to REF-12; step 2
 (webhook, Refund now, `sync_refunds`): REF-13 to REF-30; step 3 (the
-screens): REF-31 to REF-37. "step 5" in the E2E column = checked by hand in the
+screens): REF-31 to REF-37; found in the local end-to-end run: REF-38,
+REF-39. "step 5" in the E2E column = checked by hand in the
 end-to-end runs.
 
 | ID | Rule | How to test | Expected | Auto | E2E |
@@ -3008,6 +3011,49 @@ end-to-end runs.
 | REF-35 | Refund now button only where `can_refund` | | failed + due rows only | admin-bookings.spec "refund chips…" | step 5 |
 | REF-36 | Refund now: ask → POST → snackbar; failing again / 409 shows why | Admin → Refund now | "Refund of €X for booking #N sent to Stripe." / "…failed: reason" / server reason | admin-bookings.spec "Refund now: …", "…failing again…", "…refused by the server…" | step 5 |
 | REF-37 | Admin cancel of a paid booking: dialog says it's refunded automatically; snackbar reports the refund (or its failure) | Admin cancels a paid booking | as described | admin-bookings.spec "cancel dialog says…", "cancelling a paid booking reports…", "…already refunded in the Stripe Dashboard" | step 5 |
+| REF-38 | An **agent** key's refund (`403 approval_required`) → failed with a clear reason, next attempt number | Use an agent key as `STRIPE_SECRET_KEY` | "…held for human approval - the Stripe key is an agent key…"; Refund now then uses `…-refund-2` | `test_agent_key_waiting_for_human_approval` | ✓ (#71) |
+| REF-39 | Stripe **refused** (4xx except 409/429) → next attempt number; **unknown outcome** (network, 5xx, 409, 429) → same key | | attempt 2 vs 1; reasons without a trailing full stop | `test_refused_by_stripe_moves_on_unknown_outcome_does_not`, `test_key_without_refund_permission` | ✓ (#71, #76) |
+
+### Refunds: end-to-end results - local (27 Sep 2026)
+
+Run in Chrome against the Docker setup (`stripe-cli` forwarding the refund
+events), guest `guest_4_rick71`, the demo admin, and Stripe test cards
+typed on Stripe's sandbox page. **All passed** once the one real problem it
+found was fixed (below).
+
+| # | What we did | Cases | Result |
+| --- | --- | --- | --- |
+| 1 | `stripe trigger charge.refunded` | REF-21 | ✅ `[200]`, ignored (not our payment) |
+| 2 | Guest cancelled an **unpaid** booking (#70) | REF-03 | ✅ "You weren't charged", no refund |
+| 3 | Paid #71 (4242), guest cancelled | REF-01, REF-33, REF-05, REF-38 | ✅ Dialog "full refund of €364, back to your card within 5–10 business days"; cancel went through. The refund **failed**: the backend's key was an **agent** key, so Stripe answered `403 approval_required` and replayed that for the same idempotency key - this is what the fix below is for. Guest saw "the host is arranging your refund"; admin saw **Refund failed** + reason + **Refund now** |
+| 4 | Backend switched to a normal restricted key (Checkout Sessions + Refunds: Write); admin **Refund now** on #71 | REF-24, REF-36, REF-39 | ✅ New key `booking-71-refund-2` → "Refund of €364 for booking #71 sent to Stripe." → **Refunded** about 2 s later (webhook) |
+| 5 | Old "Refund due" booking #58 (cancelled before refunds existed) → Refund now | REF-26, REF-34, REF-35 | ✅ Chip **Refund due** + button → dialog → **Refunded** |
+| 6 | Paid #74 (4242), guest cancelled | REF-01, REF-13 | ✅ `pending` in the answer → **Refunded** about 1 s later |
+| 7 | Paid #76 with `4000 0000 0000 5126` (refund fails later), guest cancelled | REF-15, REF-31 | ✅ First **Refunded**, then Stripe's `refund.failed` (`expired_or_canceled_card`) → **Refund failed**, attempt +1, Refund now offered; guest: "Full refund of €364 - the host is arranging your refund." (also on the return page) |
+| 8 | Refunded #77 **outside the app** (`stripe refunds create`) while confirmed; then admin cancelled it | REF-19, REF-37 | ✅ Recorded **Refunded**, booking left **Confirmed**; cancel dialog "…has already been refunded"; no second refund |
+| 9 | Stopped `stripe-cli`; admin cancelled paid #75 | REF-37, REF-28 | ✅ Snackbar "refund of €364 sent to Stripe"; stuck at **Refund pending** (webhook missed on purpose) |
+| 10 | Started `stripe-cli`; `manage.py sync_refunds` | REF-28, REF-29 | ✅ "synced 1" → #75 **Refunded**; it also retried #76 with a new key, which Stripe refused ("A previous attempt to refund charge … failed") → reported as 1 problem, still **Refund failed** |
+| 11 | `manage.py release_stale_holds` | STALE-02 | ✅ "Settled 6 stale hold(s)" - the unpaid test bookings whose time ran out |
+
+Guest **My bookings → Cancelled** afterwards: "Refunded €364 on 27 Sep 2026."
+(#71, #74, #75, #77), "Full refund of €364 - the host is arranging your
+refund." (#76), "You weren't charged." (#70).
+
+**Found and fixed during the run:**
+
+- **Retrying after Stripe refused a refund reused the same idempotency key**,
+  and Stripe replays its stored answer for a key - so the retry could never
+  succeed. Now: a clear refusal (any 4xx except 409/429: missing
+  permission, agent-key approval, expired key, bad request) moves to the
+  next attempt number; an unknown outcome (network, 5xx, 409, 429) keeps the
+  same key. Neither can refund twice - a full refund succeeds at most once
+  per payment at Stripe (REF-39).
+- The admin reason for an agent key now says so: "Stripe is holding this
+  refund for human approval - the Stripe key is an agent key…" (REF-38).
+- Snackbars no longer end with a double full stop; refused-refund log lines
+  no longer print a traceback.
+- Setup note: the backend must use a **normal** restricted key - an agent
+  key (made for AI tools) needs a human to approve every refund.
 
 ## Django Admin (dev-only)
 
