@@ -336,6 +336,7 @@ class EmailsWithoutPaymentsTests(EmailFlowMixin, CheckoutFixtures, APITestCase):
         msg = self.email("booking_received")
         self.assertEqual(msg.to, ["guest@example.com"])
         self.assertEqual(msg.from_email, "Booking Demo <owner@example.com>")
+        self.assertEqual(msg.reply_to, ["Booking Demo <owner@example.com>"])
         self.assertEqual(msg.subject,
                          f"Booking #{booking.pk} received - Loft, {short_range(booking.check_in, booking.check_out)}")
         self.assertIn("pending until the host confirms it", msg.body)
@@ -407,6 +408,7 @@ class EmailsWithoutPaymentsTests(EmailFlowMixin, CheckoutFixtures, APITestCase):
         self.assertFalse(BookingEmail.objects.exists())
 
     def test_html_escapes_user_content(self):
+        """EMAIL-31: property titles etc. are escaped in the HTML version."""
         self.prop.title = "Loft <script>alert(1)</script>"
         self.prop.save()
         booking, _ = self.book()
@@ -483,6 +485,7 @@ class EmailsFromWebhookTests(EmailFlowMixin, WebhookFixtures, APITestCase):
                          "payment_expired")
 
     def test_failed_payment_sends_cancelled(self):
+        """EMAIL-32: a delayed payment that fails -> "your payment didn't go through"."""
         self.call(self.deliver, session_event("checkout.session.completed", "cs_test_123", payment_status="unpaid"))
         self.call(self.deliver, session_event("checkout.session.async_payment_failed", "cs_test_123",
                                               payment_status="unpaid"))

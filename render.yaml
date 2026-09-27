@@ -46,7 +46,20 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false             # whsec_... of the Stripe webhook endpoint for this API
       - key: FRONTEND_URL
-        value: https://booking-demo-g4aw.onrender.com   # where Stripe sends guests back
+        value: https://booking-demo-g4aw.onrender.com   # where Stripe sends guests back (+ the links in emails)
+      # Booking emails (TICKET-030) through Brevo's HTTP API - Render's free
+      # plan blocks SMTP ports. Until BREVO_API_KEY is set, emails are only
+      # printed to the log (the deploy works either way). The addresses are
+      # set in the dashboard too: the repo is public. See the README's
+      # "Emails on Render (Brevo)".
+      - key: EMAIL_PROVIDER
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false             # xkeysib-... (Brevo -> SMTP & API -> API keys)
+      - key: DEFAULT_FROM_EMAIL
+        sync: false             # e.g. Booking System Demo <you@gmail.com> - a sender verified in Brevo
+      - key: BOOKING_ALERT_EMAILS
+        sync: false             # who gets the "new booking" alert (comma-separated)
 
   # The Angular app (TICKET-027): built once per push, served from Render's CDN.
   # Static sites are free and never sleep (only the API above does).

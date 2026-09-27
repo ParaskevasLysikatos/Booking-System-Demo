@@ -3239,6 +3239,46 @@ Both go through the same `send_email()`: a `sent` email is never sent
 again, and one whose booking has moved on is `skipped` rather than sent out
 of date.
 
+### Emails on Render (Brevo) - one-time setup
+
+`render.yaml` sets `EMAIL_PROVIDER=brevo`; until the key is added, emails
+are only printed to Render's log (warning `notifications.W002` at deploy),
+so deploying first is safe.
+
+1. **Brevo account:** sign up at brevo.com (free plan: 300 emails/day).
+   Transactional emails need the account to be activated - Brevo may ask
+   for a few profile details first.
+2. **Sender:** Brevo → *Senders, Domains & Dedicated IPs* → *Senders* → add
+   your address (e.g. your Gmail) and click the confirmation link Brevo
+   emails you.
+3. **API key:** Brevo → *SMTP & API* → *API keys* → *Generate a new API
+   key* (starts with `xkeysib-`). Copy it once - Brevo doesn't show it again.
+4. **Render:** `booking-demo-api` → *Environment* → set
+   - `BREVO_API_KEY` = the key,
+   - `DEFAULT_FROM_EMAIL` = `Booking System Demo <you@gmail.com>` (the
+     verified sender),
+   - `BOOKING_ALERT_EMAILS` = `you@gmail.com`,
+
+   and *Save, rebuild and deploy*.
+5. **Check:** book something on the hosted site → the guest's inbox gets
+   "Complete your payment" / "received", and Django Admin (`/admin/` on the
+   API) → *Booking emails* shows it as `sent` with Brevo's message id.
+   Brevo → *Transactional* → *Logs* shows every email and whether it was
+   delivered.
+
+**A Gmail sender and deliverability:** Gmail, Yahoo and Microsoft now
+expect senders to authenticate their own domain (SPF/DKIM/DMARC), which a
+`@gmail.com` address can't do through Brevo. Brevo therefore **replaces a
+free-mail sender** with one of its own addresses (like
+`…@….t-sender-sib.com`), keeping your name. Our emails set **Reply-To** to
+`DEFAULT_FROM_EMAIL`, so replies still reach you. Emails may land in
+**spam** at first; for the demo that's fine (mark them "not spam" once). For
+real use, add a domain you own in Brevo and authenticate it.
+
+To send real emails from local Docker too, put `EMAIL_PROVIDER=brevo` and
+`BREVO_API_KEY` in `.env` and `docker compose up -d backend` (without them,
+emails go to Mailpit).
+
 ### Brevo backend (`notifications/backends.py`)
 
 `POST https://api.brevo.com/v3/smtp/email` with the `api-key` header and
@@ -3299,6 +3339,36 @@ backend with the email settings; the backend runs the new migrations
   error; the Retry action sends a failed one and not a sent one.
 
 All **253 backend tests pass** on Postgres.
+
+## Emails: business rules & test cases (TICKET-030)
+
+Every rule, how to check it by hand, and the automated test that covers it
+(`backend/notifications/tests.py`, test docstrings carry the same
+`EMAIL-nn`). The **E2E** column is filled in by the end-to-end runs in
+step 5 (locally in Mailpit, then on Render with a real inbox).
+
+| # | Rule | How to check by hand | Expected | Automated | E2E |
+| --- | --- | --- | --- | --- | --- |
+| EM-01 | A new booking emails the guest "received" | Book a stay | Mailpit: `Booking #N received - …` (payments off) or `Complete your payment - booking #N, …` (on) | EMAIL-14, EMAIL-21 | |
+| EM-02 | With payments on, "received" has **Pay now** and the hold's end time | Open the email, click Pay now | Lands on `/bookings/N/payment` with the countdown; the time in the email = the hold's end | EMAIL-21 | |
+| EM-03 | Payment → guest "confirmed" + owner alert, **once** | Pay with 4242; resend the event (`stripe events resend evt_…`) | 2 emails (guest + `BOOKING_ALERT_EMAILS`), nothing more after the resend | EMAIL-23 | |
+| EM-04 | Admin Confirm → "confirmed" + alert | Confirm a pending booking in /admin/bookings | 2 emails; alert says "Confirmed by hand - no online payment" when unpaid | EMAIL-15 | |
+| EM-05 | Guest cancel → "as you requested" | Cancel from My bookings | Cancelled email; "Nothing was charged." if unpaid | EMAIL-16 | |
+| EM-06 | Admin cancel → "the host has cancelled" | Cancel a guest's booking as admin | Cancelled email with the host wording | EMAIL-17 | |
+| EM-07 | Cancelling a paid booking mentions the refund | Pay, then cancel | "A full refund of €X is on its way - back on your card within 5-10 business days" | EMAIL-25 | |
+| EM-08 | Hold ran out → "we didn't receive your payment", Book again | Back out of Stripe, expire the session (`stripe checkout sessions expire cs_…`) | Cancelled email with the payment-expired wording + Book again → the property | EMAIL-22, EMAIL-24 | |
+| EM-09 | A delayed payment that fails → "your payment didn't go through" | (auto only - needs a delayed payment method) | Cancelled email, payment-failed wording | EMAIL-32 | auto only |
+| EM-10 | Emails go out only **after** the booking change is saved; a refused or rolled-back change sends nothing | Try to cancel an already-cancelled booking | 400, no new email | EMAIL-07, EMAIL-08, EMAIL-18 | |
+| EM-11 | At most one email per booking + kind | (DB constraint) | - | EMAIL-09 | auto only |
+| EM-12 | A broken mail provider never breaks a booking | Stop Mailpit (`docker compose stop mailpit`), book | Booking works (201); Django Admin → Booking emails: `failed` "Couldn't reach …" | EMAIL-11, EMAIL-19 | |
+| EM-13 | Failed emails can be retried; a sent one is never re-sent | Start Mailpit again; Retry in Django Admin / `send_pending_emails` | Now `sent`, arrives once; retrying a sent row → "already sent" | EMAIL-11, EMAIL-27, EMAIL-30 | |
+| EM-14 | An email that's out of date by the time it's retried is skipped | Failed "received", then the booking is paid, then retry | `skipped` - no "complete your payment" after paying | EMAIL-12, EMAIL-26 | |
+| EM-15 | A send stuck in `sending` is retried only after 10 minutes | (needs a crash mid-send) | - | EMAIL-13 | auto only |
+| EM-16 | No recipient → no email (account without email, empty alert list) | Empty `BOOKING_ALERT_EMAILS`, confirm | Only the guest's email | EMAIL-10 | |
+| EM-17 | Seeded / Django Admin bookings send nothing | `seed_demo_data` | No rows in Booking emails | EMAIL-20 | |
+| EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | |
+| EM-19 | Email settings can never stop a deploy (warnings only); Brevo without a key → console | Deploy before setting `BREVO_API_KEY` | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
+| EM-20 | User content is escaped in HTML | Property title with `<b>` | Shown as text | EMAIL-31 | auto only |
 
 ## Django Admin (dev-only)
 
@@ -3432,7 +3502,10 @@ Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 | `CORS_ALLOWED_ORIGINS` | `https://booking-demo-g4aw.onrender.com`, the Angular site (TICKET-027). Without it the browser blocks the site's calls to the API |
 | `STRIPE_SECRET_KEY` | Set by hand in the Render dashboard (`sync: false`): a restricted `rk_test_…` key with Checkout Sessions: Write and Charges and Refunds: Write. Empty = payments off (TICKET-029/040, see "Payments on Render") |
 | `STRIPE_WEBHOOK_SECRET` | Set by hand (`sync: false`): the `whsec_…` of the Stripe webhook endpoint pointing at this API |
-| `FRONTEND_URL` | `https://booking-demo-g4aw.onrender.com` - where Stripe sends guests back after paying |
+| `FRONTEND_URL` | `https://booking-demo-g4aw.onrender.com` - where Stripe sends guests back after paying, and the links in emails |
+| `EMAIL_PROVIDER` | `brevo` (TICKET-030) - booking emails through Brevo's HTTP API |
+| `BREVO_API_KEY` | Set by hand (`sync: false`): the Brevo API key `xkeysib-…`. Empty = emails only printed to the log (see "Emails on Render (Brevo)") |
+| `DEFAULT_FROM_EMAIL` / `BOOKING_ALERT_EMAILS` | Set by hand (`sync: false`): the sender verified in Brevo, e.g. `Booking System Demo <you@gmail.com>`, and who gets the new-booking alert. Kept out of the public repo |
 
 ### What changes when `DJANGO_DEBUG=False`
 
@@ -3766,8 +3839,19 @@ down` / `up` - only `docker compose down -v` wipes them.
   secret, `docker compose up -d` (it needs the shared volume). Then run
   `docker compose exec backend python manage.py release_stale_holds` to
   settle any booking whose webhook was missed (it asks Stripe first).
+- **No email arrived** (TICKET-030): locally, open Mailpit at
+  http://localhost:8025 - emails never reach a real inbox from Docker unless
+  `EMAIL_PROVIDER=brevo` is set. Otherwise look at Django Admin → *Booking
+  emails*: `failed` shows the reason (`Brevo answered 401` → wrong
+  `BREVO_API_KEY`; `400 … sender` → `DEFAULT_FROM_EMAIL` isn't a verified
+  Brevo sender; `Couldn't reach …` → provider/Mailpit down) - fix it, then
+  select the row → *Retry sending* (or `manage.py send_pending_emails`).
+  `skipped` means the booking changed before the email could go out. No row
+  at all: the account has no email, or `BOOKING_ALERT_EMAILS` is empty for
+  the admin alert. Sent but not in the inbox: check spam, and Brevo's
+  *Transactional → Logs*.
 - **Ports already in use**: something else on your machine is using 4200,
-  8000, 5432, or 5050. Either stop it or change the left-hand side of the
+  8000, 5432, 5050 or 8025. Either stop it or change the left-hand side of the
   port mapping in `docker-compose.yml` (e.g. `"4300:4200"`).
 
 ## Next steps (per the build plan)
