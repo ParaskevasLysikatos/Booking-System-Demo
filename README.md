@@ -2771,8 +2771,8 @@ partial refunds or fees.
 3. Frontend: guest texts, admin chips and the Refund now button - **done**.
 4. Docker `stripe-cli` events + Render settings + docs - **done** (see
    "Local webhook forwarding" and "Payments on Render" → Refunds).
-5. Local end-to-end run (**passed**, see "Refunds: end-to-end results -
-   local") → push → Render end-to-end run → done.
+5. Local end-to-end run → push → Render end-to-end run - **done**, both
+   passed (see "Refunds: end-to-end results").
 
 ### Refund fields on `Payment` (migration `payments/0004_refunds.py`)
 
@@ -3013,6 +3013,23 @@ end-to-end runs.
 | REF-37 | Admin cancel of a paid booking: dialog says it's refunded automatically; snackbar reports the refund (or its failure) | Admin cancels a paid booking | as described | admin-bookings.spec "cancel dialog says…", "cancelling a paid booking reports…", "…already refunded in the Stripe Dashboard" | step 5 |
 | REF-38 | An **agent** key's refund (`403 approval_required`) → failed with a clear reason, next attempt number | Use an agent key as `STRIPE_SECRET_KEY` | "…held for human approval - the Stripe key is an agent key…"; Refund now then uses `…-refund-2` | `test_agent_key_waiting_for_human_approval` | ✓ (#71) |
 | REF-39 | Stripe **refused** (4xx except 409/429) → next attempt number; **unknown outcome** (network, 5xx, 409, 429) → same key | | attempt 2 vs 1; reasons without a trailing full stop | `test_refused_by_stripe_moves_on_unknown_outcome_does_not`, `test_key_without_refund_permission` | ✓ (#71, #76) |
+
+### Refunds: end-to-end results - Render (27 Sep 2026)
+
+On the hosted demo after the push (`a3828b5`), with the two Stripe changes
+made: the Render key got **Charges and Refunds: Write**, and the Render
+webhook endpoint got `refund.updated`, `refund.failed` and `charge.refunded`.
+The guest (vaslysalex@hotmail.gr) and the admin logged in themselves;
+the clicks and checks were done in Chrome. **All passed.**
+
+| Round | What we did | Cases | Result |
+| --- | --- | --- | --- |
+| R1 | Deploy check | - | ✅ `POST /api/bookings/38/refund/` without login → `401` (the new endpoint is live), `/api/payments/config/` → `"enabled": true` |
+| R2 | Admin **Refund now** on #38 - paid, then cancelled during the TICKET-029 run ("Refund due") | REF-26, REF-34, REF-36 | ✅ Dialog "Stripe will refund the full €424 …"; "Refund of €424 for booking #38 sent to Stripe." → **Refunded** 2 s later - the Render key may refund and the refund events reach Render |
+| R3 | The **guest** cancelled paid #40 | REF-01, REF-13, REF-33 | ✅ **Refunded** 2 s after the cancel |
+| R4 | The **admin** cancelled paid, confirmed #41 | REF-02, REF-37 | ✅ Dialog "…it's refunded in full to their card automatically"; "Booking #41 cancelled - refund of €424 sent to Stripe." → **Refunded** 2 s later |
+| R5 | Admin → Bookings → Cancelled, search "vaslysalex" | REF-34 | ✅ #38, #40, #41 **Refunded €424 on 27 Sep 2026**, #39 **Not paid** |
+| R6 | GitHub **Hosted demo check** workflow | - | ✅ Green on `a3828b5` |
 
 ### Refunds: end-to-end results - local (27 Sep 2026)
 
@@ -3560,10 +3577,10 @@ the return page, Pay now with a live countdown, the admin Payment column),
 the `stripe-cli` forwarder in Docker and the Render setup - all tested end
 to end locally and on Render; see "Payments (Stripe)", "Payments: business
 rules & test cases" and "End-to-end results". **TICKET-040 (automatic
-refunds) is in progress:** step 1 (refund fields, the refund service, full
-refund on every paid cancellation, never blocking the cancel) and step 2
-(refund webhook events, admin Refund now endpoint, `sync_refunds`) and
-step 3 (guest refund texts, admin refund chips + Refund now) are done -
-212 backend and 213 frontend tests pass; see "Refunds (TICKET-040)".
-Next: the Docker/Render settings and the end-to-end runs,
-then TICKET-030 (booking-confirmation email).
+refunds) is done:** cancelling a paid booking refunds the full amount
+automatically (guest before the 48h deadline, admin any time), Stripe's
+refund events confirm it, admins have Refund now and `sync_refunds` for
+anything that failed or was missed, and every screen shows where the money
+is - tested end to end locally and on Render; 214 backend and 213 frontend
+tests pass. See "Refunds (TICKET-040)" and "Refunds: business rules & test
+cases". Next in Epic 6: TICKET-030 (booking-confirmation email).
