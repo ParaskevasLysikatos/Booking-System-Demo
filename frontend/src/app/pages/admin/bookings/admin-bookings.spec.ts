@@ -194,8 +194,7 @@ describe('AdminBookingsPage', () => {
     listReq().flush(page([]));
     answer = false;
     cmp.cancelBooking(paid(1, 'confirmed', 'paid'));
-    expect(dialogMessage()).toContain('owed a full refund');
-    expect(dialogMessage()).toContain('Stripe dashboard');
+    expect(dialogMessage()).toContain("refunded in full to their card automatically");
     cmp.cancelBooking(paid(2, 'pending', 'open'));
     expect(dialogMessage()).toContain('payment page will be closed first');
     cmp.cancelBooking(booking(3));
@@ -213,5 +212,104 @@ describe('AdminBookingsPage', () => {
     expect(snack.mock.calls[0][0]).toContain('just gone through');
     listReq().flush(page([paid(54, 'confirmed', 'paid')]));
     badgeReq().flush(page([], 0));
+  });
+
+  // --- TICKET-040: refunds ------------------------------------------------
+
+  const refunded = (id: number, refund: NonNullable<NonNullable<Booking['payment']>['refund']>, extra: Partial<NonNullable<Booking['payment']>> = {}) => {
+    const x = paid(id, 'cancelled', 'paid');
+    x.payment = { ...x.payment!, refund, ...extra };
+    return x;
+  };
+  const pendingRefund = { status: 'pending' as const, amount: '182.00', requested_at: '2030-01-01T10:00:00Z', refunded_at: null, failure_reason: null };
+  const failedRefund = { ...pendingRefund, status: 'failed' as const, failure_reason: "The Stripe key isn't allowed to create refunds" };
+
+  it('refund chips, the failure reason / refund date, and Refund now only where offered', async () => {
+    await open('/admin/bookings?tab=cancelled');
+    listReq().flush(page([
+      refunded(1, pendingRefund),
+      refunded(2, { ...pendingRefund, status: 'refunded', refunded_at: '2026-09-27T10:00:00Z' }),
+      refunded(3, failedRefund, { can_refund: true }),
+      { ...paid(4, 'cancelled', 'paid'), payment: { ...paid(4, 'cancelled', 'paid').payment!, can_refund: true } }, // cancelled before refunds existed
+    ]));
+    harness.detectChanges();
+    const el = harness.routeNativeElement!;
+    const chips = [...el.querySelectorAll('.chip.pay')].map((c) => c.textContent!.trim());
+    expect(chips).toEqual(['Refund pending', 'Refunded', 'Refund failed', 'Refund due']);
+    expect(text()).toMatch(/€182 on 27 Sept? 2026/);
+    expect(text()).toContain("The Stripe key isn't allowed to create refunds");
+    const buttons = [...el.querySelectorAll('button.refund')];
+    expect(buttons.length).toBe(2);
+    expect(buttons.every((btn) => btn.textContent!.includes('Refund now'))).toBe(true);
+  });
+
+  it('Refund now: dialog (with the last failure) -> POST -> snackbar, list + badge refreshed', async () => {
+    const cmp = await open('/admin/bookings?tab=cancelled');
+    const row = refunded(38, failedRefund, { can_refund: true });
+    listReq().flush(page([row]));
+    answer = false;
+    cmp.refundNow(row);
+    expect(dialogMessage()).toContain('refund the full €182');
+    expect(dialogMessage()).toContain('never be refunded twice');
+    expect(dialogMessage()).toContain("The last attempt failed: The Stripe key isn't allowed");
+    http.expectNone({ url: `${BOOKINGS_URL}38/refund/`, method: 'POST' });
+    answer = true;
+    cmp.refundNow(row);
+    const post = http.expectOne({ url: `${BOOKINGS_URL}38/refund/`, method: 'POST' });
+    post.flush(refunded(38, pendingRefund));
+    expect(snack.mock.calls[0][0]).toBe('Refund of €182 for booking #38 sent to Stripe.');
+    listReq().flush(page([]));
+    badgeReq().flush(page([], 0));
+  });
+
+  it('Refund now failing again shows the new reason', async () => {
+    const cmp = await open('/admin/bookings?tab=cancelled');
+    const row = refunded(38, failedRefund, { can_refund: true });
+    listReq().flush(page([row]));
+    cmp.refundNow(row);
+    http.expectOne({ url: `${BOOKINGS_URL}38/refund/`, method: 'POST' })
+      .flush(refunded(38, { ...failedRefund, failure_reason: "Couldn't reach Stripe." }, { can_refund: true }));
+    expect(snack.mock.calls[0][0]).toBe("The refund for booking #38 failed: Couldn't reach Stripe..");
+    listReq().flush(page([]));
+    badgeReq().flush(page([], 0));
+  });
+
+  it('Refund now refused by the server (e.g. already refunded) shows why', async () => {
+    const cmp = await open('/admin/bookings?tab=cancelled');
+    const row = refunded(38, failedRefund, { can_refund: true });
+    listReq().flush(page([row]));
+    cmp.refundNow(row);
+    http.expectOne({ url: `${BOOKINGS_URL}38/refund/`, method: 'POST' }).flush(
+      { detail: 'This booking has already been refunded.', code: 'already_refunded' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    expect(snack.mock.calls[0][0]).toBe('This booking has already been refunded.');
+    listReq().flush(page([]));
+    badgeReq().flush(page([], 0));
+  });
+
+  it('cancelling a paid booking reports the refund in the snackbar', async () => {
+    const cmp = await open();
+    listReq().flush(page([paid(40, 'confirmed', 'paid')]));
+    cmp.cancelBooking(paid(40, 'confirmed', 'paid'));
+    http.expectOne({ url: `${BOOKINGS_URL}40/`, method: 'PATCH' }).flush(refunded(40, pendingRefund));
+    expect(snack.mock.calls[0][0]).toBe('Booking #40 cancelled - refund of €182 sent to Stripe.');
+    listReq().flush(page([]));
+    badgeReq().flush(page([], 0));
+    cmp.cancelBooking(paid(41, 'confirmed', 'paid'));
+    http.expectOne({ url: `${BOOKINGS_URL}41/`, method: 'PATCH' }).flush(refunded(41, failedRefund, { can_refund: true }));
+    expect(snack.mock.calls[1][0]).toBe("Booking #41 cancelled, but the refund failed: The Stripe key isn't allowed to create refunds. Use Refund now to retry.");
+    listReq().flush(page([]));
+    badgeReq().flush(page([], 0));
+  });
+
+  it('cancel dialog for a booking already refunded in the Stripe Dashboard', async () => {
+    const cmp = await open();
+    listReq().flush(page([]));
+    answer = false;
+    const x = paid(42, 'confirmed', 'paid');
+    x.payment = { ...x.payment!, refund: { ...pendingRefund, status: 'refunded', refunded_at: '2026-09-27T10:00:00Z' } };
+    cmp.cancelBooking(x);
+    expect(dialogMessage()).toContain('has already been refunded');
   });
 });

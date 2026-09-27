@@ -23,7 +23,7 @@ import { formatPrice } from '../../core/money';
         <mat-icon>info</mat-icon>
         <span>This can't be undone - to go back you'd need to book again (if the dates are still free).
           @switch (b.payment?.status) {
-            @case ('paid') { You'll get a <strong>full refund of {{ paid }}</strong> - the host processes it. }
+            @case ('paid') { You'll get a <strong>full refund of {{ paid }}</strong>, back to your card within 5–10 business days. }
             @case ('open') { Your payment page will be closed, and you won't be charged. }
             @default { You haven't been charged, so there's nothing to refund. }
           }

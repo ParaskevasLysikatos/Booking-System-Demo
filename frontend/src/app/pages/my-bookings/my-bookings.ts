@@ -20,7 +20,7 @@ import { formatPrice } from '../../core/money';
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../core/properties/property.models';
 import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { clockSignal, clockTime, formatRemaining, remainingMs } from '../../core/payments/countdown';
-import { refundDue } from '../../core/payments/payment-labels';
+import { guestRefundText, refundView } from '../../core/payments/payment-labels';
 import { PaymentService } from '../../core/payments/payment.service';
 import { CancelBookingDialog } from './cancel-dialog';
 
@@ -146,9 +146,12 @@ export class MyBookingsPage {
       .subscribe(() => {
         this.cancelling.set(booking.id);
         this.bookings.cancel(booking.id).subscribe({
-          next: () => {
+          next: (cancelled) => {
             this.cancelling.set(null);
-            this.snackBar.open(`Booking #${booking.id} cancelled.`, 'OK', { duration: 5000 });
+            // TICKET-040: a paid booking's refund starts right away
+            const refund = refundView(cancelled);
+            const note = refund?.kind === 'pending' ? ` Refund of ${refund.amount} on its way.` : '';
+            this.snackBar.open(`Booking #${booking.id} cancelled.${note}`, 'OK', { duration: 5000 });
             this.refresh$.next(); // it leaves this tab and shows under "Cancelled"
           },
           error: (err) => {
@@ -187,7 +190,8 @@ export class MyBookingsPage {
     return formatRemaining(this.holdLeft(b));
   }
 
-  readonly refundDue = refundDue;
+  readonly refundView = refundView;
+  readonly guestRefundText = guestRefundText;
   readonly clockTime = clockTime;
 
   // --- display helpers ----------------------------------------------------

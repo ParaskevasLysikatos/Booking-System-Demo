@@ -79,8 +79,8 @@
             <mat-icon class="big muted-icon">event_busy</mat-icon>
             <h1>This booking was cancelled</h1>
             <p class="lead">
-              @if (b.payment?.status === 'paid') {
-                You'll get a full refund of <strong>{{ formatPrice(b.payment!.amount) }}</strong> - the host processes it.
+              @if (refundView(b); as r) {
+                {{ guestRefundText(r) }}
               } @else {
                 You weren't charged.
               }

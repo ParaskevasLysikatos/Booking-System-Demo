@@ -2357,17 +2357,19 @@ The page never decides a payment worked - only the booking the API returns
 "Awaiting payment · dates held for 24:13" + **Pay now €X** (live, one clock
 for the whole page), "Time to pay ran out - the dates are being released",
 "Payment processing at your bank", "Paid €X", and in the Cancelled tab
-"Time to pay ran out - dates released", "Payment failed", or **"Full refund
-of €X - processed by the host"**. "Waiting for the host to confirm" is only
+"Time to pay ran out - dates released", "Payment failed", or the refund
+line (TICKET-040 - see "Refunds in the frontend"). "Waiting for the host to confirm" is only
 for bookings without online payment. The cancel dialog now says what
-happens to the money: full refund / payment page closed / nothing to refund.
+happens to the money: full refund (back to the card within 5–10 business
+days) / payment page closed / nothing to refund.
 
 **Admin bookings** (`pages/admin/bookings/`): a **Payment** column (Paid,
 Awaiting payment until 14:32, Processing, Expired, Failed, Waived, Not paid,
-**Refund due**, or "—" for bookings without online payment). Confirming an
+the refund chips from TICKET-040 - Refund pending / Refunded / Refund failed
+/ Refund due - or "—" for bookings without online payment). Confirming an
 unpaid booking warns that it closes the guest's payment page and waives the
-payment; cancelling a paid one reminds you to refund the guest from the
-Stripe Dashboard (until TICKET-040).
+payment; cancelling a paid one says it's refunded automatically, and
+**Refund now** handles the rest (see "Refunds in the frontend").
 
 ### Local webhook forwarding (Docker, `stripe-cli` service)
 
@@ -2607,7 +2609,7 @@ service arrives with the Docker step.)*
 | WH-05 | Delayed methods (e.g. SEPA): completed-but-unpaid → `processing` (dates stay held); then succeeded → confirmed, or failed → cancelled and dates freed | SEPA test IBAN, if enabled in the Dashboard | as described | `test_delayed_payment_then_success`, `test_delayed_payment_then_failure_frees_the_dates` | |
 | WH-06 | **Time ran out → booking cancelled, dates free** | Let the hold expire (or expire the session via stripe-cli) | payment `expired`, booking `cancelled`, dates bookable again | `test_expired_releases_the_dates` | ✓ |
 | WH-07 | An admin's manual confirm wins over a later expiry | Admin confirms, session expires later | booking stays `confirmed` | `test_expired_after_admin_confirmed_keeps_it_confirmed` | |
-| WH-08 | Money arriving for a booking cancelled meanwhile: booking **stays cancelled**, payment recorded `paid`, "refund due" | (rare race) | warning logged; admin chip "Refund due" | `test_paid_after_cancelled_stays_cancelled_and_is_flagged` | |
+| WH-08 | Money arriving for a booking cancelled meanwhile: booking **stays cancelled**, payment recorded `paid`, and (TICKET-040) **refunded automatically** | (rare race) | warning logged; refund `pending` (REF-11) | `test_paid_after_cancelled_stays_cancelled_and_is_refunded` | |
 | WH-09 | A different charged amount/currency is **never** confirmed | (can't happen by design) | booking stays `pending`, error logged | `test_amount_mismatch_is_never_confirmed` | |
 | WH-10 | Events for sessions we don't know are ignored (local and Render share one sandbox) | Pay on Render while local stripe-cli runs | local ignores it (`200`), nothing changes | `test_unknown_session_is_ignored`, `test_unrelated_event_types_are_acknowledged_only` | ✓ |
 | WH-11 | A crash while handling rolls everything back so Stripe's retry works | Force an error | `500`, event not marked handled; retry confirms | `test_failure_rolls_back_so_stripe_can_retry` | |
@@ -2640,7 +2642,7 @@ after; **admins** have no deadline; **cancelled is final** for everyone.
 | CAN-06 | Payment page opened during the cancel → retry | | `409` `checkout_just_opened` | `test_payment_page_opened_mid_cancel` | |
 | CAN-07 | No payment page yet → no Stripe call | Book, cancel before paying | `200`, payment `cancelled` | `test_cancel_before_checkout_needs_no_stripe` | |
 | CAN-08 | A change that isn't allowed never touches Stripe | Guest tries to confirm | `400`, Stripe not called | `test_refused_change_never_touches_stripe` | |
-| CAN-09 | **Paid then cancelled** (before the deadline) → payment stays `paid` = **full refund due**. Since TICKET-040 the refund is sent to Stripe automatically (REF-01); the screens below still show the TICKET-029 wording until TICKET-040 step 3 | Pay, then cancel | booking `cancelled`; guest sees "Full refund of €X - processed by the host"; admin chip "Refund due" | `test_cancelling_a_paid_booking_keeps_the_payment`, labels spec | ✓ |
+| CAN-09 | **Paid then cancelled** (before the deadline) → payment stays `paid` = **full refund due**. Since TICKET-040 the refund is sent to Stripe automatically (REF-01) | Pay, then cancel | booking `cancelled`; guest sees "Refund of €X on its way…" then "Refunded €X on …"; admin chip "Refund pending" → "Refunded" (REF-31, REF-34) | `test_cancelling_a_paid_booking_keeps_the_payment`, labels spec | ✓ |
 | CAN-10 | Guest deadline: 48 h before 15:00 check-in; after it only an admin can cancel | Cancel a booking < 48 h away | guest `400` "Online cancellation closed…"; admin `200` | `StatusTransitionTests.test_guest_cancellation_closes_48h_before_check_in` | |
 | CAN-11 | Payments switched off with a page still open → cancel goes ahead | | `200` (logged) | `test_payments_switched_off_with_a_page_open` | |
 
@@ -2659,7 +2661,7 @@ after; **admins** have no deadline; **cancelled is final** for everyone.
 | UI-09 | Return page for other states | Open `/bookings/{id}/payment` | failed / time ran out / cancelled ("You weren't charged" or "full refund of €X"); booking without payment → My bookings; unknown id → "couldn't find this booking" | payment-return.spec | |
 | UI-10 | My Bookings shows the payment on every card | Open My bookings | Awaiting payment + countdown + Pay now; "Time to pay ran out"; processing; "Paid €X"; Cancelled tab: expired / failed / "Full refund of €X"; "Confirmed by the host" for waived | my-bookings.spec "online payments" | ✓ |
 | UI-11 | The cancel dialog says what happens to the money | Cancel a paid / unpaid-open / no-payment booking | "full refund of €X" / "payment page will be closed" / "nothing to refund" | my-bookings.spec "CancelBookingDialog" | ✓ |
-| UI-12 | Admin bookings: **Payment** column + warnings | Open Admin → Bookings | chips Paid / Awaiting payment (until HH:MM) / Processing / Expired / Failed / Waived / Not paid / **Refund due** / "—"; Confirm on unpaid warns "payment waived"; Cancel on paid reminds to refund in Stripe; server refusals in a snackbar | admin-bookings.spec | ✓ |
+| UI-12 | Admin bookings: **Payment** column + warnings | Open Admin → Bookings | chips Paid / Awaiting payment (until HH:MM) / Processing / Expired / Failed / Waived / Not paid / **Refund due** / "—" (refund chips: REF-34); Confirm on unpaid warns "payment waived"; Cancel on paid says it's refunded automatically (REF-37); server refusals in a snackbar | admin-bookings.spec | ✓ |
 
 ### End-to-end results - Render (26 Sep 2026)
 
@@ -2731,7 +2733,7 @@ partial refunds or fees.
 2. Webhook refund events (`refund.updated`, `refund.failed`,
    `charge.refunded`), the admin **Refund now** endpoint and the
    `sync_refunds` command - **done**.
-3. Frontend: guest texts, admin chips and the Refund now button.
+3. Frontend: guest texts, admin chips and the Refund now button - **done**.
 4. Docker `stripe-cli` events + Render settings + docs.
 5. Local end-to-end run → push → Render end-to-end run → done.
 
@@ -2879,6 +2881,42 @@ docker compose exec backend python manage.py sync_refunds --backlog   # also ref
 It prints `Sent N, synced N, retried N, backlog N; N problem(s).`, with the
 details of each problem on stderr. Safe to run any time.
 
+### Refunds in the frontend (step 3)
+
+One helper decides what every screen says - `refundView(booking)` in
+`core/payments/payment-labels.ts` - so the guest pages and the admin table
+can't disagree. It reads the server's `payment.refund` block; a booking that
+is cancelled + paid with **no** refund block (cancelled before refunds
+existed) counts as **due**.
+
+| Refund state | Guest sees (My Bookings, Cancelled tab; the payment return page) | Admin chip (Payment column) |
+| --- | --- | --- |
+| pending | "Refund of €X on its way - back to your card within 5–10 business days." | **Refund pending** (amber) |
+| refunded | "Refunded €X on 27 Sep 2026." (green tick) | **Refunded** (green) + "€X on 27 Sep 2026" under it |
+| failed | "Full refund of €X - the host is arranging your refund." - never the technical reason | **Refund failed** (red) + the reason under it (full text on hover) |
+| due (no refund started) | same as failed | **Refund due** (red) |
+
+- **Cancel dialog (guest)**, paid booking: "You'll get a **full refund of
+  €X**, back to your card within 5–10 business days." After cancelling, the
+  snackbar adds "Refund of €X on its way."
+- **Cancel dialog (admin)**, paid booking: "The guest paid €X online - it's
+  refunded in full to their card automatically" (or "…has already been
+  refunded" when it was refunded in the Stripe Dashboard). The snackbar then
+  says "Booking #N cancelled - refund of €X sent to Stripe." or, if Stripe
+  couldn't be reached, "…but the refund failed: *reason*. Use Refund now to
+  retry."
+- **Refund now** (admin bookings, Actions column) appears only where the
+  server says `can_refund` - failed refunds, old "Refund due" bookings, and
+  pending refunds that were never sent. It asks first ("Stripe will refund
+  the full €X to the card … paid with. It can never be refunded twice." plus
+  the last failure reason), then `POST /api/bookings/{id}/refund/`
+  (`BookingService.refund`). The snackbar says "Refund of €X for booking #N
+  sent to Stripe." or "The refund for booking #N failed: *reason*."; a `409`
+  (e.g. already refunded meanwhile) shows the server's reason. The list and
+  the admin badge refresh either way.
+- The TypeScript `PaymentSummary` gains optional `refund` and `can_refund`
+  (optional, so an older response still type-checks).
+
 ### Also in step 2
 
 - If sending the refund after a cancel hits an **unexpected** error, the
@@ -2891,8 +2929,8 @@ details of each problem on stderr. Safe to run any time.
 ## Refunds: business rules & test cases (TICKET-040)
 
 Same format as the payment rules above. Step 1: REF-01 to REF-12; step 2
-(webhook, Refund now, `sync_refunds`): REF-13 to REF-30; the screens add
-rules in step 3. "step 5" in the E2E column = checked by hand in the
+(webhook, Refund now, `sync_refunds`): REF-13 to REF-30; step 3 (the
+screens): REF-31 to REF-37. "step 5" in the E2E column = checked by hand in the
 end-to-end runs.
 
 | ID | Rule | How to test | Expected | Auto | E2E |
@@ -2927,6 +2965,13 @@ end-to-end runs.
 | REF-28 | `sync_refunds` asks Stripe about a sent-but-unconfirmed refund | Stop `stripe-cli`, cancel a paid booking, start it, run the command | "synced 1", `refunded` | `test_missed_webhook_is_synced_from_stripe`, `test_still_pending_at_stripe_changes_nothing`, `test_failed_at_stripe_when_synced` | step 5 |
 | REF-29 | `sync_refunds` retries failed refunds (not with `--no-retry`) and reports problems | | "retried 1" / "1 problem(s)" | `test_failed_are_retried_unless_no_retry`, `test_retry_that_fails_again_is_reported`, `test_stripe_unreachable_while_syncing` | |
 | REF-30 | `sync_refunds --backlog` refunds old "Refund due" bookings; without the flag they're left alone | | "backlog 1" | `test_backlog_only_with_the_flag` | |
+| REF-31 | Guest refund wording per state (never the reason) | My bookings → Cancelled | pending "on its way - 5–10 business days" / "Refunded €X on …" / failed + due "the host is arranging your refund" | payment-labels.spec "guest wording…", my-bookings.spec "every refund state" | step 5 |
+| REF-32 | The payment return page uses the same wording | Open `/bookings/{id}/payment` of a cancelled paid booking | as REF-31 | payment-return.spec "released and cancelled-after-paying…" | |
+| REF-33 | Guest cancel dialog + snackbar for a paid booking | Cancel a paid booking | dialog "full refund of €X, back to your card within 5–10 business days"; snackbar "…Refund of €X on its way." | my-bookings.spec "CancelBookingDialog", "cancelling a paid booking says…" | step 5 |
+| REF-34 | Admin chips: Refund pending / Refunded (+ date) / Refund failed (+ reason) / Refund due | Admin → Bookings → Cancelled | as described | payment-labels.spec "refund chips…", admin-bookings.spec "refund chips…" | step 5 |
+| REF-35 | Refund now button only where `can_refund` | | failed + due rows only | admin-bookings.spec "refund chips…" | step 5 |
+| REF-36 | Refund now: ask → POST → snackbar; failing again / 409 shows why | Admin → Refund now | "Refund of €X for booking #N sent to Stripe." / "…failed: reason" / server reason | admin-bookings.spec "Refund now: …", "…failing again…", "…refused by the server…" | step 5 |
+| REF-37 | Admin cancel of a paid booking: dialog says it's refunded automatically; snackbar reports the refund (or its failure) | Admin cancels a paid booking | as described | admin-bookings.spec "cancel dialog says…", "cancelling a paid booking reports…", "…already refunded in the Stripe Dashboard" | step 5 |
 
 ## Django Admin (dev-only)
 
@@ -3435,7 +3480,8 @@ to end locally and on Render; see "Payments (Stripe)", "Payments: business
 rules & test cases" and "End-to-end results". **TICKET-040 (automatic
 refunds) is in progress:** step 1 (refund fields, the refund service, full
 refund on every paid cancellation, never blocking the cancel) and step 2
-(refund webhook events, admin Refund now endpoint, `sync_refunds`) are
-done - 212 backend tests pass on Postgres; see "Refunds (TICKET-040)".
-Next: the screens, the Docker/Render settings and the end-to-end runs,
+(refund webhook events, admin Refund now endpoint, `sync_refunds`) and
+step 3 (guest refund texts, admin refund chips + Refund now) are done -
+212 backend and 213 frontend tests pass; see "Refunds (TICKET-040)".
+Next: the Docker/Render settings and the end-to-end runs,
 then TICKET-030 (booking-confirmation email).

@@ -14,6 +14,7 @@ import { parseIsoDate, todayLocal } from '../../core/dates';
 import { formatPrice } from '../../core/money';
 import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { clockSignal, clockTime, formatRemaining, remainingMs } from '../../core/payments/countdown';
+import { guestRefundText, refundView } from '../../core/payments/payment-labels';
 import { PaymentService } from '../../core/payments/payment.service';
 import { BookingSummary } from '../../shared/booking-summary';
 import { CancelBookingDialog } from '../my-bookings/cancel-dialog';
@@ -81,6 +82,8 @@ export class PaymentReturnPage {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly formatPrice = formatPrice;
+  readonly refundView = refundView;
+  readonly guestRefundText = guestRefundText;
   readonly clockTime = clockTime;
 
   constructor() {

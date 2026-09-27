@@ -89,8 +89,12 @@
                       <p class="pay wait"><mat-icon>hourglass_top</mat-icon><span>Payment processing at your bank - your dates stay held.</span></p>
                     }
                     @case ('paid') {
-                      @if (refundDue(b)) {
-                        <p class="pay refund"><mat-icon>currency_exchange</mat-icon><span>Full refund of <strong>{{ formatPrice(pay.amount) }}</strong> - processed by the host.</span></p>
+                      @if (refundView(b); as r) {
+                        <!-- Refund (TICKET-040) -->
+                        <p class="pay refund" [class.done]="r.kind === 'refunded'">
+                          <mat-icon>{{ r.kind === 'refunded' ? 'check_circle' : 'currency_exchange' }}</mat-icon>
+                          <span>{{ guestRefundText(r) }}</span>
+                        </p>
                       } @else {
                         <p class="pay ok"><mat-icon>check_circle</mat-icon><span>Paid <strong>{{ formatPrice(pay.amount) }}</strong></span></p>
                       }

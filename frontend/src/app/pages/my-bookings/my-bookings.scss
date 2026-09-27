@@ -96,6 +96,7 @@ p { margin: 0; }
   &.ok { color: #1b5e20; }
   &.wait { color: #8a4b00; }
   &.refund { color: var(--mat-sys-primary); }
+  &.refund.done { color: #1b5e20; }
   &.muted { color: var(--mat-sys-on-surface-variant); }
 }
 .countdown { font-variant-numeric: tabular-nums; }

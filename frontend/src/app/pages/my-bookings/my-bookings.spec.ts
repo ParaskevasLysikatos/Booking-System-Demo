@@ -256,17 +256,36 @@ describe('MyBookingsPage - online payments', () => {
     expect(text()).toContain('Payment processing at your bank');
   });
 
-  it('Cancelled tab: expired, failed, and refund due', async () => {
+  it('Cancelled tab: expired, failed, and every refund state (TICKET-040)', async () => {
+    const refund = { amount: '182.00', requested_at: '2026-09-27T09:00:00Z', refunded_at: null };
     await open('/my-bookings?tab=cancelled');
     listReq().flush(page_([
       withPayment(1, 'cancelled', 'expired'),
       withPayment(2, 'cancelled', 'failed'),
-      withPayment(3, 'cancelled', 'paid'),
+      withPayment(3, 'cancelled', 'paid'), // cancelled before refunds existed
+      withPayment(4, 'cancelled', 'paid', { refund: { ...refund, status: 'pending' } }),
+      withPayment(5, 'cancelled', 'paid', { refund: { ...refund, status: 'refunded', refunded_at: '2026-09-28T09:00:00Z' } }),
+      withPayment(6, 'cancelled', 'paid', { refund: { ...refund, status: 'failed' } }),
     ]));
     await settle();
     expect(text()).toContain('Time to pay ran out - dates released');
     expect(text()).toContain('Payment failed');
-    expect(text()).toContain('Full refund of €182 - processed by the host');
+    expect(text().match(/Full refund of €182 - the host is arranging your refund\./g)?.length).toBe(2); // #3 and #6
+    expect(text()).toContain('Refund of €182 on its way - back to your card within 5–10 business days.');
+    expect(text()).toMatch(/Refunded €182 on 28 Sept? 2026\./); // ICU: "Sep" or "Sept"
+    expect(text()).not.toContain('Paid €182');
+  });
+
+  it('cancelling a paid booking says the refund is on its way', async () => {
+    const page = await open();
+    listReq().flush(page_([withPayment(9, 'confirmed', 'paid')]));
+    vi.spyOn(TestBed.inject(MatDialog), 'open').mockImplementation(() => ({ afterClosed: () => of(true) }) as never);
+    page.cancel(withPayment(9, 'confirmed', 'paid'));
+    http.expectOne({ url: `${BOOKINGS_URL}9/`, method: 'PATCH' }).flush(withPayment(9, 'cancelled', 'paid', {
+      refund: { status: 'pending', amount: '182.00', requested_at: '2026-09-27T09:00:00Z', refunded_at: null },
+    }));
+    expect(snack.mock.calls[0][0]).toBe('Booking #9 cancelled. Refund of €182 on its way.');
+    listReq().flush(page_([]));
   });
 });
 
@@ -282,7 +301,7 @@ describe('CancelBookingDialog - what happens to the money', () => {
   }
 
   it('paid -> full refund; awaiting payment -> page closed; otherwise nothing to refund', () => {
-    expect(render(withPayment(1, 'confirmed', 'paid'))).toContain('full refund of €182');
+    expect(render(withPayment(1, 'confirmed', 'paid'))).toContain('full refund of €182, back to your card within 5–10 business days');
     expect(render(withPayment(1, 'pending', 'open'))).toContain('Your payment page will be closed');
     expect(render(booking(1))).toContain("You haven't been charged");
   });

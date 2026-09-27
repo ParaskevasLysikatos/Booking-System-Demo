@@ -190,7 +190,14 @@ describe('PaymentReturnPage', () => {
     getReq().flush(booking('cancelled', 'paid'));
     await settle();
     expect(page.view()).toBe('cancelled');
-    expect(text()).toContain('full refund of €182');
+    expect(text()).toContain('Full refund of €182 - the host is arranging your refund.'); // no refund started
+
+    TestBed.resetTestingModule();
+    await open('');
+    getReq().flush({ ...booking('cancelled', 'paid'), payment: { ...booking('cancelled', 'paid').payment!,
+      refund: { status: 'pending', amount: '182.00', requested_at: '2026-09-27T09:00:00Z', refunded_at: null } } });
+    await settle();
+    expect(text()).toContain('Refund of €182 on its way - back to your card within 5–10 business days.');
   });
 
   it("a booking without online payment goes to My bookings; unknown ones say so", async () => {

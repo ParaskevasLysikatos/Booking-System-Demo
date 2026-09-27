@@ -25,7 +25,7 @@ import { parseIsoDate, todayLocal } from '../../../core/dates';
 import { formatPrice } from '../../../core/money';
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../../core/properties/property.models';
 import { clockTime } from '../../../core/payments/countdown';
-import { paymentLabel } from '../../../core/payments/payment-labels';
+import { paymentLabel, refundView } from '../../../core/payments/payment-labels';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 
 export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled';
@@ -194,14 +194,44 @@ export class AdminBookingsPage {
       confirmLabel: 'Cancel booking',
       cancelLabel: 'Keep booking',
       danger: true,
-    }).subscribe(() => this.run(b, this.bookings.cancel(b.id), `Booking #${b.id} cancelled.`));
+    }).subscribe(() => this.run(b, this.bookings.cancel(b.id), (res) => this.cancelOutcome(res)));
+  }
+
+  /**
+   * "Refund now" (TICKET-040): start or retry the full refund of a
+   * cancelled, paid booking. The server makes sure it can never refund twice.
+   */
+  refundNow(b: Booking): void {
+    const r = refundView(b);
+    const last = r?.kind === 'failed' && r.reason ? ` The last attempt failed: ${r.reason}` : '';
+    this.ask({
+      title: `Refund booking #${b.id}?`,
+      message: `Stripe will refund the full ${formatPrice(b.payment?.amount ?? b.total_price)} to the card ${b.guest_email ?? 'the guest'} paid with. It can never be refunded twice.${last}`,
+      confirmLabel: 'Refund now',
+      cancelLabel: 'Not now',
+    }).subscribe(() => this.run(b, this.bookings.refund(b.id), (res) => this.refundOutcome(res)));
+  }
+
+  private cancelOutcome(res: Booking): string {
+    const r = refundView(res);
+    if (r?.kind === 'pending') return `Booking #${res.id} cancelled - refund of ${r.amount} sent to Stripe.`;
+    if (r?.kind === 'failed') return `Booking #${res.id} cancelled, but the refund failed: ${r.reason ?? 'unknown reason'}. Use Refund now to retry.`;
+    return `Booking #${res.id} cancelled.`;
+  }
+
+  private refundOutcome(res: Booking): string {
+    const r = refundView(res);
+    if (r?.kind === 'failed') return `The refund for booking #${res.id} failed: ${r.reason ?? 'unknown reason'}.`;
+    return `Refund of ${r?.amount ?? formatPrice(res.total_price)} for booking #${res.id} sent to Stripe.`;
   }
 
   /** What cancelling means for the booking's money (TICKET-029). */
   private cancelPaymentNote(b: Booking): string {
     switch (b.payment?.status) {
       case 'paid':
-        return `The guest paid ${formatPrice(b.payment.amount)} online and is owed a full refund - refund it from the Stripe dashboard (TICKET-040 will automate this).`;
+        return b.payment.refund?.status === 'refunded'
+          ? `The guest's payment of ${formatPrice(b.payment.amount)} has already been refunded.`
+          : `The guest paid ${formatPrice(b.payment.amount)} online - it's refunded in full to their card automatically.`;
       case 'open':
         return "The guest's open payment page will be closed first, so they can't pay for a cancelled booking.";
       default:
@@ -210,6 +240,7 @@ export class AdminBookingsPage {
   }
 
   readonly paymentLabel = paymentLabel;
+  readonly refundView = refundView;
   readonly clockTime = clockTime;
 
   // --- display helpers ----------------------------------------------------
@@ -244,12 +275,13 @@ export class AdminBookingsPage {
       .pipe(filter((yes): yes is true => yes === true));
   }
 
-  private run(b: Booking, request: Observable<Booking>, success: string): void {
+  private run(b: Booking, request: Observable<Booking>, success: string | ((result: Booking) => string)): void {
     this.busy.set(b.id);
     request.subscribe({
-      next: () => {
+      next: (result) => {
         this.busy.set(null);
-        this.snackBar.open(success, 'OK', { duration: 4000 });
+        const message = typeof success === 'string' ? success : success(result);
+        this.snackBar.open(message, 'OK', { duration: typeof success === 'string' ? 4000 : 7000 });
         this.refresh$.next();
         this.badges.refresh();
       },

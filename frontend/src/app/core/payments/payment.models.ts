@@ -5,6 +5,18 @@
  */
 export type PaymentStatus = 'open' | 'processing' | 'paid' | 'expired' | 'failed' | 'cancelled';
 
+/** TICKET-040: a refund tracked beside a paid payment (null = none). */
+export type RefundStatus = 'pending' | 'refunded' | 'failed';
+
+export interface RefundSummary {
+  status: RefundStatus;
+  amount: string | null; // always the full amount
+  requested_at: string | null;
+  refunded_at: string | null;
+  /** Admins only (absent for guests): why the last attempt failed. */
+  failure_reason?: string | null;
+}
+
 export interface PaymentSummary {
   status: PaymentStatus;
   amount: string; // "240.15"
@@ -13,6 +25,10 @@ export interface PaymentSummary {
   paid_at: string | null;
   /** The *current caller* can pay right now (own booking, pending, hold still running). */
   can_pay: boolean;
+  /** TICKET-040 (optional so older responses still type-check). */
+  refund?: RefundSummary | null;
+  /** Admins only: "Refund now" is offered (cancelled + paid; refund never started, failed or never sent). */
+  can_refund?: boolean;
 }
 
 /** GET /api/payments/config/ - public, no secrets. */

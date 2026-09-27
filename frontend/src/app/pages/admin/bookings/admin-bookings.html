@@ -88,6 +88,13 @@
                 @if (b.payment.status === 'open' && b.status === 'pending') {
                   <span class="muted"> until {{ clockTime(b.payment.expires_at) }}</span>
                 }
+                @if (refundView(b); as r) {
+                  @if (r.kind === 'failed' && r.reason) {
+                    <div class="refund-note reason" [matTooltip]="r.reason">{{ r.reason }}</div>
+                  } @else if (r.kind === 'refunded' && r.refundedOn) {
+                    <div class="refund-note">{{ r.amount }} on {{ r.refundedOn }}</div>
+                  }
+                }
               } @else {
                 <span class="muted" matTooltip="No online payment (seeded, or booked while payments were off)">—</span>
               }
@@ -103,6 +110,11 @@
               @if (b.status === 'pending') {
                 <button mat-stroked-button type="button" class="confirm" (click)="confirmBooking(b)" [disabled]="busy() !== null">
                   <mat-icon>check</mat-icon>Confirm
+                </button>
+              }
+              @if (b.payment?.can_refund) {
+                <button mat-stroked-button type="button" class="refund" (click)="refundNow(b)" [disabled]="busy() !== null">
+                  <mat-icon>currency_exchange</mat-icon>Refund now
                 </button>
               }
               @if (b.status !== 'cancelled') {

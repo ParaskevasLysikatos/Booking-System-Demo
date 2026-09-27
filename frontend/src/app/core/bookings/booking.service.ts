@@ -46,6 +46,16 @@ export class BookingService {
     return this.http.patch<Booking>(`${BOOKINGS_URL}${id}/`, { status: 'cancelled' });
   }
 
+  /**
+   * Admin "Refund now" (TICKET-040): start or retry the full refund of a
+   * cancelled, paid booking. Answers with the booking - its
+   * payment.refund is then pending, or failed again with the reason; 409
+   * with a reason when there's nothing to do.
+   */
+  refund(id: number): Observable<Booking> {
+    return this.http.post<Booking>(`${BOOKINGS_URL}${id}/refund/`, {});
+  }
+
   /** Admin: pending -> confirmed (the backend's transition table decides; 400 with a reason otherwise). */
   confirm(id: number): Observable<Booking> {
     return this.http.patch<Booking>(`${BOOKINGS_URL}${id}/`, { status: 'confirmed' });
