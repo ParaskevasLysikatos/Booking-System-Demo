@@ -2043,7 +2043,7 @@ put these in `.env` (see `.env.example`):
 
 | Variable | Value |
 | --- | --- |
-| `STRIPE_SECRET_KEY` | A **restricted key** `rk_test_...` (Stripe recommends it over the full `sk_test_` key); it needs **Checkout Sessions: Write** |
+| `STRIPE_SECRET_KEY` | A **restricted key** `rk_test_...` (Stripe recommends it over the full `sk_test_` key); it needs **Checkout Sessions: Write** and, for refunds (TICKET-040), **Charges and Refunds: Write** |
 | `STRIPE_CLI_API_KEY` | Your full `sk_test_...` key - only for the local `stripe-cli` webhook forwarder (added in a later step), never on Render |
 | `STRIPE_PUBLISHABLE_KEY` | Not used by Stripe's hosted page; harmless to keep |
 
@@ -2385,10 +2385,13 @@ Stripe's own CLI next to the backend:
    backend reads it from `STRIPE_WEBHOOK_SECRET_FILE=/stripe/webhook_secret`
    on every webhook, so there's **nothing to copy into `.env`** and it keeps
    working if the CLI restarts after the backend.
-3. It forwards only the four events the backend handles
-   (`checkout.session.completed`, `…async_payment_succeeded`,
-   `…async_payment_failed`, `…expired`) to
-   `http://backend:8000/api/payments/stripe/webhook/`.
+3. It forwards only the seven events the backend handles - the four
+   payment ones (`checkout.session.completed`, `…async_payment_succeeded`,
+   `…async_payment_failed`, `…expired`) and the three refund ones
+   (`refund.updated`, `refund.failed`, `charge.refunded`, TICKET-040) - to
+   `http://backend:8000/api/payments/stripe/webhook/`. After pulling a
+   change to this list, `docker compose up -d` recreates the service (and
+   it shares a fresh signing secret by itself).
 
 If `stripe trigger` fails with "Shipping parameters cannot be used with
 Managed Payments", your Stripe account has Managed Payments on by default:
@@ -2424,6 +2427,13 @@ ran out" test cases: find the session id in Django Admin → Payments, then
 Stripe sends `checkout.session.expired`, and the booking is cancelled and
 its dates freed (rule WH-06).
 
+**Checking the refund events** (TICKET-040):
+`docker compose exec stripe-cli stripe trigger charge.refunded` - Stripe
+makes a throw-away charge and refunds it; the log shows `charge.refunded`
+(and `refund.updated`) → **`[200]`** (not one of our payments, so the
+backend ignores it - rule REF-21). A missed refund webhook is caught up with
+`docker compose exec backend python manage.py sync_refunds`.
+
 Note: one Stripe sandbox serves both the local app and Render, so the local
 forwarder also receives Render's events (and Render receives local ones).
 Each side ignores sessions it didn't create - they're matched by the stored
@@ -2437,14 +2447,17 @@ both secrets are set**, so deploying this code first is safe.
 
 1. **Restricted key for Render.** Stripe Dashboard (sandbox) → Developers →
    API keys → *Create restricted key* → name `booking-demo-render`,
-   **Checkout Sessions: Write**, everything else None → copy the `rk_test_…`.
+   **Checkout Sessions: Write** and **Charges and Refunds: Write**
+   (TICKET-040), everything else None → copy the `rk_test_…`.
    (A separate key from your local one, so either can be rolled on its own.)
 2. **Webhook endpoint.** Stripe Dashboard → Developers → Webhooks → *Add
    destination* (event destination, your account):
    - URL: `https://booking-demo-api.onrender.com/api/payments/stripe/webhook/`
    - Events: `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`,
-     `checkout.session.async_payment_failed`, `checkout.session.expired`
+     `checkout.session.async_payment_failed`, `checkout.session.expired`,
+     and for refunds (TICKET-040) `refund.updated`, `refund.failed`,
+     `charge.refunded`
    - API version: the latest (the backend pins `2026-08-26.dahlia`)
    - Save, then reveal and copy its **signing secret** `whsec_…` (different
      from the local CLI's).
@@ -2458,6 +2471,28 @@ both secrets are set**, so deploying this code first is safe.
    → `"enabled": true`, and the **Hosted demo check** workflow now reports
    "Payments are ON". In Stripe → Webhooks → the endpoint, *Send test event*
    (`checkout.session.completed`) should get a `200`.
+
+**Refunds (TICKET-040) - two extra settings** on top of the above (if
+Render is already set up, just edit the existing key and endpoint):
+
+5. **Key permission.** Stripe Dashboard → Developers → API keys → the
+   Render key (`booking-demo-render`) → *Edit* → set **Charges and Refunds**
+   to **Write** (Checkout Sessions stays Write, everything else None) →
+   Save. The key value doesn't change, so Render needs nothing new. Without
+   it, cancelling still works but every refund shows **Refund failed** with
+   "The Stripe key isn't allowed to create refunds (it needs 'Charges and
+   Refunds: Write')" - fix the key, then use **Refund now**.
+6. **Webhook events.** Stripe Dashboard → Developers → Webhooks → the Render
+   endpoint → *Edit destination* / *Select events* → add
+   **`refund.updated`**, **`refund.failed`** and **`charge.refunded`** (keep
+   the four `checkout.session.*` ones) → Save. The signing secret stays the
+   same. Without them refunds are sent but stay **Refund pending** forever.
+
+`manage.py sync_refunds` needs a shell, which Render's free plan doesn't
+offer - that's fine: Stripe retries webhook deliveries for up to 3 days,
+and anything left over can be fixed from the admin screen with **Refund
+now**. Old bookings cancelled before refunds existed (e.g. #38 on Render,
+"Refund due") are refunded only when an admin clicks Refund now on them.
 
 Never put `STRIPE_CLI_API_KEY` (the full `sk_test_` key) on Render - it's
 only for the local forwarder. Render's free API sleeps after 15 minutes; if
@@ -2734,7 +2769,8 @@ partial refunds or fees.
    `charge.refunded`), the admin **Refund now** endpoint and the
    `sync_refunds` command - **done**.
 3. Frontend: guest texts, admin chips and the Refund now button - **done**.
-4. Docker `stripe-cli` events + Render settings + docs.
+4. Docker `stripe-cli` events + Render settings + docs - **done** (see
+   "Local webhook forwarding" and "Payments on Render" → Refunds).
 5. Local end-to-end run → push → Render end-to-end run → done.
 
 ### Refund fields on `Payment` (migration `payments/0004_refunds.py`)
@@ -3103,7 +3139,7 @@ Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 | `WEB_CONCURRENCY` | `2` gunicorn workers |
 | `RENDER_EXTERNAL_HOSTNAME` | Set by Render itself (e.g. `booking-demo-api.onrender.com`). Added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically |
 | `CORS_ALLOWED_ORIGINS` | `https://booking-demo-g4aw.onrender.com`, the Angular site (TICKET-027). Without it the browser blocks the site's calls to the API |
-| `STRIPE_SECRET_KEY` | Set by hand in the Render dashboard (`sync: false`): a restricted `rk_test_…` key with Checkout Sessions: Write. Empty = payments off (TICKET-029, see "Payments on Render") |
+| `STRIPE_SECRET_KEY` | Set by hand in the Render dashboard (`sync: false`): a restricted `rk_test_…` key with Checkout Sessions: Write and Charges and Refunds: Write. Empty = payments off (TICKET-029/040, see "Payments on Render") |
 | `STRIPE_WEBHOOK_SECRET` | Set by hand (`sync: false`): the `whsec_…` of the Stripe webhook endpoint pointing at this API |
 | `FRONTEND_URL` | `https://booking-demo-g4aw.onrender.com` - where Stripe sends guests back after paying |
 
@@ -3368,7 +3404,7 @@ you ever need to regenerate it.
 | `SEED_DEMO_DATA` / `WEB_CONCURRENCY` / `DJANGO_LOG_LEVEL` / `DJANGO_HSTS_SECONDS` | backend (Render) | First-deploy seed, gunicorn workers, log level (default `ERROR`), HSTS seconds (default 3600) |
 | `JWT_ACCESS_MINUTES` / `JWT_REFRESH_DAYS` | backend | Optional token lifetimes (defaults 30 minutes / 1 day) |
 | `BOOKING_CHECK_IN_TIME` / `BOOKING_GUEST_CANCELLATION_HOURS` | backend | Optional: check-in time used for the guest cancellation deadline, and how many hours before it guests can still cancel (defaults `15:00` / `48`) |
-| `STRIPE_SECRET_KEY` | backend | Stripe restricted key `rk_test_...` (Checkout Sessions: Write). Empty = payments off. See "Payments (Stripe)" |
+| `STRIPE_SECRET_KEY` | backend | Stripe restricted key `rk_test_...` (Checkout Sessions: Write + Charges and Refunds: Write). Empty = payments off. See "Payments (Stripe)" |
 | `STRIPE_CLI_API_KEY` | stripe-cli (local only) | Full `sk_test_...` key for the local webhook forwarder (`docker-compose.yml`). Unset = forwarding off. Never on Render |
 | `STRIPE_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET_FILE` | backend | Webhook signing secret (Render), or the file the local stripe-cli service writes it to (`/stripe/webhook_secret`, set in `docker-compose.yml` - leave `STRIPE_WEBHOOK_SECRET` unset locally) |
 | `STRIPE_CHECKOUT_HOLD_MINUTES` / `FRONTEND_URL` / `STRIPE_API_VERSION` / `STRIPE_ALLOW_LIVE_KEYS` | backend | Optional: date-hold length (default 30), where Stripe returns the guest (default `http://localhost:4200`), pinned API version, live-key override (default off) |

@@ -42,7 +42,7 @@ services:
       # payments stay off (the site works as before). See the README's
       # "Payments on Render".
       - key: STRIPE_SECRET_KEY
-        sync: false             # restricted key rk_test_... (Checkout Sessions: Write)
+        sync: false             # restricted key rk_test_... (Checkout Sessions: Write + Charges and Refunds: Write)
       - key: STRIPE_WEBHOOK_SECRET
         sync: false             # whsec_... of the Stripe webhook endpoint for this API
       - key: FRONTEND_URL

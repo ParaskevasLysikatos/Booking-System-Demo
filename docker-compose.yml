@@ -65,10 +65,11 @@ services:
         stripe listen --print-secret > /stripe/webhook_secret.tmp
         mv /stripe/webhook_secret.tmp /stripe/webhook_secret
         echo "Webhook signing secret shared with the backend."
-        # 2) Forward only the events the backend handles.
+        # 2) Forward only the events the backend handles: payments
+        #    (TICKET-029) and refunds (TICKET-040).
         exec stripe listen \
           --forward-to http://backend:8000/api/payments/stripe/webhook/ \
-          --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired
+          --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,checkout.session.expired,refund.updated,refund.failed,charge.refunded
     volumes:
       - stripe_cli:/stripe
     depends_on:

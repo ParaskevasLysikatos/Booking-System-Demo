@@ -42,7 +42,8 @@ def stripe_settings_check(app_configs=None, **kwargs):
     elif key.startswith("sk_"):
         problems.append(Warning(
             "STRIPE_SECRET_KEY is a full-access secret key.",
-            hint="Stripe recommends a restricted key (rk_test_...) with only 'Checkout Sessions: Write'.",
+            hint="Stripe recommends a restricted key (rk_test_...) with only 'Checkout Sessions: Write' "
+                 "and 'Charges and Refunds: Write' (refunds).",
             id="payments.W001",
         ))
 

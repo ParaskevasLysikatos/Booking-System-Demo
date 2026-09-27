@@ -167,7 +167,8 @@ BOOKING_GUEST_CANCELLATION_HOURS = env.int('BOOKING_GUEST_CANCELLATION_HOURS', d
 # (pending until an admin confirms) - that's also what the test suite and a
 # fresh clone without Stripe keys get. The values are checked at startup by
 # payments/checks.py (e.g. live keys are refused unless explicitly allowed).
-# Prefer a restricted key (rk_test_...) with only "Checkout Sessions: Write".
+# Prefer a restricted key (rk_test_...) with only "Checkout Sessions: Write"
+# and, for refunds (TICKET-040), "Charges and Refunds: Write".
 STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY', default='')
 STRIPE_ALLOW_LIVE_KEYS = env.bool('STRIPE_ALLOW_LIVE_KEYS', default=False)
 PAYMENTS_ENABLED = bool(STRIPE_SECRET_KEY)
