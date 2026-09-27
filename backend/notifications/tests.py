@@ -517,3 +517,98 @@ class FormattingTests(SimpleTestCase):
         self.assertEqual(short_range(date(2027, 3, 10), date(2027, 3, 13)), "10–13 Mar")
         self.assertEqual(short_range(date(2027, 2, 28), date(2027, 3, 3)), "28 Feb – 3 Mar")
         self.assertEqual(short_range(date(2026, 12, 30), date(2027, 1, 2)), "30 Dec 2026 – 2 Jan 2027")
+
+
+# --- Step 3: retrying (command + Django Admin) --------------------------------
+
+from io import StringIO  # noqa: E402
+
+from django.core.management import call_command  # noqa: E402
+
+
+@override_settings(**EMAILS)
+class RetryTests(TestCase):
+    def setUp(self):
+        self.booking = make_booking()
+
+    def row(self, kind=Kind.BOOKING_RECEIVED, status=Status.FAILED, attempts=1, booking=None, **extra):
+        return BookingEmail.objects.create(booking=booking or self.booking, kind=kind, status=status,
+                                           attempts=attempts, recipients="guest@example.com", **extra)
+
+    def run_command(self, *args):
+        out, err = StringIO(), StringIO()
+        call_command("send_pending_emails", *args, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    def test_command_sends_waiting_emails_and_reports(self):
+        """EMAIL-27: send_pending_emails sends pending + failed, skips out-of-date, leaves sent alone."""
+        failed = self.row()
+        pending = self.row(kind=Kind.BOOKING_CANCELLED, status=Status.PENDING, attempts=0,
+                           booking=make_booking(email="b@example.com", status=Booking.Status.CANCELLED),
+                           reason="host")
+        outdated = self.row(kind=Kind.BOOKING_CONFIRMED)  # the booking is still pending
+        done = self.row(kind=Kind.ADMIN_NEW_BOOKING, status=Status.SENT)
+        out, err = self.run_command()
+        self.assertIn("Sent 2, failed 0, skipped 1.", out)
+        self.assertEqual(err, "")
+        statuses = {r.pk: r.status for r in BookingEmail.objects.all()}
+        self.assertEqual(statuses, {failed.pk: "sent", pending.pk: "sent", outdated.pk: "skipped", done.pk: "sent"})
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(self.run_command()[0], "Sent 0, failed 0, skipped 0.\n")  # nothing left
+
+    def test_command_reports_failures_and_respects_max_attempts(self):
+        """EMAIL-28: still failing -> listed on stderr with the reason; after 5 attempts left for an admin."""
+        row = self.row(attempts=4)
+        with mock.patch("django.core.mail.message.EmailMessage.send",
+                        side_effect=BrevoError("Brevo answered 400: sender not verified", 400)):
+            out, err = self.run_command()
+        self.assertIn("failed 1", out)
+        self.assertIn("sender not verified", err)
+        row.refresh_from_db()
+        self.assertEqual(row.attempts, 5)
+        self.assertIn("0 email(s) would be tried.", self.run_command("--dry-run")[0])
+        self.assertIn("1 email(s) would be tried.", self.run_command("--dry-run", "--max-attempts", "0")[0])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_dry_run_sends_nothing(self):
+        self.row()
+        out, _ = self.run_command("--dry-run")
+        self.assertIn("booking_received booking", out)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(BookingEmail.objects.get().status, Status.FAILED)
+
+
+@override_settings(**EMAILS)
+class OutboxAdminTests(TestCase):
+    def setUp(self):
+        self.booking = make_booking()
+        self.admin = User.objects.create_superuser("root", "root@example.com", "S3cure-Booking-Pass!")
+        self.client.force_login(self.admin)
+        self.url = reverse("admin:notifications_bookingemail_changelist")
+
+    def test_list_and_booking_inline_are_read_only(self):
+        """EMAIL-29: the outbox list and the Booking page's inline show the emails; nothing is editable."""
+        row = BookingEmail.objects.create(booking=self.booking, kind=Kind.BOOKING_RECEIVED,
+                                          recipients="guest@example.com", status=Status.FAILED,
+                                          last_error="Brevo answered 401: Key not found")
+        res = self.client.get(self.url)
+        self.assertContains(res, "Key not found")
+        res = self.client.get(reverse("admin:bookings_booking_change", args=[self.booking.pk]))
+        self.assertContains(res, "Key not found")
+        res = self.client.post(reverse("admin:notifications_bookingemail_change", args=[row.pk]),
+                               {"status": "sent"})
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(self.client.get(reverse("admin:notifications_bookingemail_add")).status_code, 403)
+
+    def test_retry_action(self):
+        """EMAIL-30: "Retry sending" sends failed ones and never re-sends a sent one."""
+        failed = BookingEmail.objects.create(booking=self.booking, kind=Kind.BOOKING_RECEIVED,
+                                             recipients="guest@example.com", status=Status.FAILED, attempts=6)
+        sent = BookingEmail.objects.create(booking=self.booking, kind=Kind.ADMIN_NEW_BOOKING,
+                                           recipients="owner@example.com", status=Status.SENT, attempts=1)
+        res = self.client.post(self.url, {"action": "retry_sending", "_selected_action": [failed.pk, sent.pk]},
+                               follow=True)
+        self.assertContains(res, "Emails: 1 already sent, 1 sent.")
+        failed.refresh_from_db()
+        self.assertEqual((failed.status, failed.attempts), ("sent", 7))
+        self.assertEqual(len(mail.outbox), 1)

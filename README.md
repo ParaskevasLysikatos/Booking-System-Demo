@@ -163,7 +163,9 @@ backend/
     templates/notifications/emails/   <kind>.html (extends base.html) + <kind>.txt for the 4 emails, shared _pieces
     backends.py        BrevoEmailBackend - Django email backend for Brevo's HTTP API (stdlib only)
     checks.py          Startup warnings for the email settings (never errors)
-    tests.py           Brevo backend, settings checks and outbox tests
+    admin.py           Read-only outbox list with a "Retry sending" action + an inline on the Booking admin page
+    management/commands/send_pending_emails.py   Send pending / failed / stuck emails (--max-attempts, --dry-run)
+    tests.py           Brevo backend, settings checks, outbox, email flow and retry tests
     migrations/        0001 creates the booking emails table; 0002 adds the cancel reason
 
 frontend/
@@ -3089,9 +3091,10 @@ refund." (#76), "You weren't charged." (#70).
 ## Emails (TICKET-030)
 
 The app emails guests about their booking, and the owner about new
-bookings. **Status: steps 1-2 of 5 done** - the outbox, the settings, the
-Brevo backend and Mailpit (step 1), and the four emails with the hooks that
-send them at every booking change (step 2).
+bookings. **Status: steps 1-3 of 5 done** - the outbox, the settings, the
+Brevo backend and Mailpit (step 1), the four emails with the hooks that
+send them at every booking change (step 2), and retrying failed emails from
+the command line or Django Admin (step 3).
 
 ### Agreed design
 
@@ -3211,6 +3214,31 @@ Links use `FRONTEND_URL`. The text is rendered when the email is sent, so
 e.g. a cancellation email sent right after the cancel says the refund is
 "on its way" (it's `pending` until Stripe's webhook confirms it).
 
+### Retrying failed emails (step 3)
+
+An email that couldn't be sent stays in the outbox as `failed` (with the
+reason), or `pending` / `sending` if the server stopped at the wrong moment.
+Nothing retries on its own; two ways to send them:
+
+- **`python manage.py send_pending_emails`** (local: `docker compose exec
+  backend python manage.py send_pending_emails`) - sends every pending,
+  failed and stuck (`sending` for 10+ minutes) email, oldest first, and
+  prints `Sent 2, failed 0, skipped 1.`; each failure goes to stderr with its
+  reason. `--max-attempts N` (default 5, `0` = no limit) leaves out emails
+  that already failed N times; `--dry-run` only lists them. Safe to run any
+  time, e.g. from a cron job.
+- **Django Admin → Notifications (emails) → Booking emails** (works on
+  Render, which has no shell on the free plan): the whole outbox, filterable
+  by status / kind / cancel reason, searchable by booking id or address,
+  with the error text. Select rows → **"Retry sending the selected emails"**
+  → a summary like `Emails: 1 already sent, 1 sent.` The list is read-only
+  (no add / edit / delete - it's the record of what was sent), and each
+  **Booking** page in Django Admin shows its emails inline.
+
+Both go through the same `send_email()`: a `sent` email is never sent
+again, and one whose booking has moved on is `skipped` rather than sent out
+of date.
+
 ### Brevo backend (`notifications/backends.py`)
 
 `POST https://api.brevo.com/v3/smtp/email` with the `api-key` header and
@@ -3247,7 +3275,7 @@ To apply locally: `docker compose up -d` (pulls Mailpit, recreates the
 backend with the email settings; the backend runs the new migrations
 `notifications/0001_initial.py` and `0002_cancel_reason.py` on start).
 
-### Tests (`notifications/tests.py`, 34)
+### Tests (`notifications/tests.py`, 39)
 
 - **Step 1 (18):** Brevo payload mapping, a real request shape (`urlopen`
   mocked), 4xx vs unknown-outcome errors, no API key in error texts; the
@@ -3265,8 +3293,12 @@ backend with the email settings; the backend runs the new migrations
   sends a second "paid" event, expired / failed sessions, cancelling a paid
   booking mentions the refund, a failed "received" skipped on retry once
   the booking is paid; money/date formatting.
+- **Step 3 (5):** the command sends pending + failed, skips out-of-date,
+  leaves sent alone and reports; failures on stderr and `--max-attempts`;
+  `--dry-run`; the admin list + Booking inline are read-only and show the
+  error; the Retry action sends a failed one and not a sent one.
 
-All **248 backend tests pass** on Postgres.
+All **253 backend tests pass** on Postgres.
 
 ## Django Admin (dev-only)
 
@@ -3787,5 +3819,7 @@ tests pass. See "Refunds (TICKET-040)" and "Refunds: business rules & test
 cases". **TICKET-030 (booking emails) is in progress:** step 1 (the
 `BookingEmail` outbox, the email settings, the Brevo HTTP backend and the
 Mailpit service) and step 2 (the four emails - received, confirmed,
-cancelled, admin alert - sent at every booking change) are done; see
-"Emails". Next: the retry command and the Django Admin outbox screen.
+cancelled, admin alert - sent at every booking change) and step 3
+(`send_pending_emails` + a Retry action in Django Admin) are done; see
+"Emails". Next: config/docs, then the end-to-end runs (Mailpit locally,
+Brevo on Render).

@@ -1,5 +1,7 @@
 from django.contrib import admin
 
+from notifications.admin import BookingEmailInline
+
 from .models import Booking
 
 
@@ -10,3 +12,4 @@ class BookingAdmin(admin.ModelAdmin):
     search_fields = ("property__title", "guest__username", "guest__email")
     ordering = ("-check_in",)
     date_hierarchy = "check_in"
+    inlines = [BookingEmailInline]  # TICKET-030: the emails sent about this booking
