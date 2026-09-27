@@ -2209,6 +2209,7 @@ Stripe** proves the money moved.
 | `checkout.session.async_payment_succeeded` | `paid` | `pending` → **`confirmed`** |
 | `checkout.session.async_payment_failed` | `failed` | `pending` → **`cancelled`**, dates free again |
 | `checkout.session.expired` (the 30 minutes ran out unpaid) | `expired` | `pending` → **`cancelled`**, dates free again |
+| `refund.updated`, `refund.failed`, `charge.refunded` | refund status (TICKET-040 - see "Refund events from Stripe") | - |
 | anything else | - | - (acknowledged with `200`, ignored) |
 
 How it's made safe (`payments/views.py`, `payments/webhooks.py`):
@@ -2726,10 +2727,10 @@ partial refunds or fees.
 
 **Build steps:**
 
-1. Model + refund logic + hook into the cancel - **done** (this section).
+1. Model + refund logic + hook into the cancel - **done**.
 2. Webhook refund events (`refund.updated`, `refund.failed`,
    `charge.refunded`), the admin **Refund now** endpoint and the
-   `sync_refunds` command.
+   `sync_refunds` command - **done**.
 3. Frontend: guest texts, admin chips and the Refund now button.
 4. Docker `stripe-cli` events + Render settings + docs.
 5. Local end-to-end run → push → Render end-to-end run → done.
@@ -2761,7 +2762,8 @@ Two halves, like checkout:
 2. **`send_refund(booking_id)`** runs **after** that transaction has
    committed, with **no DB lock held** while talking to Stripe. It calls
    `client.v1.refunds.create(params={payment_intent, reason:
-   "requested_by_customer", metadata: {booking_id, payment_id}},
+   "requested_by_customer", metadata: {booking_id, payment_id,
+   refund_attempt}},
    options={"idempotency_key": "booking-<id>-refund-<attempt>"})` - no
    `amount`, so Stripe refunds the whole PaymentIntent. It stores the
    returned `re_...` id and **never raises**.
@@ -2810,12 +2812,88 @@ there's no refund:
 ```
 
 `failure_reason` is included **for admins only**; guests just see the
-status (the screens will say "the host is arranging your refund").
+status (the screens will say "the host is arranging your refund"). Admins
+also get `can_refund` (see "Refund now" below).
+
+### Refund events from Stripe (the webhook, step 2)
+
+The same webhook endpoint (`POST /api/payments/stripe/webhook/`, same
+signature check and event de-duplication) now also handles three refund
+events. They're matched to a booking by its **PaymentIntent**; a
+PaymentIntent we don't know (e.g. the other copy of the app - local and
+Render share one Stripe sandbox) is ignored.
+
+| Stripe event | What changes |
+| --- | --- |
+| `refund.updated` / `refund.failed` for **our** refund, status `succeeded` | refund → **`refunded`** (+ `refunded_at`, amount) |
+| same, status `failed` / `canceled` (can even come *after* it succeeded, e.g. a closed card) | refund → **`failed`** with Stripe's `failure_reason`, attempt **+1** (the next try is a new refund), `refunded_at` cleared |
+| same, status `pending` / `requires_action` | only stores the refund id if it wasn't stored yet |
+| `charge.refunded`, fully refunded | refund → **`refunded`**. This also catches a refund made **by hand in the Stripe Dashboard**: it's recorded (warning logged), and if the booking isn't cancelled a second warning says so - the booking itself is the host's call |
+| `charge.refunded`, partly refunded | warning logged, nothing tracked (this app only makes full refunds) |
+
+"**Our** refund" = its id is the one we stored, or - if the webhook beats
+us to storing it - its metadata carries this payment's id **and** the
+current `refund_attempt` (so a late event from an older, failed attempt
+can't settle the new one). Two ordering guards: a `charge.refunded` that
+arrives **after** Stripe already said our refund failed is ignored (events
+can arrive out of order); and a later failure of a Dashboard refund (no id
+of ours) still marks it `failed`.
+
+### "Refund now": `POST /api/bookings/{id}/refund/` (admin)
+
+Starts or retries the full refund of a **cancelled, paid** booking and
+answers with the booking (its `payment.refund` is then `pending`, or
+`failed` again with the new reason). Guests get `403`.
+
+| Refund now is… | When |
+| --- | --- |
+| allowed | cancelled + paid, and the refund **never started** (e.g. cancelled before refunds existed - the old "Refund due" bookings), **failed**, or is **pending but was never sent** (the send was interrupted) |
+| `409` `not_paid` | not paid online |
+| `409` `not_cancelled` | the booking isn't cancelled |
+| `409` `refund_in_progress` | sent to Stripe, waiting for its confirmation |
+| `409` `already_refunded` | done |
+
+It can never refund twice: a retry after "couldn't reach Stripe" repeats
+the same idempotency key, and only a refund **Stripe itself** failed moves
+to a new key. For admins, every booking's `payment` block has
+**`can_refund`** (always `false` for guests), which the admin screen uses to
+show the button.
+
+### `manage.py sync_refunds`
+
+For when something was missed (the Docker `stripe-cli` was off, the
+computer slept, Render was restarting):
+
+```bash
+docker compose exec backend python manage.py sync_refunds             # send + sync + retry failed
+docker compose exec backend python manage.py sync_refunds --no-retry  # don't retry failed ones
+docker compose exec backend python manage.py sync_refunds --backlog   # also refund old "Refund due" bookings
+```
+
+1. `pending` refunds never sent → sends them.
+2. `pending` refunds sent but not confirmed → **asks Stripe** for the
+   refund and applies its status (refunded / failed / still pending).
+3. `failed` refunds → retried like Refund now (skipped with `--no-retry`).
+4. With `--backlog`: cancelled, paid bookings with no refund yet.
+
+It prints `Sent N, synced N, retried N, backlog N; N problem(s).`, with the
+details of each problem on stderr. Safe to run any time.
+
+### Also in step 2
+
+- If sending the refund after a cancel hits an **unexpected** error, the
+  cancel still answers `200` (it's already committed); the refund stays
+  `pending` without a Stripe id and Refund now / `sync_refunds` sends it.
+- Django Admin: Payments list shows and filters by refund status; the
+  refund fields are read-only.
+
 
 ## Refunds: business rules & test cases (TICKET-040)
 
-Same format as the payment rules above. Step 1 covers REF-01 to REF-11;
-the webhook, Refund now and the screens add rules in steps 2-3.
+Same format as the payment rules above. Step 1: REF-01 to REF-12; step 2
+(webhook, Refund now, `sync_refunds`): REF-13 to REF-30; the screens add
+rules in step 3. "step 5" in the E2E column = checked by hand in the
+end-to-end runs.
 
 | ID | Rule | How to test | Expected | Auto | E2E |
 | --- | --- | --- | --- | --- | --- |
@@ -2831,6 +2909,24 @@ the webhook, Refund now and the screens add rules in steps 2-3.
 | REF-10 | Never twice: a `pending` or `refunded` refund is never requested or sent again | | one `refunds.create` in total | `test_never_refunded_twice` | |
 | REF-11 | Paid **after** being cancelled → stays cancelled, refunded automatically after the webhook commits | Cancel while a delayed payment settles | booking `cancelled`, payment `paid`, refund `pending` | `test_paid_after_cancelled_stays_cancelled_and_is_refunded` | |
 | REF-12 | Only admins see why a refund failed | GET the booking as admin / guest | admin has `failure_reason`; guest's block has no such key | `test_admin_sees_why_a_refund_failed` | |
+| REF-13 | Stripe confirms our refund (`refund.updated` succeeded) → **refunded** | `stripe-cli`, cancel a paid booking | refund `refunded`, `refunded_at` set; guest sees it | `test_refund_succeeded_marks_it_refunded` | step 5 |
+| REF-14 | `charge.refunded` also confirms it; the second event for the same refund changes nothing | | `refunded`, `refunded_at` unchanged, no Refund now | `test_charge_refunded_marks_it_refunded_and_repeats_change_nothing` | step 5 |
+| REF-15 | Refund fails **after** succeeding → `failed`, attempt +1; Refund now makes a **new** refund (`…-refund-2`) | | as described | `test_refund_failed_after_succeeding_offers_refund_now_with_a_new_key` | |
+| REF-16 | A late `charge.refunded` never undoes a reported failure | | stays `failed` | `test_late_charge_refunded_never_undoes_a_failure` | |
+| REF-17 | Event arrives before the refund id is stored → matched by metadata payment id **and** attempt | | right attempt → `refunded` + id stored; other attempt ignored | `test_event_arriving_before_the_refund_id_is_stored`, `test_pending_update_only_stores_the_id`, `test_webhook_before_send_finishes_keeps_the_id` | |
+| REF-18 | Some other refund id on the same payment isn't taken as ours | | stays `pending` | `test_refund_of_another_refund_id_is_ignored` | |
+| REF-19 | Refund made **by hand in the Stripe Dashboard** → recorded; booking left alone (warning if not cancelled); a later cancel doesn't refund again; if it fails later → `failed` | Refund from the Dashboard | refund `refunded`; logs; no second refund | `test_refund_made_in_the_stripe_dashboard_is_recorded` | step 5 |
+| REF-20 | Partial refund at Stripe → logged, not tracked | | refund `none`, warning | `test_partial_refund_is_logged_not_tracked` | |
+| REF-21 | Unknown PaymentIntent (other copy of the app) → ignored | | `200`, nothing changes | `test_unknown_payment_intent_is_ignored` | step 5 |
+| REF-22 | **Refund now** is admin-only | Guest POSTs | `403`; guests always `can_refund: false`; no login `401` | `test_guests_cannot_use_it`, `test_needs_login` | |
+| REF-23 | Refund now refuses when there's nothing to do | | `409` `not_cancelled` / `refund_in_progress` / `already_refunded` / `not_paid` | `test_refused_cases` | |
+| REF-24 | Refund now after "couldn't reach Stripe" → same key; `can_refund` goes false | Admin → Refund now | `200`, refund `pending` | `test_retry_after_a_failure` | step 5 |
+| REF-25 | Refund now failing again → `200` with the new reason, still offered | | refund `failed` + reason | `test_failing_again_answers_with_the_new_reason` | |
+| REF-26 | Old "Refund due" bookings (cancelled before refunds existed) can be refunded | Admin → Refund now on one | `200`, `pending` | `test_booking_cancelled_before_refunds_existed` | step 5 (Render #38) |
+| REF-27 | Unexpected error while sending → the cancel still `200`; `pending` with no id; Refund now / `sync_refunds` sends it | | as described | `test_pending_but_never_sent_can_be_sent`, `test_never_sent_is_sent` | |
+| REF-28 | `sync_refunds` asks Stripe about a sent-but-unconfirmed refund | Stop `stripe-cli`, cancel a paid booking, start it, run the command | "synced 1", `refunded` | `test_missed_webhook_is_synced_from_stripe`, `test_still_pending_at_stripe_changes_nothing`, `test_failed_at_stripe_when_synced` | step 5 |
+| REF-29 | `sync_refunds` retries failed refunds (not with `--no-retry`) and reports problems | | "retried 1" / "1 problem(s)" | `test_failed_are_retried_unless_no_retry`, `test_retry_that_fails_again_is_reported`, `test_stripe_unreachable_while_syncing` | |
+| REF-30 | `sync_refunds --backlog` refunds old "Refund due" bookings; without the flag they're left alone | | "backlog 1" | `test_backlog_only_with_the_flag` | |
 
 ## Django Admin (dev-only)
 
@@ -3338,7 +3434,8 @@ the `stripe-cli` forwarder in Docker and the Render setup - all tested end
 to end locally and on Render; see "Payments (Stripe)", "Payments: business
 rules & test cases" and "End-to-end results". **TICKET-040 (automatic
 refunds) is in progress:** step 1 (refund fields, the refund service, full
-refund on every paid cancellation, never blocking the cancel) is done -
-185 backend tests pass on Postgres; see "Refunds (TICKET-040)". Next:
-the refund webhook events, Refund now and the screens, then TICKET-030
-(booking-confirmation email).
+refund on every paid cancellation, never blocking the cancel) and step 2
+(refund webhook events, admin Refund now endpoint, `sync_refunds`) are
+done - 212 backend tests pass on Postgres; see "Refunds (TICKET-040)".
+Next: the screens, the Docker/Render settings and the end-to-end runs,
+then TICKET-030 (booking-confirmation email).

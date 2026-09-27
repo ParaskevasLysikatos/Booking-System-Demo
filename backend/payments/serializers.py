@@ -3,6 +3,7 @@ from rest_framework import serializers
 from bookings.models import Booking
 
 from .models import Payment
+from .refunds import can_refund_now
 from .stripe_client import payments_enabled
 
 
@@ -40,6 +41,9 @@ def payment_summary(booking, request=None, is_admin=False):
         "expires_at": serializers.DateTimeField().to_representation(payment.expires_at),
         "paid_at": serializers.DateTimeField().to_representation(payment.paid_at) if payment.paid_at else None,
         "refund": refund_summary(payment, is_admin),  # TICKET-040; null = no refund
+        # Admins only: whether "Refund now" is offered (cancelled + paid, and
+        # the refund never started, failed, or was never sent).
+        "can_refund": bool(is_admin and can_refund_now(booking, payment)),
         # Whether *the caller* can pay right now - only the booking's own guest,
         # while the booking is pending and the hold hasn't run out.
         "can_pay": bool(

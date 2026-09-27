@@ -14,6 +14,14 @@ Stripe proves the money moved.
     checkout.session.expired                         -> payment expired, booking cancelled
                                                         (the dates are free again)
 
+Refunds (TICKET-040, handled in payments/refunds.py, matched by PaymentIntent):
+
+    refund.updated / refund.failed                   -> our refund succeeded -> refunded,
+                                                        failed / canceled -> refund failed
+    charge.refunded                                  -> fully refunded -> refunded (also
+                                                        catches refunds made by hand in
+                                                        the Stripe Dashboard)
+
 apply_session_state() does the same from a session *fetched* from Stripe, for
 when an event may have been missed (see payments/services.py).
 
@@ -29,19 +37,23 @@ from django.utils import timezone
 from bookings.models import Booking
 
 from .models import Payment
-from .refunds import refund_after_commit, request_refund
+from .refunds import REFUND_EVENTS, handle_refund_event, refund_after_commit, request_refund
 
 logger = logging.getLogger(__name__)
 
-HANDLED_EVENTS = {
+SESSION_EVENTS = {
     "checkout.session.completed",
     "checkout.session.async_payment_succeeded",
     "checkout.session.async_payment_failed",
     "checkout.session.expired",
 }
+HANDLED_EVENTS = SESSION_EVENTS | REFUND_EVENTS
 
 
 def handle_event(event):
+    if event["type"] in REFUND_EVENTS:
+        handle_refund_event(event)
+        return
     session = event["data"]["object"]
     found = lock_for_session(session.get("id"))
     if found is None:

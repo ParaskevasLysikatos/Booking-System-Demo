@@ -15,7 +15,7 @@ from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 from listings.models import PropertyImage
 from payments.models import Payment
-from payments.refunds import request_refund, send_refund
+from payments.refunds import RefundNotAllowed, refund_now, request_refund, send_refund_after_cancel
 from payments.services import (
     CheckoutError,
     close_checkout_for_status_change,
@@ -97,6 +97,8 @@ class BookingViewSet(
     - POST            - any logged-in user books for themselves.
     - POST {id}/checkout/ - the booking's own guest gets the Stripe
                         Checkout page to pay (TICKET-029).
+    - POST {id}/refund/ - admin "Refund now": start or retry the full
+                        refund of a cancelled, paid booking (TICKET-040).
     - PATCH           - status only: guest may cancel their own booking
                         until 48h before check-in (15:00 local on the
                         check-in date); admin: pending->confirmed/cancelled,
@@ -230,6 +232,22 @@ class BookingViewSet(
             "expires_at": serializers.DateTimeField().to_representation(payment.expires_at),
         })
 
+    @action(detail=True, methods=["post"])
+    def refund(self, request, pk=None):
+        """POST /api/bookings/{id}/refund/ - admin "Refund now" (TICKET-040):
+        start or retry the full refund of a cancelled, paid booking. Answers
+        with the booking; its payment.refund is then `pending`, or `failed`
+        again with the new reason. 409 with a `code` when there's nothing to
+        do (not_paid / not_cancelled / already_refunded / refund_in_progress)."""
+        if not self._is_admin():
+            return Response({"detail": "Only admins can refund bookings."}, status=status.HTTP_403_FORBIDDEN)
+        booking = get_object_or_404(self.get_queryset(), pk=pk)
+        try:
+            refund_now(booking.pk)
+        except RefundNotAllowed as exc:
+            return Response({"detail": exc.detail, "code": exc.code}, status=status.HTTP_409_CONFLICT)
+        return self._respond(booking, status.HTTP_200_OK)
+
     def partial_update(self, request, *args, **kwargs):
         body = BookingStatusSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -277,7 +295,7 @@ class BookingViewSet(
                 new_status == Booking.Status.CANCELLED and payment is not None and request_refund(payment)
             )
         if refund_needed:
-            send_refund(booking.pk)  # never raises; a failure is shown as "Refund failed"
+            send_refund_after_cancel(booking.pk)  # never raises; a failure shows as "Refund failed"
         return self._respond(booking, status.HTTP_200_OK)
 
     def _check_transition(self, booking, new_status):

@@ -902,8 +902,7 @@ class PaymentsConfigTests(APITestCase):
 from payments import refunds as refund_service  # noqa: E402
 
 
-@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
-class RefundOnCancelTests(WebhookFixtures, APITestCase):
+class PaidBookingFixtures(WebhookFixtures):
     """setUp: self.booking is paid and confirmed (PaymentIntent pi_test_123)."""
 
     def setUp(self):
@@ -919,6 +918,17 @@ class RefundOnCancelTests(WebhookFixtures, APITestCase):
     def payment(self):
         return Payment.objects.get(booking=self.booking)
 
+    def refund_now(self, user=None, booking=None):
+        self.client.force_authenticate(user or self.admin)
+        return self.client.post(reverse("booking-refund", args=[(booking or self.booking).pk]))
+
+    def admin_view(self):
+        self.client.force_authenticate(self.admin)
+        return self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class RefundOnCancelTests(PaidBookingFixtures, APITestCase):
     def test_guest_cancel_refunds_the_full_amount(self):
         res = self.cancel()
         self.assertEqual(res.status_code, 200, res.data)
@@ -929,7 +939,8 @@ class RefundOnCancelTests(WebhookFixtures, APITestCase):
         self.assertIsNotNone(payment.refund_requested_at)
         self.refunds.create.assert_called_once_with(
             params={"payment_intent": "pi_test_123", "reason": "requested_by_customer",
-                    "metadata": {"booking_id": str(self.booking.pk), "payment_id": str(payment.pk)}},
+                    "metadata": {"booking_id": str(self.booking.pk), "payment_id": str(payment.pk),
+                                 "refund_attempt": "1"}},
             options={"idempotency_key": f"booking-{self.booking.pk}-refund-1"},
         )
         refund = res.data["payment"]["refund"]
@@ -1037,3 +1048,298 @@ class RefundOnCancelTests(WebhookFixtures, APITestCase):
         self.client.force_authenticate(self.guest)
         refund = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["refund"]
         self.assertNotIn("failure_reason", refund)
+
+
+# --------------------------------------------------------------------------
+# TICKET-040 step 2: refund webhook events, "Refund now", sync_refunds
+# --------------------------------------------------------------------------
+
+from io import StringIO  # noqa: E402
+
+from django.core.management import call_command  # noqa: E402
+
+
+def refund_event(event_type, refund_id="re_test_1", status="succeeded", event_id=None, **fields):
+    refund = {"id": refund_id, "object": "refund", "amount": 24015, "currency": "eur",
+              "payment_intent": "pi_test_123", "status": status, "metadata": {}}
+    refund.update(fields)
+    return {
+        "id": event_id or f"evt_{event_type.replace('.', '_')}_{refund_id}_{status}",
+        "object": "event", "type": event_type, "api_version": "2026-08-26.dahlia",
+        "data": {"object": refund},
+    }
+
+
+def charge_refunded_event(refunded=True, amount_refunded=24015, event_id=None, **fields):
+    charge = {"id": "ch_test_1", "object": "charge", "amount": 24015, "currency": "eur",
+              "payment_intent": "pi_test_123", "refunded": refunded, "amount_refunded": amount_refunded}
+    charge.update(fields)
+    return {
+        "id": event_id or f"evt_charge_refunded_{amount_refunded}",
+        "object": "event", "type": "charge.refunded", "api_version": "2026-08-26.dahlia",
+        "data": {"object": charge},
+    }
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class RefundWebhookTests(PaidBookingFixtures, APITestCase):
+    def test_refund_succeeded_marks_it_refunded(self):
+        self.cancel()
+        res = self.deliver(refund_event("refund.updated"))
+        self.assertEqual(res.json(), {"received": True, "handled": True})
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_amount), ("refunded", Decimal("240.15")))
+        self.assertIsNotNone(payment.refunded_at)
+        self.assertEqual(self.state(), ("cancelled", "paid"))
+        self.client.force_authenticate(self.guest)
+        refund = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["refund"]
+        self.assertEqual(refund["status"], "refunded")
+        self.assertIsNotNone(refund["refunded_at"])
+
+    def test_charge_refunded_marks_it_refunded_and_repeats_change_nothing(self):
+        self.cancel()
+        self.deliver(charge_refunded_event())
+        payment = self.payment()
+        self.assertEqual(payment.refund_status, "refunded")
+        refunded_at = payment.refunded_at
+        self.deliver(refund_event("refund.updated"))  # the other event for the same refund
+        self.assertEqual(self.payment().refunded_at, refunded_at)
+        self.assertFalse(self.admin_view()["can_refund"])
+
+    def test_refund_failed_after_succeeding_offers_refund_now_with_a_new_key(self):
+        self.cancel()
+        self.deliver(charge_refunded_event())
+        self.deliver(refund_event("refund.failed", status="failed", failure_reason="expired_or_canceled_card"))
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_attempt, payment.refund_failure_reason),
+                         ("failed", 2, "expired_or_canceled_card"))
+        self.assertIsNone(payment.refunded_at)
+        view = self.admin_view()
+        self.assertTrue(view["can_refund"])
+        self.assertEqual(view["refund"]["failure_reason"], "expired_or_canceled_card")
+        self.refunds.create.return_value = fake_refund("re_test_2")
+        self.assertEqual(self.refund_now().status_code, 200)
+        self.assertEqual(self.refunds.create.call_args.kwargs["options"],
+                         {"idempotency_key": f"booking-{self.booking.pk}-refund-2"})
+        self.assertEqual((self.payment().refund_status, self.payment().stripe_refund_id), ("pending", "re_test_2"))
+
+    def test_late_charge_refunded_never_undoes_a_failure(self):
+        self.cancel()
+        self.deliver(refund_event("refund.failed", status="failed", failure_reason="lost_or_stolen_card"))
+        self.deliver(charge_refunded_event())  # older event, delivered late
+        self.assertEqual(self.payment().refund_status, "failed")
+
+    def test_event_arriving_before_the_refund_id_is_stored(self):
+        self.cancel()
+        payment = self.payment()
+        Payment.objects.filter(pk=payment.pk).update(stripe_refund_id="")
+        other_attempt = {"payment_id": str(payment.pk), "refund_attempt": "7"}
+        self.deliver(refund_event("refund.updated", refund_id="re_old", metadata=other_attempt))
+        self.assertEqual(self.payment().refund_status, "pending")  # not this attempt's refund
+        ours = {"payment_id": str(payment.pk), "refund_attempt": "1"}
+        self.deliver(refund_event("refund.updated", metadata=ours))
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.stripe_refund_id), ("refunded", "re_test_1"))
+
+    def test_refund_of_another_refund_id_is_ignored(self):
+        self.cancel()
+        self.deliver(refund_event("refund.updated", refund_id="re_someone_else"))
+        self.assertEqual(self.payment().refund_status, "pending")
+
+    def test_refund_made_in_the_stripe_dashboard_is_recorded(self):
+        # Booking still confirmed; the host refunded it by hand in Stripe.
+        with self.assertLogs("payments.refunds", "WARNING") as logs:
+            self.deliver(charge_refunded_event())
+        self.assertIn("outside the app", logs.output[0])
+        self.assertIn("still confirmed", logs.output[1])
+        payment = self.payment()
+        self.assertEqual(payment.refund_status, "refunded")
+        self.assertIsNotNone(payment.refund_requested_at)
+        self.assertEqual(self.state(), ("confirmed", "paid"))  # the booking is the host's call
+        self.cancel(self.admin)
+        self.refunds.create.assert_not_called()  # cancelling later never refunds twice
+        # ...and if that manual refund fails afterwards, it shows as failed
+        self.deliver(refund_event("refund.failed", refund_id="re_dashboard", status="failed"))
+        self.assertEqual(self.payment().refund_status, "failed")
+
+    def test_partial_refund_is_logged_not_tracked(self):
+        with self.assertLogs("payments.refunds", "WARNING") as logs:
+            self.deliver(charge_refunded_event(refunded=False, amount_refunded=5000))
+        self.assertIn("partial refund", logs.output[0])
+        self.assertEqual(self.payment().refund_status, "none")
+
+    def test_unknown_payment_intent_is_ignored(self):
+        self.cancel()
+        res = self.deliver(refund_event("refund.updated", payment_intent="pi_other_app"))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.payment().refund_status, "pending")
+
+    def test_pending_update_only_stores_the_id(self):
+        self.cancel()
+        Payment.objects.filter(booking=self.booking).update(stripe_refund_id="")
+        meta = {"payment_id": str(self.payment().pk), "refund_attempt": "1"}
+        self.deliver(refund_event("refund.updated", status="pending", metadata=meta))
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.stripe_refund_id), ("pending", "re_test_1"))
+
+    def test_webhook_before_send_finishes_keeps_the_id(self):
+        # charge.refunded lands between Stripe creating the refund and us storing its id
+        def create_and_webhook(**kwargs):
+            self.deliver(charge_refunded_event())
+            return fake_refund(status="succeeded")
+
+        self.refunds.create.side_effect = create_and_webhook
+        self.cancel()
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.stripe_refund_id), ("refunded", "re_test_1"))
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class RefundNowEndpointTests(PaidBookingFixtures, APITestCase):
+    def test_guests_cannot_use_it(self):
+        self.cancel()
+        res = self.refund_now(user=self.guest)
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["can_refund"])
+
+    def test_needs_login(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.post(reverse("booking-refund", args=[self.booking.pk])).status_code, 401)
+
+    def test_refused_cases(self):
+        res = self.refund_now()  # still confirmed
+        self.assertEqual((res.status_code, res.data["code"]), (409, "not_cancelled"))
+        self.cancel()
+        res = self.refund_now()  # already sent
+        self.assertEqual((res.status_code, res.data["code"]), (409, "refund_in_progress"))
+        self.deliver(charge_refunded_event())
+        res = self.refund_now()
+        self.assertEqual((res.status_code, res.data["code"]), (409, "already_refunded"))
+        other, _ = self.book_via_api(20, 22)
+        self.client.force_authenticate(self.guest)
+        self.client.patch(reverse("booking-detail", args=[other.pk]), {"status": "cancelled"}, format="json")
+        res = self.refund_now(booking=other)
+        self.assertEqual((res.status_code, res.data["code"]), (409, "not_paid"))
+        self.refunds.create.assert_called_once()  # only the cancel's own refund
+
+    def test_retry_after_a_failure(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        self.assertTrue(self.admin_view()["can_refund"])
+        self.refunds.create.side_effect = None
+        res = self.refund_now()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["payment"]["refund"]["status"], "pending")
+        self.assertFalse(res.data["payment"]["can_refund"])
+        keys = [c.kwargs["options"]["idempotency_key"] for c in self.refunds.create.call_args_list]
+        self.assertEqual(keys, [f"booking-{self.booking.pk}-refund-1"] * 2)
+
+    def test_failing_again_answers_with_the_new_reason(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        self.refunds.create.side_effect = stripe.PermissionError("no")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            res = self.refund_now()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["payment"]["refund"]["status"], "failed")
+        self.assertIn("Charges and Refunds: Write", res.data["payment"]["refund"]["failure_reason"])
+        self.assertTrue(res.data["payment"]["can_refund"])
+
+    def test_booking_cancelled_before_refunds_existed(self):
+        Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.CANCELLED)  # no refund started
+        self.assertTrue(self.admin_view()["can_refund"])
+        res = self.refund_now()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.payment().refund_status, "pending")
+        self.refunds.create.assert_called_once()
+
+    def test_pending_but_never_sent_can_be_sent(self):
+        self.refunds.create.side_effect = RuntimeError("process died")  # the send never finished
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.assertEqual(self.cancel().status_code, 200)  # the cancel itself still succeeds
+        self.refunds.create.side_effect = None
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.stripe_refund_id), ("pending", ""))
+        self.assertTrue(self.admin_view()["can_refund"])
+        self.assertEqual(self.refund_now().status_code, 200)
+        self.assertEqual(self.payment().stripe_refund_id, "re_test_1")
+
+    def test_unknown_booking_404(self):
+        self.assertEqual(self.refund_now(booking=Booking(pk=99999)).status_code, 404)
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class SyncRefundsCommandTests(PaidBookingFixtures, APITestCase):
+    def run_command(self, *args):
+        out, err = StringIO(), StringIO()
+        call_command("sync_refunds", *args, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    def test_missed_webhook_is_synced_from_stripe(self):
+        self.cancel()
+        self.refunds.retrieve.return_value = fake_refund(status="succeeded")
+        out, _ = self.run_command()
+        self.refunds.retrieve.assert_called_once_with("re_test_1")
+        self.assertIn("synced 1", out)
+        self.assertEqual(self.payment().refund_status, "refunded")
+
+    def test_still_pending_at_stripe_changes_nothing(self):
+        self.cancel()
+        self.refunds.retrieve.return_value = fake_refund(status="pending")
+        out, _ = self.run_command()
+        self.assertIn("synced 0", out)
+        self.assertEqual(self.payment().refund_status, "pending")
+
+    def test_failed_at_stripe_when_synced(self):
+        self.cancel()
+        self.refunds.retrieve.return_value = fake_refund(status="failed", failure_reason="declined")
+        self.run_command("--no-retry")
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_attempt), ("failed", 2))
+
+    def test_never_sent_is_sent(self):
+        self.refunds.create.side_effect = RuntimeError("process died")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.assertEqual(self.cancel().status_code, 200)  # the cancel itself still succeeds
+        self.refunds.create.side_effect = None
+        out, _ = self.run_command()
+        self.assertIn("Sent 1", out)
+        self.assertEqual(self.payment().stripe_refund_id, "re_test_1")
+
+    def test_failed_are_retried_unless_no_retry(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        self.refunds.create.side_effect = None
+        out, _ = self.run_command("--no-retry")
+        self.assertIn("retried 0", out)
+        self.assertEqual(self.payment().refund_status, "failed")
+        out, _ = self.run_command()
+        self.assertIn("retried 1", out)
+        self.assertEqual(self.payment().refund_status, "pending")
+
+    def test_retry_that_fails_again_is_reported(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+            out, err = self.run_command()
+        self.assertIn("1 problem(s)", out)
+        self.assertIn("Couldn't reach Stripe", err)
+
+    def test_backlog_only_with_the_flag(self):
+        Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.CANCELLED)
+        out, _ = self.run_command()
+        self.assertIn("backlog 0", out)
+        self.refunds.create.assert_not_called()
+        out, _ = self.run_command("--backlog")
+        self.assertIn("backlog 1", out)
+        self.assertEqual(self.payment().refund_status, "pending")
+
+    def test_stripe_unreachable_while_syncing(self):
+        self.cancel()
+        self.refunds.retrieve.side_effect = stripe.APIConnectionError("down")
+        out, err = self.run_command()
+        self.assertIn("1 problem(s)", out)
+        self.assertIn("couldn't ask Stripe", err)
