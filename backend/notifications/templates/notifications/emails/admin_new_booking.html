@@ -1,0 +1,17 @@
+{% extends "notifications/emails/base.html" %}
+{% block title %}New booking {{ ref }}{% endblock %}
+{% block preheader %}{{ guest_email }} booked {{ property_title }}, {{ dates }} - {{ total }}.{% endblock %}
+{% block badge %}<div style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:10px;">New booking</div>{% endblock %}
+{% block heading %}{{ property_title }} is booked for {{ dates }}{% endblock %}
+{% block intro %}
+  <p style="margin:0 0 8px;">Booking {{ ref }} was confirmed.</p>
+{% endblock %}
+{% block details %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+    <tr><td style="padding:3px 0;color:#6b7280;">Guest</td><td align="right" style="padding:3px 0;">{{ guest_email }}</td></tr>
+    <tr><td style="padding:3px 0;color:#6b7280;">Payment</td><td align="right" style="padding:3px 0;">{% include "notifications/emails/_admin_payment.txt" %}</td></tr>
+    <tr><td style="padding:3px 0;color:#6b7280;">Booked on</td><td align="right" style="padding:3px 0;">{{ created_at }}</td></tr>
+  </table>
+{% endblock %}
+{% block cta %}{% include "notifications/emails/_button.html" with href=links.admin_bookings label="Open admin bookings" %}{% endblock %}
+{% block footer %}You're getting this because your address is in BOOKING_ALERT_EMAILS.{% endblock %}

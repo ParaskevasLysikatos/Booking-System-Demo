@@ -1,0 +1,8 @@
+{% autoescape off %}Booking {{ ref }} is cancelled
+
+Hi {{ guest_name }}, {% include "notifications/emails/_cancel_reason.txt" %}
+
+{% include "notifications/emails/_refund.txt" %}
+{% include "notifications/emails/_stay.txt" %}
+{% if reason == "payment_expired" or reason == "payment_failed" %}Book again: {{ links.property }}{% else %}Browse stays: {{ links.listings }}{% endif %}
+{% include "notifications/emails/_footer.txt" %}{% endautoescape %}

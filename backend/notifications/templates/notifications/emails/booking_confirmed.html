@@ -1,0 +1,20 @@
+{% extends "notifications/emails/base.html" %}
+{% block title %}Booking {{ ref }} confirmed{% endblock %}
+{% block preheader %}You're all set for {{ property_title }}, {{ dates }}.{% endblock %}
+{% block badge %}<div style="display:inline-block;background:#dcfce7;color:#166534;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:10px;">Confirmed</div>{% endblock %}
+{% block heading %}You're all set, {{ guest_name }}!{% endblock %}
+{% block intro %}
+  <p style="margin:0 0 8px;">Your booking at <strong>{{ property_title }}</strong> is <strong>confirmed</strong>.
+  {% if payment.state == "paid" %}We've received your payment of {{ payment.amount }} - thank you.{% endif %}</p>
+{% endblock %}
+{% block details %}
+  <p style="margin:0 0 8px;"><strong>Arriving:</strong> check-in is from {{ check_in_time }} on {{ check_in }}.</p>
+  {% if can_cancel_online %}
+  <p style="margin:0;"><strong>Change of plans?</strong> You can cancel from My bookings until {{ cancel_deadline }}
+  ({{ cancellation_hours }} hours before check-in){% if payment.state == "paid" %} and get a full refund of {{ payment.amount }}{% endif %}.
+  After that, please contact the host.</p>
+  {% else %}
+  <p style="margin:0;">Online cancellation has closed for this stay - please contact the host if your plans change.</p>
+  {% endif %}
+{% endblock %}
+{% block cta %}{% include "notifications/emails/_button.html" with href=links.my_bookings label="View my bookings" %}{% endblock %}

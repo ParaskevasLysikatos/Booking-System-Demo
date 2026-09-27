@@ -1,0 +1,11 @@
+{% extends "notifications/emails/base.html" %}
+{% block title %}Booking {{ ref }} cancelled{% endblock %}
+{% block preheader %}{% include "notifications/emails/_refund.txt" %}{% endblock %}
+{% block badge %}<div style="display:inline-block;background:#fee2e2;color:#991b1b;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:10px;">Cancelled</div>{% endblock %}
+{% block heading %}Booking {{ ref }} is cancelled{% endblock %}
+{% block intro %}
+  <p style="margin:0 0 8px;">Hi {{ guest_name }}, {% include "notifications/emails/_cancel_reason.txt" %}</p>
+  <p style="margin:0 0 8px;"><strong>{% include "notifications/emails/_refund.txt" %}</strong></p>
+{% endblock %}
+{% block details %}{% if reason != "guest" %}<p style="margin:0;">The stay might still be free on other dates - or have a look at similar places.</p>{% endif %}{% endblock %}
+{% block cta %}{% if reason == "payment_expired" or reason == "payment_failed" %}{% include "notifications/emails/_button.html" with href=links.property label="Book again" %}{% else %}{% include "notifications/emails/_button.html" with href=links.listings label="Browse stays" %}{% endif %}{% endblock %}

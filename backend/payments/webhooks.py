@@ -35,6 +35,7 @@ import logging
 from django.utils import timezone
 
 from bookings.models import Booking
+from notifications.outbox import booking_cancelled, booking_confirmed, reason_for_payment_status
 
 from .models import Payment
 from .refunds import REFUND_EVENTS, handle_refund_event, refund_after_commit, request_refund
@@ -135,6 +136,7 @@ def _paid(booking, payment, session):
     if booking.status == Booking.Status.PENDING:
         booking.status = Booking.Status.CONFIRMED
         booking.save(update_fields=["status"])
+        booking_confirmed(booking)  # TICKET-030: emails, sent after commit
     elif booking.status == Booking.Status.CANCELLED:
         # Paid for a booking that was cancelled meanwhile (e.g. while a
         # delayed payment was processing). The booking stays cancelled and
@@ -165,3 +167,4 @@ def _release(booking, payment, new_status):
     if booking.status == Booking.Status.PENDING:
         booking.status = Booking.Status.CANCELLED
         booking.save(update_fields=["status"])
+        booking_cancelled(booking, reason_for_payment_status(new_status))  # TICKET-030

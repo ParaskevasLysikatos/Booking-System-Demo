@@ -1,0 +1,13 @@
+{% autoescape off %}New booking {{ ref }}: {{ property_title }}, {{ dates }}
+
+Booking {{ ref }} was confirmed.
+
+Guest:     {{ guest_email }}
+Payment:   {% include "notifications/emails/_admin_payment.txt" %}
+Booked on: {{ created_at }}
+{% include "notifications/emails/_stay.txt" %}
+Admin bookings: {{ links.admin_bookings }}
+
+--
+You're getting this because your address is in BOOKING_ALERT_EMAILS.
+{% endautoescape %}

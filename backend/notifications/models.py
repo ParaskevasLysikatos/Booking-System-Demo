@@ -42,7 +42,16 @@ class BookingEmail(models.Model):
         on_delete=models.CASCADE,
         related_name="emails",
     )
+    class Reason(models.TextChoices):
+        # Why a booking was cancelled - picks the wording of the email.
+        NONE = "", "-"
+        GUEST = "guest", "Cancelled by the guest"
+        HOST = "host", "Cancelled by the host"
+        PAYMENT_EXPIRED = "payment_expired", "Payment time ran out"
+        PAYMENT_FAILED = "payment_failed", "Payment failed"
+
     kind = models.CharField(max_length=32, choices=Kind.choices)
+    reason = models.CharField(max_length=20, choices=Reason.choices, blank=True, default="")
     # Comma-separated, fixed when the row is created (the guest's email, or
     # BOOKING_ALERT_EMAILS for the admin alert).
     recipients = models.TextField()

@@ -159,11 +159,12 @@ backend/
   notifications/       Booking emails (TICKET-030) - see "Emails"
     models.py          BookingEmail - the outbox: one row per (booking, kind), status pending/sending/sent/failed/skipped
     outbox.py          enqueue() inside the booking's transaction; send_email() after commit (claim -> send -> record)
-    messages.py        Builds each email (subject, text + HTML) for a row
+    messages.py        Builds each email (subject, text + HTML) for a row: email_context(), money/date formatting
+    templates/notifications/emails/   <kind>.html (extends base.html) + <kind>.txt for the 4 emails, shared _pieces
     backends.py        BrevoEmailBackend - Django email backend for Brevo's HTTP API (stdlib only)
     checks.py          Startup warnings for the email settings (never errors)
     tests.py           Brevo backend, settings checks and outbox tests
-    migrations/        0001 creates the booking emails table
+    migrations/        0001 creates the booking emails table; 0002 adds the cancel reason
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -3088,9 +3089,9 @@ refund." (#76), "You weren't charged." (#70).
 ## Emails (TICKET-030)
 
 The app emails guests about their booking, and the owner about new
-bookings. **Status: step 1 of 5 done** (the outbox, the settings, the Brevo
-backend and Mailpit); the real email texts and the hooks that send them
-arrive in step 2.
+bookings. **Status: steps 1-2 of 5 done** - the outbox, the settings, the
+Brevo backend and Mailpit (step 1), and the four emails with the hooks that
+send them at every booking change (step 2).
 
 ### Agreed design
 
@@ -3167,6 +3168,49 @@ pending/failed ──booking moved on──▶ skipped
   booking-<id>-<kind>` header; Brevo doesn't document de-duplicating on it,
   so the outbox is the real guard.)
 
+### When each email is recorded (step 2)
+
+Every place that changes a booking's status records its email **in the same
+transaction** (`notifications/outbox.py`: `booking_received`,
+`booking_confirmed` = guest confirmation + owner alert, `booking_cancelled`):
+
+| Where | Change | Email(s) | Cancel reason |
+| --- | --- | --- | --- |
+| `POST /api/bookings/` (`bookings/views.py:create`) | new booking (pending) | `booking_received` | - |
+| `PATCH /api/bookings/{id}/` (`partial_update`) | admin Confirm | `booking_confirmed` + `admin_new_booking` | - |
+| `PATCH /api/bookings/{id}/` | cancel | `booking_cancelled` | `guest` if the booking's own guest cancelled, else `host` |
+| Stripe webhook (`payments/webhooks.py:_paid`) - also a stale hold that turns out paid | payment arrived → confirmed | `booking_confirmed` + `admin_new_booking` | - |
+| Stripe webhook (`_release`) | session expired / delayed payment failed → cancelled | `booking_cancelled` | `payment_expired` / `payment_failed` |
+| Stale hold with no session (`payments/services.py:_release_unpaid`) | hold ran out → cancelled | `booking_cancelled` | `payment_expired` |
+
+Bookings created outside the API (the seed script, Django Admin) send
+nothing. A change that is refused (400/409) or rolled back sends nothing.
+The reason is stored on the row (`BookingEmail.reason`, migration
+`notifications/0002_cancel_reason.py`) because it can't be worked out later.
+
+### What the emails say (`notifications/messages.py` + templates)
+
+Templates live in `notifications/templates/notifications/emails/`: one
+`<kind>.html` (extends `base.html`: a 560px table layout with inline styles
+that Gmail and Outlook keep, the property's cover photo, a stay summary and
+one blue button) and one `<kind>.txt` (the plain-text version), plus small
+shared pieces (`_stay.txt`, `_refund.txt`, `_cancel_reason.txt`, ...).
+Property titles etc. are HTML-escaped in the HTML version. Money and dates
+are formatted like the Angular app: `€240` / `€95.50`, `Wed 10 Mar 2027`,
+times in Athens time.
+
+| Email | Subject | Says | Button |
+| --- | --- | --- | --- |
+| received, payments on | `Complete your payment - booking #42, Sea View Loft` | dates held until 18:42 (30 minutes), pay €X to confirm, free cancellation until the deadline with a full refund once paid | **Pay now** → `/bookings/42/payment` (the app's payment page with the countdown) |
+| received, payments off | `Booking #42 received - Sea View Loft, 10–13 Mar` | pending until the host confirms, nothing charged | View my bookings |
+| confirmed | `Booking #42 confirmed - Sea View Loft, 10–13 Mar` | "You're all set", payment received (if paid online), check-in from 15:00, cancel online until the 48h deadline (+ full refund if paid) or "online cancellation has closed" | View my bookings |
+| cancelled | `Booking #42 cancelled - Sea View Loft, 10–13 Mar` | why (as you requested / the host cancelled / payment time ran out / payment didn't go through) and the money: "A full refund of €X is on its way - back on your card within 5-10 business days", "We've refunded the full €X", "the host is arranging it" (refund failed - never the technical reason) or "Nothing was charged." | Browse stays, or **Book again** (the property) after a payment problem |
+| admin alert | `New booking #42: Sea View Loft, 10–13 Mar (€240)` | guest email, payment (paid online €X / confirmed by hand - no online payment / payments off), booked on, the stay | Open admin bookings |
+
+Links use `FRONTEND_URL`. The text is rendered when the email is sent, so
+e.g. a cancellation email sent right after the cancel says the refund is
+"on its way" (it's `pending` until Stripe's webhook confirms it).
+
 ### Brevo backend (`notifications/backends.py`)
 
 `POST https://api.brevo.com/v3/smtp/email` with the `api-key` header and
@@ -3199,19 +3243,30 @@ outbox.
 text versions, headers). Nothing reaches a real inbox. The emails are gone
 when the container is recreated.
 
-To apply step 1 locally: `docker compose up -d` (pulls Mailpit, recreates
-the backend with the email settings; the backend runs the new migration
-`notifications/0001_initial.py` on start).
+To apply locally: `docker compose up -d` (pulls Mailpit, recreates the
+backend with the email settings; the backend runs the new migrations
+`notifications/0001_initial.py` and `0002_cancel_reason.py` on start).
 
-### Tests (`notifications/tests.py`, 18)
+### Tests (`notifications/tests.py`, 34)
 
-Brevo payload mapping, a real request shape (`urlopen` mocked), 4xx vs
-unknown-outcome errors, no API key in error texts; the settings checks;
-and the outbox: sent only after commit, nothing on rollback, one per
-(booking, kind) incl. the DB constraint, no recipient → no row, the admin
-list, a failure recorded then retried, an out-of-date email skipped, a row
-being sent left alone until stale, and the retry list. All **232 backend
-tests pass** on Postgres.
+- **Step 1 (18):** Brevo payload mapping, a real request shape (`urlopen`
+  mocked), 4xx vs unknown-outcome errors, no API key in error texts; the
+  settings checks; and the outbox: sent only after commit, nothing on
+  rollback, one per (booking, kind) incl. the DB constraint, no recipient →
+  no row, the admin list, a failure recorded then retried, an out-of-date
+  email skipped, a row being sent left alone until stale, and the retry list.
+- **Step 2 (16):** through the real API and signed webhooks - booking →
+  received (payments off / on with Pay now and the hold time), admin confirm
+  → confirmed + alert, guest cancel ("as you requested"), admin cancel ("the
+  host"), a refused change sends nothing, a broken provider still gives 201,
+  seeded bookings send nothing, HTML escaping, a stale hold released by the
+  next booking ("we didn't receive your payment"), the payment webhook →
+  confirmed + alert **exactly once** even when Stripe repeats the event or
+  sends a second "paid" event, expired / failed sessions, cancelling a paid
+  booking mentions the refund, a failed "received" skipped on retry once
+  the booking is paid; money/date formatting.
+
+All **248 backend tests pass** on Postgres.
 
 ## Django Admin (dev-only)
 
@@ -3731,5 +3786,6 @@ is - tested end to end locally and on Render; 214 backend and 213 frontend
 tests pass. See "Refunds (TICKET-040)" and "Refunds: business rules & test
 cases". **TICKET-030 (booking emails) is in progress:** step 1 (the
 `BookingEmail` outbox, the email settings, the Brevo HTTP backend and the
-Mailpit service) is done; see "Emails". Next: the four email templates and
-the hooks that send them.
+Mailpit service) and step 2 (the four emails - received, confirmed,
+cancelled, admin alert - sent at every booking change) are done; see
+"Emails". Next: the retry command and the Django Admin outbox screen.

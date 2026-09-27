@@ -1,0 +1,8 @@
+{% autoescape off %}
+{{ property_title }}, {{ property_location }}
+Check-in:  {{ check_in }}, from {{ check_in_time }}
+Check-out: {{ check_out }}
+Stay:      {{ nights }} night{{ nights|pluralize }}, {{ guests }} guest{{ guests|pluralize }}
+Booking:   {{ ref }}
+Total:     {{ total }}
+{% endautoescape %}

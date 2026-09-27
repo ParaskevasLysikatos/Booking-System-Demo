@@ -1,0 +1,15 @@
+{% autoescape off %}{% if payment.state == "open" %}Almost there, {{ guest_name }} - complete your payment
+
+Your dates at {{ property_title }} are held for you until {{ payment.pay_by }} ({{ hold_minutes }} minutes from booking, Athens time). Pay {{ total }} by then to confirm the booking - after that the dates are released.
+
+Pay now: {{ links.pay }}
+(Already paid? Then you're fine - a confirmation email is on its way.)
+{% else %}Thanks, {{ guest_name }} - we've got your booking
+
+Your booking request for {{ property_title }} is in. It's pending until the host confirms it - we'll email you as soon as that happens. Nothing has been charged.
+{% endif %}
+{% include "notifications/emails/_stay.txt" %}
+Cancellation: free until {{ cancel_deadline }} ({{ cancellation_hours }} hours before check-in){% if payment.state == "open" %} - with a full refund once paid{% endif %}.
+
+My bookings: {{ links.my_bookings }}
+{% include "notifications/emails/_footer.txt" %}{% endautoescape %}

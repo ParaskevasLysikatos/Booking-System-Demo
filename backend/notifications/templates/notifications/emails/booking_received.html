@@ -1,0 +1,23 @@
+{% extends "notifications/emails/base.html" %}
+{% block title %}Booking {{ ref }} received{% endblock %}
+{% block preheader %}{% if payment.state == "open" %}Pay by {{ payment.pay_by }} to keep your dates.{% else %}We've got your booking - the host will confirm it shortly.{% endif %}{% endblock %}
+{% block heading %}{% if payment.state == "open" %}Almost there, {{ guest_name }} - complete your payment{% else %}Thanks, {{ guest_name }} - we've got your booking{% endif %}{% endblock %}
+{% block intro %}
+{% if payment.state == "open" %}
+  <p style="margin:0 0 8px;">Your dates at <strong>{{ property_title }}</strong> are held for you until
+  <strong>{{ payment.pay_by }}</strong> ({{ hold_minutes }} minutes from booking, Athens time).
+  Pay {{ total }} by then to confirm the booking - after that the dates are released.</p>
+{% else %}
+  <p style="margin:0 0 8px;">Your booking request for <strong>{{ property_title }}</strong> is in. It's
+  <strong>pending</strong> until the host confirms it - we'll email you as soon as that happens.
+  Nothing has been charged.</p>
+{% endif %}
+{% endblock %}
+{% block details %}
+  <p style="margin:0;">Cancellation: free until {{ cancel_deadline }} ({{ cancellation_hours }} hours before check-in){% if payment.state == "open" %} - with a full refund once paid{% endif %}.</p>
+{% endblock %}
+{% block cta %}
+{% if payment.state == "open" %}{% include "notifications/emails/_button.html" with href=links.pay label="Pay now" %}
+<div style="font-size:13px;color:#6b7280;margin-top:10px;">Already paid? Then you're fine - a confirmation email is on its way.</div>
+{% else %}{% include "notifications/emails/_button.html" with href=links.my_bookings label="View my bookings" %}{% endif %}
+{% endblock %}

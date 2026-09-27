@@ -36,6 +36,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from bookings.models import Booking
+from notifications.outbox import booking_cancelled, reason_for_payment_status
 
 from .models import Payment
 from .stripe_client import PaymentsDisabled, get_client
@@ -308,6 +309,7 @@ def _release_unpaid(booking, payment, payment_status):
     if booking.status == Booking.Status.PENDING:
         booking.status = Booking.Status.CANCELLED
         booking.save(update_fields=["status"])
+        booking_cancelled(booking, reason_for_payment_status(payment_status))  # TICKET-030
 
 
 def close_checkout_for_status_change(booking_id):

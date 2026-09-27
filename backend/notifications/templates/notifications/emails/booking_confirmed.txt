@@ -1,0 +1,9 @@
+{% autoescape off %}You're all set, {{ guest_name }}!
+
+Your booking at {{ property_title }} is confirmed.{% if payment.state == "paid" %} We've received your payment of {{ payment.amount }} - thank you.{% endif %}
+{% include "notifications/emails/_stay.txt" %}
+Arriving: check-in is from {{ check_in_time }} on {{ check_in }}.
+{% if can_cancel_online %}Change of plans? You can cancel from My bookings until {{ cancel_deadline }} ({{ cancellation_hours }} hours before check-in){% if payment.state == "paid" %} and get a full refund of {{ payment.amount }}{% endif %}. After that, please contact the host.{% else %}Online cancellation has closed for this stay - please contact the host if your plans change.{% endif %}
+
+My bookings: {{ links.my_bookings }}
+{% include "notifications/emails/_footer.txt" %}{% endautoescape %}

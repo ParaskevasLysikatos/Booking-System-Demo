@@ -14,6 +14,8 @@ from rest_framework.views import APIView
 from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 from listings.models import PropertyImage
+from notifications.models import BookingEmail
+from notifications.outbox import booking_cancelled, booking_confirmed, booking_received
 from payments.models import Payment
 from payments.refunds import RefundNotAllowed, refund_now, request_refund, send_refund_after_cancel
 from payments.services import (
@@ -28,6 +30,8 @@ from payments.stripe_client import payments_enabled
 from .models import Booking
 from .serializers import BookingCreateSerializer, BookingSerializer, BookingStatusSerializer
 from .stats import compute_stats
+
+EmailReason = BookingEmail.Reason
 
 EXCLUSION_VIOLATION = "23P01"  # Postgres SQLSTATE for exclusion_violation
 DEADLOCK_DETECTED = "40P01"  # Postgres SQLSTATE for deadlock_detected
@@ -200,6 +204,9 @@ class BookingViewSet(
                     # never gets a payment).
                     if payments_enabled():
                         start_hold(booking)
+                    # TICKET-030: "we've got your booking" - recorded here,
+                    # sent once this transaction has committed.
+                    booking_received(booking)
                 break
             except IntegrityError as exc:
                 if is_overlap_violation(exc):
@@ -288,6 +295,12 @@ class BookingViewSet(
                 payment.save(update_fields=["status", "updated_at"])
             booking.status = new_status
             booking.save(update_fields=["status"])
+            # TICKET-030: the guest's (and owner's) email, sent after commit.
+            if new_status == Booking.Status.CONFIRMED:
+                booking_confirmed(booking)
+            else:
+                booking_cancelled(booking, EmailReason.GUEST if booking.guest_id == request.user.pk
+                                  else EmailReason.HOST)
             # TICKET-040: cancelling a paid booking always refunds it in full
             # (guests can only get here before the 48h deadline; admins any
             # time). Recorded in this transaction, sent to Stripe after it.

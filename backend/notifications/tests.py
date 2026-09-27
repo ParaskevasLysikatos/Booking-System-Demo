@@ -17,6 +17,7 @@ from listings.models import Property
 
 from .backends import BrevoEmailBackend, BrevoError
 from .checks import email_settings_check
+from .messages import money, short_range
 from .models import BookingEmail
 from .outbox import due_for_retry, enqueue, send_email
 
@@ -281,3 +282,238 @@ class OutboxTests(TestCase):
         BookingEmail.objects.create(booking=self.booking, kind=Kind.BOOKING_RECEIVED, recipients="a@example.com")
         with self.assertRaises(IntegrityError), transaction.atomic():
             BookingEmail.objects.create(booking=self.booking, kind=Kind.BOOKING_RECEIVED, recipients="a@example.com")
+
+
+# --- Step 2: the emails and when they're sent ---------------------------------
+
+from django.urls import reverse  # noqa: E402
+from rest_framework.test import APITestCase  # noqa: E402
+
+from payments.models import Payment  # noqa: E402
+from payments.tests import (  # noqa: E402
+    PAYMENTS_ON, WEBHOOK_SECRET, CheckoutFixtures, WebhookFixtures, checkout_url, session_event, stale,
+)
+
+EMAILS = dict(BOOKING_ALERT_EMAILS=["owner@example.com"], DEFAULT_FROM_EMAIL="Booking Demo <owner@example.com>",
+              FRONTEND_URL="http://localhost:4200")
+
+
+class EmailFlowMixin:
+    """Runs on_commit callbacks, like a real request (TestCase otherwise
+    never commits, so nothing would be sent)."""
+
+    def call(self, fn, *args, **kwargs):
+        with self.captureOnCommitCallbacks(execute=True):
+            return fn(*args, **kwargs)
+
+    def book(self, **kwargs):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.book_via_api(**kwargs)
+
+    def patch_status(self, booking, new_status, as_user=None):
+        if as_user is not None:
+            self.client.force_authenticate(as_user)
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.patch(reverse("booking-detail", args=[booking.pk]), {"status": new_status},
+                                     format="json")
+
+    def sent(self):
+        return [(m.to, m.subject) for m in mail.outbox]
+
+    def kinds(self, booking):
+        return dict(BookingEmail.objects.filter(booking=booking).values_list("kind", "status"))
+
+    def email(self, kind):
+        return next(m for m in mail.outbox if m.tags == [kind])
+
+
+@override_settings(**EMAILS, PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY="")
+class EmailsWithoutPaymentsTests(EmailFlowMixin, CheckoutFixtures, APITestCase):
+    def test_booking_sends_received(self):
+        """EMAIL-14: a new booking -> "received" to the guest, nothing charged (payments off)."""
+        booking, _ = self.book()
+        self.assertEqual(self.kinds(booking), {"booking_received": "sent"})
+        msg = self.email("booking_received")
+        self.assertEqual(msg.to, ["guest@example.com"])
+        self.assertEqual(msg.from_email, "Booking Demo <owner@example.com>")
+        self.assertEqual(msg.subject,
+                         f"Booking #{booking.pk} received - Loft, {short_range(booking.check_in, booking.check_out)}")
+        self.assertIn("pending until the host confirms it", msg.body)
+        self.assertIn("Nothing has been charged", msg.body)
+        self.assertNotIn("Pay now", msg.body)
+        html = msg.alternatives[0][0]
+        self.assertIn("View my bookings", html)
+        self.assertIn("https://img.test/c.jpg", html)
+
+    def test_admin_confirm_sends_confirmed_and_the_alert(self):
+        """EMAIL-15: pending -> confirmed by an admin: guest confirmation + owner alert."""
+        booking, _ = self.book()
+        mail.outbox.clear()
+        res = self.patch_status(booking, "confirmed", as_user=self.admin)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["guest@example.com", "owner@example.com"])
+        guest = self.email("booking_confirmed")
+        self.assertIn("You're all set", guest.body)
+        self.assertIn("check-in is from 15:00", guest.body)
+        self.assertIn("You can cancel from My bookings until", guest.body)
+        self.assertNotIn("payment of", guest.body)  # nothing was paid online
+        alert = self.email("admin_new_booking")
+        self.assertIn("guest@example.com", alert.body)
+        self.assertIn("No online payment", alert.body)
+        self.assertIn("http://localhost:4200/admin/bookings", alert.body)
+
+    def test_guest_cancel(self):
+        """EMAIL-16: the guest cancels -> "as you requested", nothing charged."""
+        booking, _ = self.book()
+        res = self.patch_status(booking, "cancelled")
+        self.assertEqual(res.status_code, 200, res.data)
+        row = BookingEmail.objects.get(booking=booking, kind=Kind.BOOKING_CANCELLED)
+        self.assertEqual((row.status, row.reason), ("sent", "guest"))
+        msg = self.email("booking_cancelled")
+        self.assertIn("as you requested", msg.body)
+        self.assertIn("Nothing was charged.", msg.body)
+
+    def test_admin_cancel_is_the_host(self):
+        """EMAIL-17: an admin cancels a guest's booking -> "the host has cancelled"."""
+        booking, _ = self.book()
+        self.patch_status(booking, "confirmed", as_user=self.admin)
+        mail.outbox.clear()
+        self.patch_status(booking, "cancelled", as_user=self.admin)
+        self.assertEqual(BookingEmail.objects.get(booking=booking, kind=Kind.BOOKING_CANCELLED).reason, "host")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("the host has cancelled", self.email("booking_cancelled").body)
+
+    def test_refused_change_sends_nothing(self):
+        """EMAIL-18: a status change that's refused (400) records no email."""
+        booking, _ = self.book()
+        self.patch_status(booking, "cancelled")
+        mail.outbox.clear()
+        res = self.patch_status(booking, "cancelled")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(BookingEmail.objects.filter(booking=booking).count(), 2)
+
+    def test_a_broken_mail_provider_never_breaks_booking(self):
+        """EMAIL-19: the provider is down -> the booking is still created (201), the email is `failed`."""
+        with mock.patch("django.core.mail.message.EmailMessage.send", side_effect=BrevoError("Couldn't reach Brevo")):
+            booking, res = self.book()
+        self.assertEqual(res.status_code, 201)
+        row = BookingEmail.objects.get(booking=booking)
+        self.assertEqual((row.status, row.last_error), ("failed", "Couldn't reach Brevo"))
+
+    def test_seeded_bookings_send_nothing(self):
+        """EMAIL-20: bookings created outside the API (seed script, Django Admin) don't email anyone."""
+        make_booking(email="seeded@example.com")
+        self.assertFalse(BookingEmail.objects.exists())
+
+    def test_html_escapes_user_content(self):
+        self.prop.title = "Loft <script>alert(1)</script>"
+        self.prop.save()
+        booking, _ = self.book()
+        html = self.email("booking_received").alternatives[0][0]
+        self.assertNotIn("<script>", html)
+        self.assertIn("&lt;script&gt;", html)
+        self.assertIn("<script>", self.email("booking_received").body)  # plain text isn't HTML
+
+
+@override_settings(**{**PAYMENTS_ON, **EMAILS})
+class EmailsWithPaymentsTests(EmailFlowMixin, CheckoutFixtures, APITestCase):
+    def test_received_has_pay_now_and_the_hold(self):
+        """EMAIL-21: payments on -> "complete your payment" with Pay now and the hold's end time."""
+        booking, _ = self.book()
+        payment = Payment.objects.get(booking=booking)
+        msg = self.email("booking_received")
+        self.assertEqual(msg.subject, f"Complete your payment - booking #{booking.pk}, Loft")
+        pay_by = timezone.localtime(payment.expires_at).strftime("%H:%M")
+        self.assertIn(f"held for you until {pay_by}", msg.body)
+        self.assertIn(f"http://localhost:4200/bookings/{booking.pk}/payment", msg.body)
+        self.assertIn(">Pay now</a>", msg.alternatives[0][0])
+
+    def test_expired_hold_released_by_the_next_booking(self):
+        """EMAIL-22: a stale hold settled when someone else books -> "we didn't receive your payment"."""
+        booking, _ = self.book()
+        stale(booking)
+        self.client.force_authenticate(self.other)
+        today = timezone.localdate()
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.client.post(reverse("booking-list"), {
+                "property": self.prop.id, "check_in": (today + timedelta(days=10)).isoformat(),
+                "check_out": (today + timedelta(days=13)).isoformat(), "guests": 1,
+            }, format="json")
+        self.assertEqual(res.status_code, 201)
+        row = BookingEmail.objects.get(booking=booking, kind=Kind.BOOKING_CANCELLED)
+        self.assertEqual((row.status, row.reason), ("sent", "payment_expired"))
+        msg = next(m for m in mail.outbox if m.tags == ["booking_cancelled"])
+        self.assertIn("we didn't receive your payment within 30 minutes", msg.body)
+        self.assertIn(f"Book again: http://localhost:4200/listings/{self.prop.pk}", msg.body)
+        self.assertIn("Nothing was charged.", msg.body)
+
+
+@override_settings(**{**PAYMENTS_ON, **EMAILS, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class EmailsFromWebhookTests(EmailFlowMixin, WebhookFixtures, APITestCase):
+    def setUp(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            super().setUp()
+        mail.outbox.clear()
+
+    def test_paid_sends_confirmed_once_even_if_stripe_repeats(self):
+        """EMAIL-23: payment webhook -> confirmed + alert; the same event again (or a second
+        "paid" event) sends nothing more."""
+        event = session_event("checkout.session.completed", "cs_test_123")
+        self.call(self.deliver, event)
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+        self.assertEqual(sorted(m.tags[0] for m in mail.outbox), ["admin_new_booking", "booking_confirmed"])
+        guest = self.email("booking_confirmed")
+        self.assertIn("We've received your payment of €240.15", guest.body)
+        self.assertIn("and get a full refund of €240.15", guest.body)
+        self.assertIn("Paid online - €240.15", self.email("admin_new_booking").body)
+
+        self.call(self.deliver, event)  # Stripe retries the same event
+        self.call(self.deliver, session_event("checkout.session.async_payment_succeeded", "cs_test_123",
+                                              event_id="evt_other"))
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(BookingEmail.objects.filter(booking=self.booking).count(), 3)  # received, confirmed, alert
+
+    def test_expired_session_sends_cancelled(self):
+        """EMAIL-24: the "expired" webhook -> cancelled, dates released."""
+        self.call(self.deliver, session_event("checkout.session.expired", "cs_test_123",
+                                              status="expired", payment_status="unpaid"))
+        self.assertEqual(self.kinds(self.booking)["booking_cancelled"], "sent")
+        self.assertEqual(BookingEmail.objects.get(booking=self.booking, kind=Kind.BOOKING_CANCELLED).reason,
+                         "payment_expired")
+
+    def test_failed_payment_sends_cancelled(self):
+        self.call(self.deliver, session_event("checkout.session.completed", "cs_test_123", payment_status="unpaid"))
+        self.call(self.deliver, session_event("checkout.session.async_payment_failed", "cs_test_123",
+                                              payment_status="unpaid"))
+        self.assertIn("your payment didn't go through", self.email("booking_cancelled").body)
+
+    def test_cancel_after_paying_mentions_the_refund(self):
+        """EMAIL-25: a paid booking cancelled by the guest -> "A full refund of €X is on its way"."""
+        self.call(self.deliver, session_event("checkout.session.completed", "cs_test_123"))
+        mail.outbox.clear()
+        res = self.patch_status(self.booking, "cancelled")
+        self.assertEqual(res.status_code, 200, res.data)
+        msg = self.email("booking_cancelled")
+        self.assertIn("A full refund of €240.15 is on its way", msg.body)
+        self.assertIn("A full refund of €240.15 is on its way", msg.alternatives[0][0])
+
+    def test_received_is_skipped_if_already_confirmed_before_it_went_out(self):
+        """EMAIL-26: the "received" email failed, then the booking was paid -> a retry skips it
+        (no "complete your payment" after paying)."""
+        row = BookingEmail.objects.get(booking=self.booking, kind=Kind.BOOKING_RECEIVED)
+        BookingEmail.objects.filter(pk=row.pk).update(status=Status.FAILED)
+        self.call(self.deliver, session_event("checkout.session.completed", "cs_test_123"))
+        self.assertEqual(send_email(row.pk).status, Status.SKIPPED)
+        self.assertNotIn("booking_received", [m.tags[0] for m in mail.outbox])
+
+
+class FormattingTests(SimpleTestCase):
+    def test_money_and_date_ranges_match_the_app(self):
+        from datetime import date
+        self.assertEqual(money(Decimal("240.00")), "€240")
+        self.assertEqual(money(Decimal("95.5")), "€95.50")
+        self.assertEqual(money(Decimal("1234.00")), "€1,234")
+        self.assertEqual(short_range(date(2027, 3, 10), date(2027, 3, 13)), "10–13 Mar")
+        self.assertEqual(short_range(date(2027, 2, 28), date(2027, 3, 3)), "28 Feb – 3 Mar")
+        self.assertEqual(short_range(date(2026, 12, 30), date(2027, 1, 2)), "30 Dec 2026 – 2 Jan 2027")

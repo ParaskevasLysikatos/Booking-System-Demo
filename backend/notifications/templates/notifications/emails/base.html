@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{% block title %}{{ site_name }}{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Roboto,'Segoe UI',Helvetica,Arial,sans-serif;color:#1f2937;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{% block preheader %}{% endblock %}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;">
+  <tr><td align="center" style="padding:24px 12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+      <tr><td style="padding:18px 24px;border-bottom:1px solid #e5e7eb;font-size:15px;font-weight:600;color:#005cbb;">
+        <a href="{{ links.site }}" style="color:#005cbb;text-decoration:none;">{{ site_name }}</a>
+      </td></tr>
+      <tr><td style="padding:24px 24px 8px;">
+        {% block badge %}{% endblock %}
+        <h1 style="margin:0 0 8px;font-size:22px;line-height:1.3;color:#111827;">{% block heading %}{% endblock %}</h1>
+        <div style="font-size:15px;line-height:1.55;color:#374151;">{% block intro %}{% endblock %}</div>
+      </td></tr>
+      {% block stay %}
+      <tr><td style="padding:16px 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+          {% if cover_url %}<tr><td><img src="{{ cover_url }}" alt="{{ property_title }}" width="510" style="display:block;width:100%;max-width:510px;height:auto;max-height:220px;object-fit:cover;border:0;"></td></tr>{% endif %}
+          <tr><td style="padding:14px 16px;">
+            <div style="font-size:17px;font-weight:600;color:#111827;"><a href="{{ links.property }}" style="color:#111827;text-decoration:none;">{{ property_title }}</a></div>
+            <div style="font-size:14px;color:#6b7280;margin-top:2px;">{{ property_location }}</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;font-size:14px;color:#374151;">
+              <tr><td style="padding:4px 0;color:#6b7280;">Check-in</td><td align="right" style="padding:4px 0;">{{ check_in }}, from {{ check_in_time }}</td></tr>
+              <tr><td style="padding:4px 0;color:#6b7280;">Check-out</td><td align="right" style="padding:4px 0;">{{ check_out }}</td></tr>
+              <tr><td style="padding:4px 0;color:#6b7280;">Stay</td><td align="right" style="padding:4px 0;">{{ nights }} night{{ nights|pluralize }} · {{ guests }} guest{{ guests|pluralize }}</td></tr>
+              <tr><td style="padding:4px 0;color:#6b7280;">Booking</td><td align="right" style="padding:4px 0;">{{ ref }}</td></tr>
+              <tr><td style="padding:8px 0 0;border-top:1px solid #e5e7eb;font-weight:600;color:#111827;">Total</td><td align="right" style="padding:8px 0 0;border-top:1px solid #e5e7eb;font-weight:600;color:#111827;">{{ total }}</td></tr>
+            </table>
+          </td></tr>
+        </table>
+      </td></tr>
+      {% endblock %}
+      <tr><td style="padding:8px 24px 8px;font-size:14px;line-height:1.55;color:#374151;">{% block details %}{% endblock %}</td></tr>
+      <tr><td style="padding:8px 24px 24px;">{% block cta %}{% endblock %}</td></tr>
+      <tr><td style="padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;line-height:1.5;color:#6b7280;">
+        {% block footer %}You're getting this email because of booking {{ ref }} on {{ site_name }}.{% endblock %}<br>
+        This is a demo project - test payments only, no real stays.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

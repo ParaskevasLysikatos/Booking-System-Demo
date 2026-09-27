@@ -55,7 +55,7 @@ def recipients_for(booking, kind):
     return [email] if email else []
 
 
-def enqueue(booking, kind):
+def enqueue(booking, kind, reason=""):
     """Record `kind` for `booking` and send it once the current transaction
     commits (immediately when there's no transaction). Returns the new row,
     or None when nothing was recorded: no recipients (e.g. an account
@@ -68,11 +68,47 @@ def enqueue(booking, kind):
         return None
     try:
         with transaction.atomic():  # a savepoint: a lost race mustn't break the caller's transaction
-            row = BookingEmail.objects.create(booking=booking, kind=kind, recipients=",".join(recipients))
+            row = BookingEmail.objects.create(booking=booking, kind=kind, reason=reason,
+                                              recipients=",".join(recipients))
     except IntegrityError:
         return None  # created by a simultaneous request - that one sends it
     transaction.on_commit(lambda: send_email_safely(row.pk))
     return row
+
+
+# --- What each booking change sends (called by bookings/views.py and the
+# payments webhook / stale-hold code, inside their transactions) ------------
+
+Reason = BookingEmail.Reason
+
+
+def booking_received(booking):
+    """A new (pending) booking: "we've got it" to the guest - with Pay now
+    and the hold's end time when payments are on."""
+    return enqueue(booking, Kind.BOOKING_RECEIVED)
+
+
+def booking_confirmed(booking):
+    """pending -> confirmed (paid, or confirmed by an admin): the guest's
+    confirmation + the owner's alert."""
+    enqueue(booking, Kind.BOOKING_CONFIRMED)
+    enqueue(booking, Kind.ADMIN_NEW_BOOKING)
+
+
+def booking_cancelled(booking, reason):
+    """-> cancelled, for any reason (see BookingEmail.Reason)."""
+    return enqueue(booking, Kind.BOOKING_CANCELLED, reason=reason)
+
+
+def reason_for_payment_status(payment_status):
+    """Why a booking was released by the payments code, from the payment's
+    new status (expired -> the time ran out, failed -> the payment failed)."""
+    from payments.models import Payment
+
+    return {
+        Payment.Status.EXPIRED: Reason.PAYMENT_EXPIRED,
+        Payment.Status.FAILED: Reason.PAYMENT_FAILED,
+    }.get(payment_status, Reason.HOST)
 
 
 def _stale(row, now):

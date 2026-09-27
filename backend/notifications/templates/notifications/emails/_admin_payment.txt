@@ -1,0 +1,1 @@
+{% if payment.state == "paid" %}Paid online - {{ payment.amount }}{% elif payment.state == "waived" %}Confirmed by hand - no online payment{% else %}No online payment (payments off){% endif %}
