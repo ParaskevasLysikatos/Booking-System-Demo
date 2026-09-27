@@ -15,6 +15,7 @@ from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 from listings.models import PropertyImage
 from payments.models import Payment
+from payments.refunds import request_refund, send_refund
 from payments.services import (
     CheckoutError,
     close_checkout_for_status_change,
@@ -269,6 +270,14 @@ class BookingViewSet(
                 payment.save(update_fields=["status", "updated_at"])
             booking.status = new_status
             booking.save(update_fields=["status"])
+            # TICKET-040: cancelling a paid booking always refunds it in full
+            # (guests can only get here before the 48h deadline; admins any
+            # time). Recorded in this transaction, sent to Stripe after it.
+            refund_needed = (
+                new_status == Booking.Status.CANCELLED and payment is not None and request_refund(payment)
+            )
+        if refund_needed:
+            send_refund(booking.pk)  # never raises; a failure is shown as "Refund failed"
         return self._respond(booking, status.HTTP_200_OK)
 
     def _check_transition(self, booking, new_status):

@@ -29,6 +29,7 @@ from django.utils import timezone
 from bookings.models import Booking
 
 from .models import Payment
+from .refunds import refund_after_commit, request_refund
 
 logger = logging.getLogger(__name__)
 
@@ -124,9 +125,12 @@ def _paid(booking, payment, session):
         booking.save(update_fields=["status"])
     elif booking.status == Booking.Status.CANCELLED:
         # Paid for a booking that was cancelled meanwhile (e.g. while a
-        # delayed payment was processing). The booking stays cancelled;
-        # the money has to go back - that's TICKET-040's refund flow.
-        logger.warning("Booking %s was paid after being cancelled - needs a refund (TICKET-040)", booking.pk)
+        # delayed payment was processing). The booking stays cancelled and
+        # the money goes straight back (TICKET-040) - sent once this
+        # transaction has committed.
+        logger.warning("Booking %s was paid after being cancelled - refunding it", booking.pk)
+        if request_refund(payment):
+            refund_after_commit(booking.pk)
     # CONFIRMED already (an admin confirmed it by hand): just recorded as paid.
 
 

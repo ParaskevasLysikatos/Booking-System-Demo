@@ -40,6 +40,15 @@ class Payment(models.Model):
         FAILED = "failed", "Failed"  # delayed payment failed
         CANCELLED = "cancelled", "Cancelled"  # called off unpaid: the booking was cancelled, or confirmed by hand
 
+    class RefundStatus(models.TextChoices):
+        # TICKET-040. Only a *paid* payment can be refunded; cancelling a paid
+        # booking always refunds it in full (guests can only cancel before
+        # the 48h deadline; admins any time).
+        NONE = "none", "No refund"
+        PENDING = "pending", "Refund pending"  # asked Stripe (or about to) - the webhook confirms
+        REFUNDED = "refunded", "Refunded"  # confirmed by Stripe's webhook
+        FAILED = "failed", "Refund failed"  # Stripe unreachable / refused - an admin can retry
+
     booking = models.OneToOneField(
         "bookings.Booking",
         on_delete=models.CASCADE,
@@ -76,6 +85,21 @@ class Payment(models.Model):
     )
     expires_at = models.DateTimeField(help_text="When the Checkout Session - and the date hold - ends.")
     paid_at = models.DateTimeField(null=True, blank=True)
+
+    # --- Refund (TICKET-040) ---------------------------------------------
+    refund_status = models.CharField(max_length=10, choices=RefundStatus.choices, default=RefundStatus.NONE)
+    refund_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    stripe_refund_id = models.CharField(max_length=255, blank=True)
+    refund_attempt = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="Part of the refund's idempotency key booking-<id>-refund-<n>. Only goes up after "
+                  "Stripe itself reports a refund as failed - a retry after a network error reuses "
+                  "the same key, so it can never refund twice.",
+    )
+    refund_requested_at = models.DateTimeField(null=True, blank=True)
+    refunded_at = models.DateTimeField(null=True, blank=True)
+    refund_failure_reason = models.CharField(max_length=255, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -529,17 +529,19 @@ test, always last).
 - [ ] **TICKET-040** — Refunds on cancellation
   - Priority: P1 · Depends on: TICKET-029 (payments must exist first), TICKET-015 (cancellation rules)
   - Raised during TICKET-015: cancelling a paid booking must return the guest's money according to a policy, not ad hoc.
-  - Policy to confirm before building (suggested starting point):
-    - guest cancels **before** the cancellation deadline (`Booking.cancel_deadline()`, 48h before 15:00 check-in): full refund
-    - after the deadline guests can't cancel online at all (TICKET-015); if an **admin** cancels a booking (e.g. the property becomes unavailable): always a full refund
-    - cancelling an unpaid `pending` booking: nothing to refund
-    - decide whether partial refunds or a fee are wanted later
-  - Implementation requirements:
-    - Use the Stripe Refund API against the booking's PaymentIntent, with an **idempotency key derived from the booking id**, so a retried or double-clicked cancel can never refund twice.
-    - Record refund state on the booking (e.g. `refund_status`: `none` / `pending` / `refunded` / `failed`, plus amount and Stripe refund id) via a migration.
-    - Mark it refunded from the Stripe **webhook** (`charge.refunded` / `refund.updated`), not optimistically when the request is sent, the same principle as TICKET-029's confirmation.
-    - The cancel `PATCH` stays the trigger: after the status change commits, start the refund. Never block or roll back the cancellation because Stripe is slow; retry failed refunds instead.
-    - Show refund status in the guest's My Bookings and the admin bookings table.
+  - Decisions (agreed before building):
+    - **Policy:** cancelling a paid booking always refunds the **full amount**. Guests can only cancel before the 48h deadline; an **admin** cancel (any time) is always a full refund. No partial refunds or fees.
+    - Money that arrives **after** a cancellation is refunded automatically.
+    - Stripe Refund API against the booking's PaymentIntent, idempotency key `booking-<id>-refund-<n>` (`n` only goes up when Stripe created a refund that then failed).
+    - Refund state beside the payment (`refund_status` none / pending / refunded / failed, amount, Stripe refund id, timestamps, reason).
+    - The **webhook** confirms refunds (`refund.updated`, `refund.failed`, `charge.refunded` - the last also catches refunds made by hand in the Stripe Dashboard); never marked refunded when the request is sent.
+    - The cancel is **never blocked or rolled back** because of Stripe; a failed refund is shown as such.
+    - Failed refunds: an admin **Refund now** button, plus `manage.py sync_refunds` to retry failed ones and sync pending ones whose webhook was missed.
+    - Guest wording: "full refund of €X, back to your card within 5–10 business days"; "Refund of €X on its way" / "Refunded €X on …"; failed → "the host is arranging your refund". Admin chips: Refund pending / Refunded / Refund failed + Refund now.
+    - Configuration: the Render key needs **Charges and Refunds: Write**; the Render webhook endpoint and the local `stripe-cli --events` list get the three refund events.
+  - Steps: 1) model + refund logic + cancel hook-up; 2) webhook refund events + admin endpoint + command; 3) frontend; 4) Docker/Render config + docs; 5) local E2E → push → Render E2E → done.
+  - Progress:
+    - **Step 1 done.** `Payment` gets `refund_status`, `refund_amount`, `stripe_refund_id`, `refund_attempt`, `refund_requested_at`, `refunded_at`, `refund_failure_reason` (migration `payments/0004_refunds.py`). New `payments/refunds.py`: `request_refund` (inside the locked cancel transaction; returns whether a refund must be sent, so never twice) and `send_refund` (after commit, no lock held, never raises; failures recorded as `failed` with an admin-only reason, attempt +1 only when Stripe itself reports the refund failed). Hooked into the cancel `PATCH` (guest and admin) and the webhook's paid-after-cancelled case (`on_commit`). Every booking's `payment` block has `refund` (null when none; `failure_reason` for admins only). 12 new tests + 2 updated (REF-01…REF-12 in the README); **185 backend tests pass on Postgres**. README: new "Refunds (TICKET-040)" and "Refunds: business rules & test cases" sections.
 
 - [ ] **TICKET-030** — Booking-confirmation email (Brevo or Resend free tier)
   - Priority: P1 · Depends on: TICKET-020

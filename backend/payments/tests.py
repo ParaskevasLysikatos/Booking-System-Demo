@@ -191,6 +191,13 @@ def fake_session(session_id="cs_test_123", expires_at=None, status="open", payme
     }, "rk_test_dummy")
 
 
+def fake_refund(refund_id="re_test_1", status="pending", **extra):
+    return stripe.Refund.construct_from({
+        "id": refund_id, "object": "refund", "amount": 24015, "currency": "eur",
+        "payment_intent": "pi_test_123", "status": status, **extra,
+    }, "rk_test_dummy")
+
+
 class CheckoutFixtures:
     def setUp(self):
         self.guest = User.objects.create_user("guest", "guest@example.com", PASSWORD)
@@ -204,9 +211,12 @@ class CheckoutFixtures:
         self.sessions = self.stripe.v1.checkout.sessions
         self.sessions.create.return_value = fake_session()
         self.sessions.expire.return_value = fake_session(status="expired")
-        patcher = mock.patch("payments.services.get_client", return_value=self.stripe)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.refunds = self.stripe.v1.refunds
+        self.refunds.create.return_value = fake_refund()
+        for target in ("payments.services.get_client", "payments.refunds.get_client"):
+            patcher = mock.patch(target, return_value=self.stripe)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.client.force_authenticate(self.guest)
 
     def book_via_api(self, start=10, end=13):
@@ -590,12 +600,19 @@ class WebhookEventTests(WebhookFixtures, APITestCase):
         self.deliver(session_event("checkout.session.expired", "cs_test_123"))
         self.assertEqual(self.state(), ("confirmed", "paid"))
 
-    def test_paid_after_cancelled_stays_cancelled_and_is_flagged(self):
+    def test_paid_after_cancelled_stays_cancelled_and_is_refunded(self):
         Booking.objects.filter(pk=self.booking.pk).update(status=Booking.Status.CANCELLED)
-        with self.assertLogs("payments.webhooks", "WARNING") as logs:
+        with self.assertLogs("payments.webhooks", "WARNING") as logs, \
+                self.captureOnCommitCallbacks(execute=True):
             self.deliver(session_event("checkout.session.completed", "cs_test_123"))
-        self.assertIn("needs a refund", logs.output[0])
+        self.assertIn("refunding it", logs.output[0])
         self.assertEqual(self.state(), ("cancelled", "paid"))
+        payment = Payment.objects.get(booking=self.booking)
+        self.assertEqual(payment.refund_status, Payment.RefundStatus.PENDING)
+        self.assertEqual(payment.stripe_refund_id, "re_test_1")
+        self.refunds.create.assert_called_once()
+        self.assertEqual(self.refunds.create.call_args.kwargs["options"],
+                         {"idempotency_key": f"booking-{self.booking.pk}-refund-1"})
 
     def test_amount_mismatch_is_never_confirmed(self):
         with self.assertLogs("payments.webhooks", "ERROR"):
@@ -850,7 +867,8 @@ class StatusChangeWithPaymentTests(WebhookFixtures, APITestCase):
         res = self.patch("cancelled")
         self.assertEqual(res.status_code, 200)
         self.sessions.expire.assert_not_called()
-        self.assertEqual(self.state(), ("cancelled", "paid"))  # refund: TICKET-040
+        self.assertEqual(self.state(), ("cancelled", "paid"))  # still paid; the refund is tracked beside it
+        self.assertEqual(res.data["payment"]["refund"]["status"], "pending")
 
     def test_payments_switched_off_with_a_page_open(self):
         with override_settings(PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY=""), \
@@ -874,3 +892,148 @@ class PaymentsConfigTests(APITestCase):
         res = self.client.get(reverse("payments-config"))  # no login needed
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.json()["enabled"])
+
+
+# --------------------------------------------------------------------------
+# TICKET-040 step 1: refunds when a paid booking is cancelled
+# (Stripe is mocked; the webhook that confirms refunds is step 2.)
+# --------------------------------------------------------------------------
+
+from payments import refunds as refund_service  # noqa: E402
+
+
+@override_settings(**{**PAYMENTS_ON, "STRIPE_WEBHOOK_SECRET": WEBHOOK_SECRET})
+class RefundOnCancelTests(WebhookFixtures, APITestCase):
+    """setUp: self.booking is paid and confirmed (PaymentIntent pi_test_123)."""
+
+    def setUp(self):
+        super().setUp()
+        self.deliver(session_event("checkout.session.completed", "cs_test_123"))
+        self.assertEqual(self.state(), ("confirmed", "paid"))
+
+    def cancel(self, user=None):
+        self.client.force_authenticate(user or self.guest)
+        return self.client.patch(reverse("booking-detail", args=[self.booking.pk]),
+                                 {"status": "cancelled"}, format="json")
+
+    def payment(self):
+        return Payment.objects.get(booking=self.booking)
+
+    def test_guest_cancel_refunds_the_full_amount(self):
+        res = self.cancel()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.state(), ("cancelled", "paid"))
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_amount, payment.stripe_refund_id),
+                         ("pending", payment.amount, "re_test_1"))
+        self.assertIsNotNone(payment.refund_requested_at)
+        self.refunds.create.assert_called_once_with(
+            params={"payment_intent": "pi_test_123", "reason": "requested_by_customer",
+                    "metadata": {"booking_id": str(self.booking.pk), "payment_id": str(payment.pk)}},
+            options={"idempotency_key": f"booking-{self.booking.pk}-refund-1"},
+        )
+        refund = res.data["payment"]["refund"]
+        self.assertEqual((refund["status"], refund["amount"], refund["refunded_at"]),
+                         ("pending", "240.15", None))
+        self.assertNotIn("failure_reason", refund)  # guests never see why
+
+    def test_admin_cancel_inside_the_deadline_still_refunds(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        Booking.objects.filter(pk=self.booking.pk).update(check_in=tomorrow, check_out=tomorrow + timedelta(days=3))
+        self.assertEqual(self.cancel().status_code, 400)  # guest: too late (TICKET-015)
+        self.refunds.create.assert_not_called()
+        res = self.cancel(self.admin)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.payment().refund_status, "pending")
+        self.refunds.create.assert_called_once()
+
+    def test_unpaid_booking_needs_no_refund(self):
+        other, _ = self.book_via_api(20, 22)
+        self.client.force_authenticate(self.guest)
+        res = self.client.patch(reverse("booking-detail", args=[other.pk]), {"status": "cancelled"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.data["payment"]["refund"])
+        self.refunds.create.assert_not_called()
+
+    def test_stripe_unreachable_never_blocks_the_cancel(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            res = self.cancel()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.state(), ("cancelled", "paid"))
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_attempt, payment.stripe_refund_id),
+                         ("failed", 1, ""))
+        self.assertEqual(payment.refund_failure_reason, "Couldn't reach Stripe.")
+        self.assertEqual(res.data["payment"]["refund"]["status"], "failed")
+
+    def test_key_without_refund_permission(self):
+        self.refunds.create.side_effect = stripe.PermissionError("no")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        payment = self.payment()
+        self.assertEqual(payment.refund_status, "failed")
+        self.assertIn("Charges and Refunds: Write", payment.refund_failure_reason)
+
+    def test_payments_switched_off_marks_it_failed(self):
+        with mock.patch("payments.refunds.get_client", side_effect=services.PaymentsDisabled):
+            res = self.cancel()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.payment().refund_status, "failed")
+
+    def test_no_payment_intent_recorded(self):
+        Payment.objects.filter(booking=self.booking).update(stripe_payment_intent_id="")
+        self.cancel()
+        self.refunds.create.assert_not_called()
+        payment = self.payment()
+        self.assertEqual(payment.refund_status, "failed")
+        self.assertIn("No Stripe payment", payment.refund_failure_reason)
+
+    def test_stripe_reports_the_refund_failed_next_try_is_a_new_refund(self):
+        self.refunds.create.return_value = fake_refund(status="failed", failure_reason="expired_or_canceled_card")
+        self.cancel()
+        payment = self.payment()
+        self.assertEqual((payment.refund_status, payment.refund_attempt, payment.stripe_refund_id),
+                         ("failed", 2, "re_test_1"))
+        self.assertEqual(payment.refund_failure_reason, "expired_or_canceled_card")
+        # a retry is a genuinely new refund: new key, old id cleared
+        self.refunds.create.return_value = fake_refund("re_test_2")
+        with transaction.atomic():
+            self.assertTrue(refund_service.request_refund(Payment.objects.select_for_update().get(pk=payment.pk)))
+        refund_service.send_refund(self.booking.pk)
+        self.assertEqual(self.refunds.create.call_args.kwargs["options"],
+                         {"idempotency_key": f"booking-{self.booking.pk}-refund-2"})
+        payment.refresh_from_db()
+        self.assertEqual((payment.refund_status, payment.stripe_refund_id), ("pending", "re_test_2"))
+
+    def test_retry_after_stripe_was_unreachable_repeats_the_same_request(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        self.refunds.create.side_effect = None
+        payment = self.payment()
+        self.assertTrue(refund_service.request_refund(payment))
+        refund_service.send_refund(self.booking.pk)
+        keys = [c.kwargs["options"]["idempotency_key"] for c in self.refunds.create.call_args_list]
+        self.assertEqual(keys, [f"booking-{self.booking.pk}-refund-1"] * 2)  # same key: never twice
+        self.assertEqual(self.payment().refund_status, "pending")
+
+    def test_never_refunded_twice(self):
+        self.cancel()
+        payment = self.payment()
+        self.assertFalse(refund_service.request_refund(payment))  # already pending
+        refund_service.send_refund(self.booking.pk)  # already sent
+        Payment.objects.filter(pk=payment.pk).update(refund_status=Payment.RefundStatus.REFUNDED)
+        self.assertFalse(refund_service.request_refund(self.payment()))
+        self.refunds.create.assert_called_once()
+
+    def test_admin_sees_why_a_refund_failed(self):
+        self.refunds.create.side_effect = stripe.APIConnectionError("down")
+        with self.assertLogs("payments.refunds", "ERROR"):
+            self.cancel()
+        self.client.force_authenticate(self.admin)
+        refund = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["refund"]
+        self.assertEqual((refund["status"], refund["failure_reason"]), ("failed", "Couldn't reach Stripe."))
+        self.client.force_authenticate(self.guest)
+        refund = self.client.get(reverse("booking-detail", args=[self.booking.pk])).data["payment"]["refund"]
+        self.assertNotIn("failure_reason", refund)

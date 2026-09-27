@@ -86,7 +86,7 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_payment(self, obj):
         """Online payment state (TICKET-029), or null when this booking
         doesn't take online payment (seeded / made while payments were off)."""
-        return payment_summary(obj, self.context.get("request"))
+        return payment_summary(obj, self.context.get("request"), bool(self.context.get("is_admin")))
 
 
 class BookingCreateSerializer(serializers.Serializer):

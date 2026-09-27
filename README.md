@@ -2085,6 +2085,7 @@ bad configuration fails loudly:
 | `stripe_checkout_session_id` | Unique |
 | `checkout_url` | Stripe's hosted page - reused by **Pay now** until `expires_at` |
 | `stripe_payment_intent_id` | Filled in from the webhook once paid; TICKET-040's refunds use it |
+| `refund_*` | TICKET-040 - see "Refunds (TICKET-040)" below |
 | `expires_at` | End of the Checkout Session = end of the date hold. `is_holding()` = still `open` and not yet expired |
 | `paid_at`, `created_at`, `updated_at` | Timestamps |
 
@@ -2242,8 +2243,8 @@ How it's made safe (`payments/views.py`, `payments/webhooks.py`):
 - **Human decisions win.** A session expiring on a booking an admin already
   confirmed by hand leaves it confirmed. A payment arriving for a booking
   that was cancelled meanwhile is recorded as `paid`, the booking **stays
-  cancelled**, and a warning is logged - the money has to go back, which is
-  TICKET-040's refund flow.
+  cancelled**, and a warning is logged - and since TICKET-040 the full
+  amount is **refunded automatically** (REF-11).
 - **The amount is checked.** If Stripe ever reported a different amount or
   currency than the booking costs (it can't - the server sets it), the
   booking is **not** confirmed and an error is logged.
@@ -2300,7 +2301,7 @@ guest could then **pay for a cancelled booking**. So `PATCH
 | The guest opened the page between step 2 and step 3 | `409` `checkout_just_opened` - nothing changed; try again |
 | No payment page yet (never reached checkout) | No Stripe call; payment `cancelled` |
 | Payments switched off since the page was made | Can't reach Stripe at all; the change goes ahead (logged) |
-| Already paid, then cancelled | `200`; the payment stays `paid` - that's the refund case for TICKET-040 |
+| Already paid, then cancelled | `200`; the payment stays `paid` and a **full refund** is sent to Stripe (TICKET-040, see "Refunds") |
 
 ### `GET /api/payments/config/`
 
@@ -2638,7 +2639,7 @@ after; **admins** have no deadline; **cancelled is final** for everyone.
 | CAN-06 | Payment page opened during the cancel → retry | | `409` `checkout_just_opened` | `test_payment_page_opened_mid_cancel` | |
 | CAN-07 | No payment page yet → no Stripe call | Book, cancel before paying | `200`, payment `cancelled` | `test_cancel_before_checkout_needs_no_stripe` | |
 | CAN-08 | A change that isn't allowed never touches Stripe | Guest tries to confirm | `400`, Stripe not called | `test_refused_change_never_touches_stripe` | |
-| CAN-09 | **Paid then cancelled** (before the deadline) → payment stays `paid` = **full refund due**; the host refunds from the Stripe Dashboard until TICKET-040 automates it | Pay, then cancel | booking `cancelled`; guest sees "Full refund of €X - processed by the host"; admin chip "Refund due" | `test_cancelling_a_paid_booking_keeps_the_payment`, labels spec | ✓ |
+| CAN-09 | **Paid then cancelled** (before the deadline) → payment stays `paid` = **full refund due**. Since TICKET-040 the refund is sent to Stripe automatically (REF-01); the screens below still show the TICKET-029 wording until TICKET-040 step 3 | Pay, then cancel | booking `cancelled`; guest sees "Full refund of €X - processed by the host"; admin chip "Refund due" | `test_cancelling_a_paid_booking_keeps_the_payment`, labels spec | ✓ |
 | CAN-10 | Guest deadline: 48 h before 15:00 check-in; after it only an admin can cancel | Cancel a booking < 48 h away | guest `400` "Online cancellation closed…"; admin `200` | `StatusTransitionTests.test_guest_cancellation_closes_48h_before_check_in` | |
 | CAN-11 | Payments switched off with a page still open → cancel goes ahead | | `200` (logged) | `test_payments_switched_off_with_a_page_open` | |
 
@@ -2712,6 +2713,124 @@ demo admin. **All passed**; the two issues found are fixed (below).
 - Environment finding: the Stripe sandbox had **Managed Payments** on by
   default, which broke `stripe trigger`; our sessions now always turn it off
   (CFG-05) and it was switched off in the Dashboard too.
+
+## Refunds (TICKET-040)
+
+**Policy (agreed):** cancelling a booking that was **paid** always refunds
+the **full amount**. Guests can only cancel before the 48-hour deadline
+(TICKET-015), so every guest cancellation that reaches this point is
+refundable; **admins** can cancel any time and it is always a full refund.
+Money that arrives **after** a booking was cancelled (e.g. a delayed
+payment that settled late) is refunded automatically too. There are no
+partial refunds or fees.
+
+**Build steps:**
+
+1. Model + refund logic + hook into the cancel - **done** (this section).
+2. Webhook refund events (`refund.updated`, `refund.failed`,
+   `charge.refunded`), the admin **Refund now** endpoint and the
+   `sync_refunds` command.
+3. Frontend: guest texts, admin chips and the Refund now button.
+4. Docker `stripe-cli` events + Render settings + docs.
+5. Local end-to-end run → push → Render end-to-end run → done.
+
+### Refund fields on `Payment` (migration `payments/0004_refunds.py`)
+
+The refund is tracked **beside** the payment: the payment itself stays
+`paid` (the guest did pay), and these fields say where the money back is.
+
+| Field | Notes |
+| --- | --- |
+| `refund_status` | `none` (default) → `pending` (asked for, not confirmed yet) → `refunded`, or `failed` |
+| `refund_amount` | Always the full `amount` |
+| `stripe_refund_id` | Stripe's `re_...` id once Stripe accepted the request |
+| `refund_attempt` | Part of the idempotency key `booking-<id>-refund-<attempt>`; goes up only when Stripe created a refund that then **failed**, so a retry is a genuinely new refund |
+| `refund_requested_at`, `refunded_at` | Timestamps (`refunded_at` is set by the webhook, step 2) |
+| `refund_failure_reason` | Why it failed - shown to **admins only** |
+
+### How a refund happens (`payments/refunds.py`)
+
+Two halves, like checkout:
+
+1. **`request_refund(payment)`** runs **inside** the transaction that
+   cancels the booking, with the booking and payment rows locked. If the
+   payment is `paid` and no refund is already `pending`/`refunded`, it sets
+   `refund_status = pending`, the full amount and the request time. It
+   returns whether a refund needs sending - so a double click or a second
+   cancel can never start a second refund.
+2. **`send_refund(booking_id)`** runs **after** that transaction has
+   committed, with **no DB lock held** while talking to Stripe. It calls
+   `client.v1.refunds.create(params={payment_intent, reason:
+   "requested_by_customer", metadata: {booking_id, payment_id}},
+   options={"idempotency_key": "booking-<id>-refund-<attempt>"})` - no
+   `amount`, so Stripe refunds the whole PaymentIntent. It stores the
+   returned `re_...` id and **never raises**.
+
+Stripe's answer is **not** taken as "refunded" - the webhook confirms it
+(step 2), the same principle as payments. The cancellation is **never
+blocked or rolled back** because of Stripe: if the refund can't be sent,
+the booking is still cancelled and the refund is marked `failed`:
+
+| What went wrong | Stored reason (admin only) | Attempt | Retry |
+| --- | --- | --- | --- |
+| Stripe unreachable | "Couldn't reach Stripe." | same | identical request, same key - if Stripe did create it the first time it just returns it |
+| Key lacks the refund permission | "…needs 'Charges and Refunds: Write'" | same | same key, after fixing the key |
+| Stripe refused the request | Stripe's message | same | same key |
+| Payments switched off | "Online payments are switched off…" | same | same key |
+| No PaymentIntent recorded | "No Stripe payment is recorded for this booking." | same | - (Stripe isn't called) |
+| Stripe created the refund but reports it `failed`/`canceled` (e.g. the card was closed) | Stripe's `failure_reason` | **+1** | a **new** refund with a new key |
+
+Where it's triggered:
+
+- **`PATCH /api/bookings/{id}/`** with `status: cancelled` (guest or admin):
+  `request_refund` inside the locked transaction, `send_refund` right after
+  it. The response already shows the refund block.
+- **Webhook**, a payment that completes for a booking that was already
+  cancelled: the booking stays cancelled, the payment is recorded as `paid`,
+  a warning is logged ("paid after being cancelled - refunding it") and the
+  refund is sent once the webhook's transaction commits
+  (`transaction.on_commit`).
+
+### Refund in the API
+
+Every booking's `payment` block now has a `refund` entry - `null` when
+there's no refund:
+
+```json
+"payment": {
+  "status": "paid", "amount": "364.00", "currency": "eur", "...": "...",
+  "refund": {
+    "status": "pending",
+    "amount": "364.00",
+    "requested_at": "2026-09-27T09:00:00Z",
+    "refunded_at": null,
+    "failure_reason": null
+  }
+}
+```
+
+`failure_reason` is included **for admins only**; guests just see the
+status (the screens will say "the host is arranging your refund").
+
+## Refunds: business rules & test cases (TICKET-040)
+
+Same format as the payment rules above. Step 1 covers REF-01 to REF-11;
+the webhook, Refund now and the screens add rules in steps 2-3.
+
+| ID | Rule | How to test | Expected | Auto | E2E |
+| --- | --- | --- | --- | --- | --- |
+| REF-01 | Guest cancels a **paid** booking (before the deadline) → **full** refund requested at Stripe | Pay, then cancel | `200`; booking `cancelled`, payment still `paid`, refund `pending` with the full amount and a `re_...` id; one `refunds.create` with key `booking-<id>-refund-1`, no `amount` | `test_guest_cancel_refunds_the_full_amount` | step 5 |
+| REF-02 | **Admin** cancels a paid booking, even inside the 48 h → always a full refund (the guest can't cancel then) | Admin cancels a paid booking < 48 h away | guest `400`, no refund; admin `200`, refund `pending` | `test_admin_cancel_inside_the_deadline_still_refunds` | step 5 |
+| REF-03 | Unpaid booking cancelled → nothing to refund | Book, cancel before paying | `refund: null`; Stripe refunds not called | `test_unpaid_booking_needs_no_refund` | |
+| REF-04 | Stripe unreachable → the cancel **still succeeds**; refund `failed` (same attempt) | | `200`, booking `cancelled`, refund `failed` "Couldn't reach Stripe." | `test_stripe_unreachable_never_blocks_the_cancel` | |
+| REF-05 | Key without refund permission → `failed` with a clear reason | Remove "Charges and Refunds: Write" from the key | reason names the missing permission | `test_key_without_refund_permission` | |
+| REF-06 | Payments switched off → `failed`, cancel still `200` | | as described | `test_payments_switched_off_marks_it_failed` | |
+| REF-07 | No PaymentIntent recorded → `failed`, Stripe not called | | reason "No Stripe payment is recorded…" | `test_no_payment_intent_recorded` | |
+| REF-08 | Stripe reports the refund `failed` → `failed`, attempt **+1**; the retry is a new refund (`…-refund-2`) | | as described | `test_stripe_reports_the_refund_failed_next_try_is_a_new_refund` | |
+| REF-09 | Retry after Stripe was unreachable repeats the **same** key → can never refund twice | | both calls `…-refund-1` | `test_retry_after_stripe_was_unreachable_repeats_the_same_request` | |
+| REF-10 | Never twice: a `pending` or `refunded` refund is never requested or sent again | | one `refunds.create` in total | `test_never_refunded_twice` | |
+| REF-11 | Paid **after** being cancelled → stays cancelled, refunded automatically after the webhook commits | Cancel while a delayed payment settles | booking `cancelled`, payment `paid`, refund `pending` | `test_paid_after_cancelled_stays_cancelled_and_is_refunded` | |
+| REF-12 | Only admins see why a refund failed | GET the booking as admin / guest | admin has `failure_reason`; guest's block has no such key | `test_admin_sees_why_a_refund_failed` | |
 
 ## Django Admin (dev-only)
 
@@ -3217,6 +3336,9 @@ closing the payment page before a cancel, the frontend (Confirm and pay,
 the return page, Pay now with a live countdown, the admin Payment column),
 the `stripe-cli` forwarder in Docker and the Render setup - all tested end
 to end locally and on Render; see "Payments (Stripe)", "Payments: business
-rules & test cases" and "End-to-end results". Next in Epic 6: TICKET-040
-(automatic refunds, building on the "Refund due" flag) and TICKET-030
+rules & test cases" and "End-to-end results". **TICKET-040 (automatic
+refunds) is in progress:** step 1 (refund fields, the refund service, full
+refund on every paid cancellation, never blocking the cancel) is done -
+185 backend tests pass on Postgres; see "Refunds (TICKET-040)". Next:
+the refund webhook events, Refund now and the screens, then TICKET-030
 (booking-confirmation email).
