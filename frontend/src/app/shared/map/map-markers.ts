@@ -17,6 +17,8 @@ export interface MapMarker<T = unknown> {
    * "approximate location" area guests see (API `location_radius_m`).
    */
   areaRadiusM?: number | null;
+  /** Can be dragged to a new spot - the admin form's pin (emits markerDragEnd). */
+  draggable?: boolean;
   /** Anything the page wants back in markerSelect / the pop-up template. */
   data?: T;
 }

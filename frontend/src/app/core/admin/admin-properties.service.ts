@@ -30,6 +30,9 @@ export interface PropertyWrite {
   amenities: string[];
   is_active: boolean;
   images: PropertyImageInput[];
+  /** Map position - required (TICKET-034 step 7); the API refuses null. */
+  latitude: number;
+  longitude: number;
 }
 
 /**

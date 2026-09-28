@@ -66,6 +66,14 @@
         </mat-slide-toggle>
       </section>
 
+      <!-- TICKET-034 step 7: required map position. -->
+      <section class="card" aria-labelledby="position-heading">
+        <h2 id="position-heading">Map position</h2>
+        <p class="hint">Guests see a ~500 m area around it, never the exact spot. Only admins see the pin.</p>
+        <app-location-picker formControlName="position" [locationText]="form.controls.location.value" />
+        @if (controlError('position'); as e) { <p class="err" role="alert">{{ e }}</p> }
+      </section>
+
       <section class="card">
         <h2>Amenities</h2>
         <app-amenities-picker formControlName="amenities" />

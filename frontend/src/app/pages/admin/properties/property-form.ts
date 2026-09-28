@@ -15,6 +15,7 @@ import { AdminPropertiesService, PropertyImageInput, PropertyWrite } from '../..
 import { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
 import { AmenitiesPickerComponent } from './amenities-picker';
 import { ImagesEditorComponent } from './images-editor';
+import { LocationPickerComponent, MapPosition } from './location-picker';
 
 type LoadStatus = 'loading' | 'ready' | 'notFound' | 'error';
 
@@ -28,6 +29,8 @@ const FIELD_MAP: Record<string, string> = {
   amenities: 'amenities',
   images: 'images',
   is_active: 'isActive',
+  latitude: 'position', // TICKET-034 step 7
+  longitude: 'position',
 };
 
 /** All the strings inside a DRF error value, however nested (e.g. images: [{image: ["Enter a valid URL."]}, {}]). */
@@ -57,6 +60,7 @@ export function flattenMessages(value: unknown): string[] {
     MatSlideToggleModule,
     AmenitiesPickerComponent,
     ImagesEditorComponent,
+    LocationPickerComponent,
   ],
   templateUrl: './property-form.html',
   styleUrl: './property-form.scss',
@@ -89,6 +93,8 @@ export class PropertyFormPage implements HasUnsavedChanges {
     isActive: [true],
     amenities: this.fb.nonNullable.control<string[]>([]),
     images: this.fb.nonNullable.control<PropertyImageInput[]>([]),
+    /** Required map position (TICKET-034 step 7) - set with the map / Find on map. */
+    position: this.fb.control<MapPosition>(null, Validators.required),
   });
 
   constructor() {
@@ -113,6 +119,12 @@ export class PropertyFormPage implements HasUnsavedChanges {
           isActive: p.is_active,
           amenities: p.amenities,
           images: p.images.map((i) => ({ image: i.image, is_cover: i.is_cover })),
+          // Admins get the exact point. An older place may have none yet -
+          // then the form asks for one before saving.
+          position:
+            typeof p.latitude === 'number' && typeof p.longitude === 'number'
+              ? { lat: p.latitude, lng: p.longitude }
+              : null,
         });
         this.originalTitle.set(p.title);
         this.titleService.setTitle(`Edit ${p.title} · Admin · Booking System Demo`);
@@ -150,6 +162,9 @@ export class PropertyFormPage implements HasUnsavedChanges {
       amenities: v.amenities,
       is_active: v.isActive,
       images: v.images,
+      // save() only gets here with a valid form, so the position is set.
+      latitude: v.position!.lat,
+      longitude: v.position!.lng,
     };
   }
 
@@ -182,7 +197,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
     const c = this.form.controls[name];
     if (!c.touched || !c.errors) return null;
     if (c.errors['server']) return c.errors['server'];
-    if (c.errors['required']) return 'Required.';
+    if (c.errors['required']) return name === 'position' ? 'Set the map position: find the address or click the map.' : 'Required.';
     if (c.errors['min']) return name === 'price' ? 'Must be more than €0.' : 'Must be at least 1.';
     if (c.errors['max']) return 'Too large.';
     if (c.errors['maxlength']) return `At most ${c.errors['maxlength'].requiredLength} characters.`;

@@ -11,6 +11,7 @@ form { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
 .banner { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 8px;
   background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
 .err { margin: 6px 0 0; font-size: 13px; color: var(--mat-sys-error); }
+.hint { margin: -4px 0 12px; font-size: 14px; color: var(--mat-sys-on-surface-variant); }
 
 .actions {
   position: sticky;

@@ -732,6 +732,13 @@ test, always last).
     - 4 new tests; **338 frontend tests** pass; production build clean (initial bundle unchanged).
     - Chrome, local app (logged out): section order Availability → Where you'll be → Reviews, 320 px map with one 500 m circle over Thessaloniki, area link (zoom 15, no pin). Admin view covered by tests.
     - README: new "Property detail page → Where you'll be"; layout, status and next steps updated.
+  - Step 7 done (admin form map position):
+    - Decisions: Find on map uses the **best match** straight away; a separate **Find address** box pre-filled from Location; the position is **required**.
+    - Backend (`CoordinatesMixin.validate`): POST/PUT must send both (400 "Every property needs a map position…"), null/"" is refused ("A map position can't be removed - move the pin instead." - replaces step 1's clearing), a PATCH without them still works (Show/Hide on older rows). DB columns stay nullable for older rows; Django Admin (dev tool) not required. +4 tests (one replaces the old clear test).
+    - Frontend: `GeocodeService`; `location-picker.ts` (form control, required): Find address + Find on map / Enter → best match placed at once with "Placed at … (exact address / street / neighbourhood / town centre). Drag the pin to fine-tune."; nothing found / 503 / 429 / offline messages; click the map or drag the pin (no re-zoom), 6-decimal coordinates shown; 340 px map, scroll-wheel zoom off. `<app-map>` gained `draggable` markers + `markerDragEnd`. The form sends `latitude`/`longitude`, loads them on edit, shows server position errors under the card, and an older place without a position must get one before saving.
+    - Bug caught by the tests before shipping: the "nothing found" message cleared itself (the reset effect also tracked the search state) - fixed with `untracked`.
+    - 15 new frontend tests (**353** pass), **392** backend tests pass; production build clean. Browser check of the form moves to step 8 (behind the admin login - with the owner signed in), with the live Find on map.
+    - README: new "Admin properties → Map position"; "Map positions API → Setting a position" (required rules), status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

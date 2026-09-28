@@ -56,7 +56,9 @@ done - `/listings` shows the list and a map side by side on wide screens
 tag; see "Listings map"; step 6 is done - the property page has a
 "Where you'll be" map (a ~500 m circle for guests, the exact pin for
 admins) and an Open in Google Maps link; see "Property detail page → Where
-you'll be". See "Next steps" at the bottom for
+you'll be"; step 7 is done - the admin property form has a **required**
+Map position: Find on map (best match) plus click/drag the pin; see "Admin
+properties → Map position". See "Next steps" at the bottom for
 what's next.
 
 ## Prerequisites
@@ -1429,7 +1431,18 @@ Both coordinates are `null` when the place has no position.
   position → `400 {"longitude": ["Set a longitude too, or clear the
   latitude."]}`; sending only `latitude` to a place that has one just
   moves it.
-- **Clearing.** Send `null` (or `""`) for both.
+- **Required (step 7, the owner's decision):**
+  - `POST` and `PUT` must send both, otherwise `400`:
+    `{"latitude": ["Every property needs a map position - find the
+    address or click the map."], "longitude": [...]}`.
+  - A position **can't be cleared.** `null` or `""` → `400` "A map
+    position can't be removed - move the pin instead." (Step 1 allowed
+    clearing; step 7 replaced that.)
+  - A `PATCH` that doesn't send them is still fine, so **Show/Hide** and
+    other quick edits keep working on an older place saved before
+    positions existed. The admin form itself always sends them.
+  - The database columns stay nullable for those older rows. Django Admin
+    (the dev tool) doesn't require them either.
 - **Rejected with `400`:** latitude outside -90..90, longitude outside
   -180..180, `"abc"`, `NaN`, `Infinity`, `true`.
 - Guests can't write (`403`, like every other property field).
@@ -3136,8 +3149,11 @@ backend's `IsAdminOrReadOnly` is what actually allows the writes;
   - broken URLs show a "Couldn't load this image" warning
   - URLs only for now. Real uploads to S3 are TICKET-036, which only
     needs to replace the "add" part of this component.
+- **Map position** (`location-picker.ts`, a form control, TICKET-034
+  step 7) - see "Map position" below.
 - **Saving:**
-  - new properties are `POST`ed; edits are `PATCH`ed with the full body.
+  - new properties are `POST`ed; edits are `PATCH`ed with the full body
+    (including `latitude`/`longitude`).
     The backend then **replaces** the image set with the list as shown,
     in this order.
   - the button shows a spinner and blocks double-submits
@@ -3151,6 +3167,85 @@ backend's `IsAdminOrReadOnly` is what actually allows the writes;
 - **States:** loading, "This property doesn't exist." for an unknown id,
   and an error with Try again. Edit mode has a **View public page**
   link.
+
+### Map position (TICKET-034 step 7)
+
+A **Map position** card between Details and Amenities. The hint above it
+reads: "Guests see a ~500 m area around it, never the exact spot. Only
+admins see the pin."
+
+**Decisions (agreed before building):**
+
+- **Find on map uses the best match straight away.** There's no list to
+  choose from.
+- **A separate "Find address" box, pre-filled from Location.** You can
+  search for "Tsimiski 45, Thessaloniki" without changing the public
+  Location ("Thessaloniki, Greece").
+- **A position is required.**
+
+**How it works:**
+
+- **Find address + Find on map** (or Enter):
+  - The box shows the Location field's text until you type in it. After
+    that, it keeps your text.
+  - The search is `GET /api/admin/geocode/` (see "Admin place search
+    API"). The **first (best) result** is used at once: the pin moves
+    there, the map zooms to it (zoom 16), and the page says which place
+    it picked, e.g. "Placed at 45, Tsimiski, Center, Thessaloniki, 546 23,
+    Greece (exact address). Drag the pin to fine-tune."
+  - The precision labels are exact address, street, neighbourhood /
+    village and town centre.
+- **Nothing found:** "No place in Greece matched "…". Try a street and
+  town, or click the map." The pin stays where it was.
+- **Search unavailable (`503`):** the server's message is shown ("Map
+  search isn't available right now…"). Too many searches (`429`) and no
+  connection get their own messages. Clicking the map always works.
+- **Click the map** to place the pin, and **drag the pin** to adjust.
+  Both keep the map where you're looking, with no re-zoom. Coordinates
+  are rounded to 6 decimals and shown under the map ("40.632711,
+  22.943158").
+- **The map:**
+  - The shared `<app-map>` with an exact, draggable round pin (the new
+    `draggable` marker option and `markerDragEnd` output).
+  - It's 340 px high. Scroll-wheel zoom is off, so the page still scrolls.
+  - With no position yet, it shows all of Greece and "Find the address,
+    or click the map to place the pin."
+- **Required:**
+  - Saving without a position shows "Set the map position: find the
+    address or click the map." under the card, and nothing is sent.
+  - An older place that has no position opens with an empty map and has
+    to get one before it can be saved.
+- **Errors from the server:** a `latitude` or `longitude` error from the
+  API lands under the card, e.g. "A map position can't be removed - move
+  the pin instead.".
+
+**Tests:**
+
+- `location-picker.spec.ts` has 11 tests:
+  - the empty state and the address following Location until you type
+  - best match placed and labelled, with a refit
+  - Enter searches
+  - nothing found
+  - `503` and `429` messages
+  - click → rounded position without a refit
+  - drag
+  - required
+  - disabled
+  - rounding
+- `property-form.spec.ts`: position required on create, the body carries
+  `latitude`/`longitude`, it loads on edit, the server's position error
+  shows under the card, and an older place must get a position (+2
+  tests).
+- `geocode.service.spec.ts`: 1 test.
+- `map.spec.ts`: the draggable marker → `markerDragEnd` (+1 test).
+- Backend: required on `POST`/`PUT`, can't be cleared, a `PATCH` without
+  a position still works on older rows (+4 tests, one of them replacing
+  the old "clear" test).
+- **Results:** **353** frontend and **392** backend tests pass, and the
+  production build is clean.
+- **In the browser:** this form is behind the admin login, so it's
+  checked in Chrome in step 8 (with the owner signed in), together with a
+  live Find on map against Nominatim.
 
 ### Backend addition
 
@@ -5710,5 +5805,9 @@ softened OpenStreetMap because CARTO now needs a key) is done; see
 you'll be": a compact map with the 500 m circle for guests / the exact pin
 for admins, the privacy note, and Open in Google Maps - the area for
 guests, a pin for admins) is done; see "Property detail page → Where
-you'll be". Next: step 7, the map in the admin property form (click/drag to
-place, Find on map).
+you'll be"; step 7 (the admin form's required Map position: a Find address
+box pre-filled from Location → the best match is placed at once, click
+the map / drag the pin, and the API now requires a position on
+create/replace and refuses to clear it) is done; see "Admin properties →
+Map position". Next: step 8, the final check (tests, a fresh database,
+Chrome as admin - including a live Find on map - and Render).

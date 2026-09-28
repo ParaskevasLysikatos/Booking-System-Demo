@@ -7,12 +7,15 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { PropertyDetail } from '../../../core/properties/property.models';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
+import { MapLoader } from '../../../shared/map/map-loader';
 import { PropertyFormPage, flattenMessages } from './property-form';
 
 const detail = (): PropertyDetail => ({
   id: 5, title: 'Harbour Loft', location: 'Chania, Greece', price_per_night: '91.50', capacity: 3,
   amenities: ['wifi', 'hot_tub'], is_active: true, cover_image: 'https://img.test/b.jpg', rating_avg: null, review_count: 0,
   description: 'Lovely.', created_at: '', updated_at: '', availability: { booked_ranges: [] },
+  // admins get the exact point (TICKET-034)
+  latitude: 35.5173, longitude: 24.0178, location_is_approximate: false, location_radius_m: null,
   images: [
     { id: 1, image: 'https://img.test/a.jpg', is_cover: false },
     { id: 2, image: 'https://img.test/b.jpg', is_cover: true },
@@ -33,6 +36,8 @@ describe('PropertyFormPage', () => {
           { path: 'admin/properties/new', component: PropertyFormPage },
           { path: 'admin/properties/:id/edit', component: PropertyFormPage },
         ]),
+        // The map is tested in shared/map; here it never finishes loading.
+        { provide: MapLoader, useValue: { load: () => new Promise(() => undefined) } },
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -55,10 +60,13 @@ describe('PropertyFormPage', () => {
     http.expectNone(PROPERTIES_URL);
     expect(page.error()).toBe('Please fix the highlighted fields.');
     expect(page.controlError('title')).toBe('Required.');
+    // TICKET-034 step 7: the map position is required too
+    expect(page.controlError('position')).toBe('Set the map position: find the address or click the map.');
 
     page.form.patchValue({
       title: ' Harbour Loft ', location: 'Chania, Greece', description: '', price: 91.5, capacity: 3,
       amenities: ['wifi'], images: [{ image: 'https://img.test/a.jpg', is_cover: true }],
+      position: { lat: 35.5173, lng: 24.0178 },
     });
     page.form.markAsDirty();
     expect(page.hasUnsavedChanges()).toBe(true);
@@ -67,6 +75,7 @@ describe('PropertyFormPage', () => {
     expect(req.request.body).toEqual({
       title: 'Harbour Loft', location: 'Chania, Greece', description: '', price_per_night: '91.50', capacity: 3,
       amenities: ['wifi'], is_active: true, images: [{ image: 'https://img.test/a.jpg', is_cover: true }],
+      latitude: 35.5173, longitude: 24.0178,
     });
     req.flush({ ...detail(), id: 9 });
     expect(page.hasUnsavedChanges()).toBe(false); // so the guard lets us leave
@@ -77,7 +86,10 @@ describe('PropertyFormPage', () => {
     const page = await open('/admin/properties/5/edit');
     http.expectOne(`${PROPERTIES_URL}5/`).flush(detail());
     harness.detectChanges();
-    expect(page.form.getRawValue()).toMatchObject({ title: 'Harbour Loft', price: 91.5, capacity: 3, amenities: ['wifi', 'hot_tub'] });
+    expect(page.form.getRawValue()).toMatchObject({
+      title: 'Harbour Loft', price: 91.5, capacity: 3, amenities: ['wifi', 'hot_tub'],
+      position: { lat: 35.5173, lng: 24.0178 },
+    });
     expect(page.form.dirty).toBe(false);
 
     page.form.controls.price.setValue(99);
@@ -85,6 +97,7 @@ describe('PropertyFormPage', () => {
     page.save();
     const req = http.expectOne({ url: `${PROPERTIES_URL}5/`, method: 'PATCH' });
     expect(req.request.body.price_per_night).toBe('99.00');
+    expect([req.request.body.latitude, req.request.body.longitude]).toEqual([35.5173, 24.0178]);
     expect(req.request.body.images).toEqual([
       { image: 'https://img.test/a.jpg', is_cover: false },
       { image: 'https://img.test/b.jpg', is_cover: true },
@@ -103,6 +116,32 @@ describe('PropertyFormPage', () => {
     expect(page.controlError('price')).toBe('Ensure this value is greater than or equal to 0.01.');
     expect(page.controlError('images')).toBe('Enter a valid URL.');
     expect(page.saving()).toBe(false);
+  });
+
+  it("a map-position error from the server lands under Map position", async () => {
+    const page = await open('/admin/properties/5/edit');
+    http.expectOne(`${PROPERTIES_URL}5/`).flush(detail());
+    page.save();
+    http.expectOne({ url: `${PROPERTIES_URL}5/`, method: 'PATCH' }).flush(
+      { latitude: ["A map position can't be removed - move the pin instead."] },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    expect(page.controlError('position')).toBe("A map position can't be removed - move the pin instead.");
+  });
+
+  it('an older place without a position must get one before saving', async () => {
+    const page = await open('/admin/properties/5/edit');
+    http.expectOne(`${PROPERTIES_URL}5/`).flush({ ...detail(), latitude: null, longitude: null });
+    harness.detectChanges();
+    expect(page.form.controls.position.value).toBeNull();
+    page.save();
+    http.expectNone(`${PROPERTIES_URL}5/`);
+    expect(page.controlError('position')).toBe('Set the map position: find the address or click the map.');
+    const el = harness.routeNativeElement as HTMLElement;
+    harness.detectChanges();
+    expect(el.textContent).toContain('Set the map position: find the address or click the map.');
+    // the Location field pre-fills the address box
+    expect(el.querySelector<HTMLInputElement>('app-location-picker input')!.value).toBe('Chania, Greece');
   });
 
   it('unknown id -> not found', async () => {

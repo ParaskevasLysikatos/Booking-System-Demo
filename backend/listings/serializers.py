@@ -92,7 +92,8 @@ class CoordinatesMixin(serializers.Serializer):
     context["exact_location"]); for everyone else an approximate point
     100-400 m away (listings/geo.py), with `location_is_approximate: true`
     and `location_radius_m: 500` - the circle the map draws, which always
-    contains the real point. null / null when the property has no position."""
+    contains the real point. null / null when the property has no position
+    (only older rows - writes require one since step 7, see validate())."""
 
     latitude = CoordinateField(min_value=-90, max_value=90)
     longitude = CoordinateField(min_value=-180, max_value=180)
@@ -116,11 +117,29 @@ class CoordinatesMixin(serializers.Serializer):
             )
         return data
 
+    POSITION_REQUIRED = "Every property needs a map position - find the address or click the map."
+    POSITION_KEPT = "A map position can't be removed - move the pin instead."
+
     def validate(self, attrs):
-        # Both or neither - taking the stored value for a field a PATCH
-        # leaves out.
         attrs = super().validate(attrs)
 
+        # TICKET-034 step 7 (owner's decision): a map position is required.
+        # - Creating (POST) and replacing (PUT) must send both.
+        # - A position can never be cleared (null / "").
+        # - A PATCH that doesn't touch it is fine, so e.g. Show/Hide still
+        #   works on an older place saved before positions existed.
+        # The DB columns stay nullable for those older rows.
+        errors = {}
+        for name in ("latitude", "longitude"):
+            if name in attrs and attrs[name] is None:
+                errors[name] = [self.POSITION_KEPT if self.instance is not None else self.POSITION_REQUIRED]
+            elif not self.partial and name not in attrs:
+                errors[name] = [self.POSITION_REQUIRED]
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        # Both or neither - taking the stored value for a field a PATCH
+        # leaves out.
         def final(name):
             return attrs[name] if name in attrs else getattr(self.instance, name, None)
 

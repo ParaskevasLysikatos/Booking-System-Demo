@@ -52,7 +52,8 @@ export type MapStatus = 'loading' | 'ready' | 'error';
  *   its cluster bubble when it's inside one.
  * - Clicking a marker emits `markerSelect` and, if the page gives an
  *   `<ng-template>`, opens a pop-up with it (context: the marker).
- * - Clicking the map itself emits `mapClick` (the admin form places its pin).
+ * - Clicking the map itself emits `mapClick`, and dropping a `draggable`
+ *   marker emits `markerDragEnd` (the admin form places its pin with both).
  *
  * Give the host element a height (e.g. `app-map { height: 400px }`).
  */
@@ -94,6 +95,8 @@ export class MapComponent<T = unknown> {
 
   readonly markerSelect = output<MapMarker<T>>();
   readonly mapClick = output<LatLng>();
+  /** A `draggable` marker was dropped at a new point. */
+  readonly markerDragEnd = output<{ marker: MapMarker<T> } & LatLng>();
 
   /** Optional pop-up content: `<ng-template let-marker>…</ng-template>`. */
   readonly popupTemplate = contentChild<TemplateRef<{ $implicit: MapMarker<T> }>>(TemplateRef);
@@ -222,7 +225,15 @@ export class MapComponent<T = unknown> {
         title: m.title,
         keyboard: true,
         riseOnHover: true,
+        draggable: !!m.draggable,
+        autoPan: !!m.draggable, // dragging to the edge pans the map
       });
+      if (m.draggable) {
+        marker.on('dragend', () => {
+          const { lat, lng } = marker.getLatLng();
+          this.markerDragEnd.emit({ marker: m, lat, lng });
+        });
+      }
       // Leaflet re-creates the element whenever the marker comes back into
       // view (e.g. out of a cluster), so name it on every 'add'.
       marker.on('add', () => marker.getElement()?.setAttribute('aria-label', m.title));

@@ -248,6 +248,8 @@ class PropertyWriteTests(PropertyAPITestBase):
         "location": "Kavala, Greece",
         "price_per_night": "95.50",
         "capacity": 3,
+        "latitude": 40.9396,  # Kavala - a map position is required (TICKET-034 step 7)
+        "longitude": 24.4069,
         "amenities": ["wifi", " WiFi ", "parking", ""],
         "images": [
             {"image": "https://img.test/1.jpg"},
@@ -518,14 +520,42 @@ class CoordinateAPITests(PropertyAPITestBase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("longitude", resp.data)
 
-    def test_clear_both_with_null_or_blank(self):
+    def test_position_cannot_be_cleared(self):
+        # step 7: required, so null / "" is refused (it was allowed in step 1)
         for empty in (None, ""):
-            Property.objects.filter(pk=self.thess.pk).update(latitude=THESS_LAT, longitude=THESS_LNG)
             resp = self.patch(self.thess, {"latitude": empty, "longitude": empty})
-            self.assertEqual(resp.status_code, 200, resp.data)
+            self.assertEqual(resp.status_code, 400, resp.data)
+            self.assertIn("can't be removed", resp.data["latitude"][0])
+            self.assertIn("longitude", resp.data)
             self.thess.refresh_from_db()
-            self.assertIsNone(self.thess.latitude)
-            self.assertIsNone(self.thess.longitude)
+            self.assertEqual((self.thess.latitude, self.thess.longitude), (THESS_LAT, THESS_LNG))
+
+    def base_payload(self, **extra):
+        return {"title": "Map Loft", "location": "Volos, Greece", "price_per_night": "70.00", "capacity": 2, **extra}
+
+    def test_create_requires_a_position(self):
+        self.client.force_authenticate(self.admin)
+        for payload in (self.base_payload(), self.base_payload(latitude=None, longitude=None)):
+            resp = self.client.post(LIST_URL, payload, format="json")
+            self.assertEqual(resp.status_code, 400, resp.data)
+            self.assertIn("needs a map position", resp.data["latitude"][0])
+            self.assertIn("longitude", resp.data)
+        self.assertFalse(Property.objects.filter(title="Map Loft").exists())
+
+    def test_put_requires_a_position(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.put(detail_url(self.thess.pk), self.base_payload(), format="json")
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertEqual(set(resp.data), {"latitude", "longitude"})
+        resp = self.client.put(detail_url(self.thess.pk), self.base_payload(latitude=39.37, longitude=22.94), format="json")
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+    def test_patch_without_position_still_works_on_older_rows(self):
+        # the athens row predates positions: Show/Hide and other quick
+        # edits must not be blocked
+        self.assertIsNone(self.athens.latitude)
+        for payload in ({"is_active": False}, {"is_active": True}, {"title": "Athens Flat 2"}):
+            self.assertEqual(self.patch(self.athens, payload).status_code, 200)
 
     def test_bad_values_are_rejected(self):
         for payload in (

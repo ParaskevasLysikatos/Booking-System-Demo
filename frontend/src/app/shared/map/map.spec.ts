@@ -33,6 +33,7 @@ const CHANIA: MapMarker = { id: 3, lat: 35.512, lng: 24.02, title: 'Chania Villa
       [highlightedId]="highlighted()"
       (markerSelect)="selected.push($event)"
       (mapClick)="clicks.push($event)"
+      (markerDragEnd)="drops.push($event)"
     >
       <ng-template let-marker><a class="test-popup">{{ marker.title }}</a></ng-template>
     </app-map>
@@ -44,6 +45,7 @@ class HostComponent {
   readonly highlighted = signal<number | null>(null);
   readonly selected: MapMarker[] = [];
   readonly clicks: { lat: number; lng: number }[] = [];
+  readonly drops: ({ marker: MapMarker } & { lat: number; lng: number })[] = [];
 }
 
 describe('MapComponent', () => {
@@ -230,6 +232,23 @@ describe('MapComponent', () => {
     const L = (globalThis as unknown as { L: LeafletApi }).L;
     leaflet().fire('click', { latlng: L.latLng(39.1, 22.2) });
     expect(host.clicks).toEqual([{ lat: 39.1, lng: 22.2 }]);
+  });
+
+  it('lets a draggable marker be dropped somewhere else (markerDragEnd)', async () => {
+    host.markers.set([{ id: 'pin', lat: 40.6, lng: 22.9, title: 'Map position', draggable: true }, CHANIA]);
+    await ready();
+    const L = (globalThis as unknown as { L: LeafletApi }).L;
+    const markers: Leaflet.Marker[] = [];
+    leaflet().eachLayer((l) => {
+      if (l instanceof L.Marker) markers.push(l);
+    });
+    const pin = markers.find((m) => m.options.title === 'Map position')!;
+    const other = markers.find((m) => m.options.title !== 'Map position')!;
+    expect(pin.dragging?.enabled()).toBe(true);
+    expect(other.dragging?.enabled()).toBe(false);
+    pin.setLatLng([40.61, 22.95]);
+    pin.fire('dragend');
+    expect(host.drops).toEqual([{ marker: expect.objectContaining({ id: 'pin' }), lat: 40.61, lng: 22.95 }]);
   });
 
   it('shows an error with Try again when the map code fails to load', async () => {
