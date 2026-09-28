@@ -54,6 +54,19 @@ describe('AdminPropertyListPage', () => {
     expect(text()).toContain('Retired');
   });
 
+  it('shows how many guests saved each place (TICKET-033), also in the phone card line', async () => {
+    await open();
+    listReq().flush(page([prop(1, { title: 'Harbour Loft', favorite_count: 3 }), prop(2, { title: 'Old Mill', favorite_count: 1 }), prop(3, { title: 'New Barn' })]));
+    harness.detectChanges();
+    const el = harness.routeNativeElement as HTMLElement;
+    expect([...el.querySelectorAll('th')].map((t) => t.textContent!.trim())).toContain('Saved by');
+    const cells = [...el.querySelectorAll('td.saved')];
+    expect(cells.map((c) => c.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['favorite3', 'favorite1', 'favorite_border0']);
+    expect(cells.map((c) => c.getAttribute('aria-label'))).toEqual(['Saved by 3 guests', 'Saved by 1 guest', 'Saved by 0 guests']);
+    expect(cells[2].classList).toContain('none');
+    expect(el.querySelector('.card-meta')!.textContent).toContain('· Saved by 3 guests');
+  });
+
   it('status, sort and search go through the URL', async () => {
     const pageCmp = await open('/admin/properties?status=retired&search=mill&ordering=-price');
     expect(listReq().request.params.toString()).toBe('is_active=false&search=mill&ordering=-price&page_size=12');

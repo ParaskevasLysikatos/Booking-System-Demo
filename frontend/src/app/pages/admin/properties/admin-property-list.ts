@@ -72,7 +72,7 @@ export class AdminPropertyListPage {
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
 
-  readonly columns = ['photo', 'title', 'location', 'price', 'capacity', 'rating', 'status', 'actions'];
+  readonly columns = ['photo', 'title', 'location', 'price', 'capacity', 'rating', 'saved', 'status', 'actions'];
   readonly pageSize = ADMIN_PAGE_SIZE;
   readonly formatPrice = formatPrice;
   readonly sortOptions: { value: PropertyOrdering; label: string }[] = [
@@ -145,6 +145,16 @@ export class AdminPropertyListPage {
 
   reactivate(p: PropertySummary): void {
     this.run(p, this.api.reactivate(p.id), `"${p.title}" is active again.`);
+  }
+
+  /** How many accounts saved it (TICKET-033) - admin responses carry `favorite_count`. */
+  savedBy(p: PropertySummary): number {
+    return p.favorite_count ?? 0;
+  }
+
+  savedByLabel(p: PropertySummary): string {
+    const n = this.savedBy(p);
+    return `Saved by ${n} ${n === 1 ? 'guest' : 'guests'}`;
   }
 
   rating(p: PropertySummary): string {

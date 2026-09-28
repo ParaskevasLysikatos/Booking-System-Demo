@@ -673,6 +673,10 @@ test, always last).
     - A page emptied here refills from the server (or steps back a page) once the Undo bar is gone; skeleton, error + Try again, empty state + Browse stays.
     - 15 new tests (297 frontend tests pass); production build clean. Browser check against the real API at 1280 and 390 px: 24/24.
     - README: new "Saved page (Angular, TICKET-033)"; status, layout, toolbar and next steps updated.
+  - Step 4 done (admin "Saved by"):
+    - Admin Properties table: a **Saved by** column (♥ N, grey ♡ 0 when nobody saved it; screen readers: "Saved by 3 guests") from the admin-only `favorite_count`; tablets/phones: "· Saved by N guests" in the card line.
+    - 1 new test (298 frontend tests pass); production build clean. Browser check as the demo admin against the real API: every row matches the API at 1280/768/390/320 px, the table still fits at 1280 (no sideways scroll), no page scroll on phones: 14/14.
+    - README: "Admin properties" columns, status and next steps updated.
 
 - [ ] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018

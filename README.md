@@ -38,7 +38,8 @@ see how many accounts saved each place (see "Favorites API") - and every
 listing card and the property page have a **heart** to save a place
 (logged out, it goes through login and saves afterwards; see "Favorites:
 the heart") - and a **Saved** page (`/favorites`) lists them, with Undo,
-and places that were deactivated greyed out (see "Saved page"). See "Next
+and places that were deactivated greyed out (see "Saved page"). Admins see
+how many guests saved each place ("Saved by" in admin Properties). See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -2382,8 +2383,12 @@ backend's `IsAdminOrReadOnly` is what actually allows the writes;
   (`AdminPropertiesService.list()`). Unlike the public listings, it
   doesn't force `is_active=true`.
 - **Columns:** cover thumbnail, title (links to Edit), location, €/night,
-  sleeps, rating ("★ 4.5 (2)" or "New"), a **status chip** (Active /
-  Retired, with retired rows greyed), and actions.
+  sleeps, rating ("★ 4.5 (2)" or "New"), **Saved by** (TICKET-033: ♥ N,
+  how many guests saved the place - a pink heart when N > 0, a grey ♡ 0
+  otherwise; screen readers hear "Saved by 3 guests"; it comes from the
+  API's admin-only `favorite_count`), a **status chip** (Active /
+  Retired, with retired rows greyed), and actions. On tablets and phones
+  (cards) the line under the title ends with "· Saved by 3 guests".
 - **Filters, all in the URL** (`?status=retired&search=corfu&ordering=-price&page=2`):
   - status **All / Active / Retired**
   - search box over **title or location**, applied 300 ms after you stop
@@ -4914,4 +4919,6 @@ card and `favorite_count` for admins) is done; see "Favorites API
 page, with logged-out → login → saved) is done; see "Favorites: the
 heart"; step 3 (the `/favorites` Saved page: Saved in the toolbar and the
 account menu, Undo, deactivated places greyed out with Remove) is done;
-see "Saved page". Next: step 4 (admin "Saved by N").
+see "Saved page"; step 4 (a "Saved by" column in admin Properties, and
+"Saved by N guests" on the tablet/phone cards) is done; see "Admin
+properties". Next: step 5 (seed some favorites, final check, Render).

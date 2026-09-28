@@ -63,7 +63,7 @@
             <td mat-cell *matCellDef="let p" class="title-cell">
               <a class="title" [routerLink]="[p.id, 'edit']">{{ p.title }}</a>
               <!-- Card view only (tablets/phones): the numbers columns are hidden there. -->
-              <span class="card-meta">{{ formatPrice(p.price_per_night) }} / night · Sleeps {{ p.capacity }} · {{ rating(p) }}</span>
+              <span class="card-meta">{{ formatPrice(p.price_per_night) }} / night · Sleeps {{ p.capacity }} · {{ rating(p) }} · {{ savedByLabel(p) }}</span>
             </td>
           </ng-container>
           <ng-container matColumnDef="location">
@@ -81,6 +81,13 @@
           <ng-container matColumnDef="rating">
             <th mat-header-cell *matHeaderCellDef>Rating</th>
             <td mat-cell *matCellDef="let p" class="stat">{{ rating(p) }}</td>
+          </ng-container>
+          <ng-container matColumnDef="saved">
+            <!-- TICKET-033: how many guests saved (hearted) it. -->
+            <th mat-header-cell *matHeaderCellDef class="num">Saved by</th>
+            <td mat-cell *matCellDef="let p" class="num stat saved" [attr.aria-label]="savedByLabel(p)" [class.none]="!savedBy(p)">
+              <mat-icon aria-hidden="true">{{ savedBy(p) ? 'favorite' : 'favorite_border' }}</mat-icon>{{ savedBy(p) }}
+            </td>
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>Status</th>

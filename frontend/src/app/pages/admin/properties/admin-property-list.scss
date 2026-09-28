@@ -24,6 +24,10 @@ td, th { white-space: nowrap; }
 .retired-row td { color: var(--mat-sys-on-surface-variant); }
 .retired-row .thumb { opacity: 0.5; }
 .actions { text-align: right; }
+/* Saved by (TICKET-033): a small heart before the count, pink when > 0. */
+.saved mat-icon { font-size: 16px; width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; color: #e0245e; }
+.saved.none { color: var(--mat-sys-on-surface-variant); }
+.saved.none mat-icon { color: inherit; }
 .danger { color: var(--mat-sys-error); }
 
 mat-paginator { margin-top: 12px; background: transparent; }
