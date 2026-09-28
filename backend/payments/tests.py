@@ -425,7 +425,7 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
     def test_list_has_payment_blocks_without_extra_queries(self):
         for start in (10, 20, 30):
             self.book_via_api(start, start + 2)
-        with self.assertNumQueries(3):  # count + one page query (payment LEFT JOINed) + images prefetch
+        with self.assertNumQueries(4):  # count + one page query (payment LEFT JOINed) + images prefetch + the caller's reviews (TICKET-032)
             res = self.client.get(reverse("booking-list"))
         self.assertEqual([b["payment"]["status"] for b in res.data["results"]], ["open"] * 3)
 

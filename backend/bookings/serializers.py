@@ -5,6 +5,8 @@ from rest_framework import serializers
 
 from listings.models import Property
 from payments.serializers import payment_summary
+from reviews.models import Review
+from reviews.serializers import MyReviewSerializer
 
 from .models import Booking
 
@@ -35,6 +37,8 @@ class BookingSerializer(serializers.ModelSerializer):
     can_cancel = serializers.SerializerMethodField()
     cancel_deadline = serializers.SerializerMethodField()
     payment = serializers.SerializerMethodField()
+    can_review = serializers.SerializerMethodField()
+    my_review = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -50,6 +54,8 @@ class BookingSerializer(serializers.ModelSerializer):
             "can_cancel",
             "cancel_deadline",
             "payment",
+            "can_review",
+            "my_review",
             "guest_email",
             "created_at",
         ]
@@ -82,6 +88,45 @@ class BookingSerializer(serializers.ModelSerializer):
         15:00 local by default) - so the UI can say "Free cancellation
         until Wed 15:00"."""
         return serializers.DateTimeField().to_representation(obj.cancel_deadline())
+
+    def _my_reviews(self):
+        """The caller's own reviews keyed by property id - one query per
+        response, shared by every row of a list (the context dict is shared
+        by all children of a many=True serializer)."""
+        if "_my_reviews" not in self.context:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            self.context["_my_reviews"] = (
+                {r.property_id: r for r in Review.objects.filter(guest=user)}
+                if user and user.is_authenticated
+                else {}
+            )
+        return self.context["_my_reviews"]
+
+    def _is_own(self, obj):
+        request = self.context.get("request")
+        return bool(request and request.user.is_authenticated and obj.guest_id == request.user.id)
+
+    def get_can_review(self, obj):
+        """True when the caller is this booking's guest, the booking is
+        confirmed, its check-out date has arrived, and they haven't reviewed
+        the property yet (TICKET-032) - drives "Leave a review" in My
+        bookings. Same rule as reviews.models.has_finished_stay."""
+        return (
+            self._is_own(obj)
+            and obj.status == Booking.Status.CONFIRMED
+            and obj.check_out <= timezone.localdate()
+            and obj.property.is_active
+            and obj.property_id not in self._my_reviews()
+        )
+
+    def get_my_review(self, obj):
+        """The caller's review of this booking's property, if they're the
+        guest and have posted one (any of their bookings there)."""
+        if not self._is_own(obj):
+            return None
+        review = self._my_reviews().get(obj.property_id)
+        return MyReviewSerializer(review).data if review else None
 
     def get_payment(self, obj):
         """Online payment state (TICKET-029), or null when this booking

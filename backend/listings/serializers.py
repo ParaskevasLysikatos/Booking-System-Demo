@@ -6,6 +6,9 @@ from rest_framework import serializers
 
 from bookings.models import Booking
 
+from reviews.models import Review, has_finished_stay
+from reviews.serializers import MyReviewSerializer
+
 from .models import Property, PropertyImage
 
 
@@ -75,6 +78,7 @@ class PropertyDetailSerializer(RatingFieldsMixin, serializers.ModelSerializer):
     images = PropertyImageSerializer(many=True, required=False)
     cover_image = serializers.SerializerMethodField()
     availability = serializers.SerializerMethodField()
+    viewer_review = serializers.SerializerMethodField()
     price_per_night = serializers.DecimalField(
         max_digits=8, decimal_places=2, min_value=Decimal("0.01")
     )
@@ -99,6 +103,7 @@ class PropertyDetailSerializer(RatingFieldsMixin, serializers.ModelSerializer):
             "rating_avg",
             "review_count",
             "availability",
+            "viewer_review",
             "created_at",
             "updated_at",
         ]
@@ -131,6 +136,21 @@ class PropertyDetailSerializer(RatingFieldsMixin, serializers.ModelSerializer):
                 obj, dates["check_in"], dates["check_out"]
             ).exists()
         return data
+
+    def get_viewer_review(self, obj):
+        """The caller's relationship to this property's reviews (TICKET-032):
+        `my_review` if they've already posted one (reviews are final), and
+        `can_review` - true only for a logged-in guest with an ended,
+        confirmed stay here and no review yet. Anonymous: false / null."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated):
+            return {"can_review": False, "my_review": None}
+        mine = Review.objects.filter(property=obj, guest=user).first()
+        return {
+            "can_review": mine is None and obj.is_active and has_finished_stay(user, obj.id),
+            "my_review": MyReviewSerializer(mine).data if mine else None,
+        }
 
     # --- write side ------------------------------------------------------
 

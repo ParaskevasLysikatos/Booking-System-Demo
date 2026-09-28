@@ -299,12 +299,13 @@ class Command(BaseCommand):
 
     def _create_reviews(self, fake, properties):
         today = timezone.localdate()
-        # Only guests with a genuine past, non-cancelled stay can review -
-        # mirrors the real-world rule this app will eventually enforce.
+        # Same rule the API enforces (TICKET-032): only a guest whose
+        # *confirmed* stay has ended can review.
         past_bookings = Booking.objects.filter(
             property__in=properties,
             check_out__lte=today,
-        ).exclude(status=Booking.Status.CANCELLED)
+            status=Booking.Status.CONFIRMED,
+        )
 
         for booking in past_bookings:
             rating = random.choices(

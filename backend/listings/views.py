@@ -1,4 +1,4 @@
-from django.db.models import Avg, Count, Prefetch
+from django.db.models import Avg, Count, Prefetch, Q
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
@@ -38,8 +38,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = (
             Property.objects.annotate(
-                rating_avg=Avg("reviews__rating"),
-                review_count=Count("reviews", distinct=True),
+                # Hidden reviews (TICKET-032) don't count.
+                rating_avg=Avg("reviews__rating", filter=Q(reviews__is_hidden=False)),
+                review_count=Count("reviews", filter=Q(reviews__is_hidden=False), distinct=True),
             )
             .prefetch_related(Prefetch("images", queryset=PropertyImage.objects.all()))
             .order_by("-created_at", "-id")

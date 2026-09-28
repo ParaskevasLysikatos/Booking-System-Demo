@@ -141,10 +141,14 @@ backend/
     urls.py            Router for /api/bookings/ + /api/admin/stats/
     tests.py           API + DB-constraint + real concurrency tests (Postgres)
     migrations/        0001_initial.py creates the bookings table; 0002 adds guests + btree_gist + no-overlap constraint
-  reviews/             A guest's rating/comment on a Property (nice-to-have)
-    models.py          Review model (rating 1-5, one review per guest per property)
+  reviews/             A guest's rating/comment on a Property - see "Reviews API (TICKET-032)"
+    models.py          Review model (rating 1-5, one per guest per property, is_hidden) + has_finished_stay() (the review rule)
+    serializers.py     Public review, create (rule checks), the caller's own review, admin row + filters
+    views.py           GET /api/properties/{id}/reviews/ (+ summary), POST /api/reviews/, /api/admin/reviews/ (list, hide/unhide)
+    urls.py            The three routes above
     admin.py           Filterable/searchable Review list (dev-only DB inspection)
-    migrations/        0001_initial.py creates the reviews table
+    tests.py           Rule, public list, create, viewer/booking fields and admin tests
+    migrations/        0001_initial.py creates the reviews table; 0002 adds is_hidden
   payments/            Stripe test-mode Checkout for bookings (TICKET-029)
     models.py          Payment (one per booking: Checkout Session, amount, status, hold expiry) + StripeEvent (webhook de-dup)
     services.py        start_hold() at booking time; start_checkout() - idempotent Checkout Session creation
@@ -371,13 +375,18 @@ established pattern from `PropertyImage`/`Booking`): rating must be 1-5
 (field validators for a friendly `ValidationError`, backstopped by a DB
 `CheckConstraint`), and one review per guest per property (`full_clean()`'s
 built-in uniqueness check, backstopped by a DB `UniqueConstraint`
-`unique_review_per_guest_per_property`) - a guest updates their existing
-review rather than posting duplicates. Verified against a throwaway SQLite
+`unique_review_per_guest_per_property`) - no duplicates (and since
+TICKET-032 reviews are final: no editing either). Verified against a throwaway SQLite
 DB: valid reviews from different guests, both out-of-range ratings and
 duplicate (property, guest) pairs rejected at the application level, and
 both DB constraints rejecting the same bypassing a bulk `.create()`.
 
 Registered in Django Admin with a filterable/searchable list (by rating).
+
+TICKET-032 added `is_hidden` (`BooleanField`, default `False`, migration
+`0002_review_is_hidden`) so an admin can hide a review without deleting
+it, and `Review.objects.visible()` for the public side. See "Reviews API
+(TICKET-032)".
 
 Domain models live in their own apps rather than in `core` (which stays
 infrastructure-only): `listings` holds `Property`/`PropertyImage`,
@@ -583,7 +592,7 @@ Response (paginated, via `core/pagination.py:StandardPagination`):
 ```
 
 `rating_avg` (1 decimal, `null` with no reviews) and `review_count` are SQL
-annotations, and images are prefetched. The whole list page costs a fixed
+annotations that skip reviews an admin has hidden (TICKET-032), and images are prefetched. The whole list page costs a fixed
 3 queries (count, page, images) whatever the page size, and a test checks
 this.
 
@@ -608,6 +617,9 @@ timestamps, and an `availability` block for the TICKET-019 calendar:
 so a calendar should treat each range as `[check_in, check_out)`. Add
 `?check_in=&check_out=` (same validation as the list filter) and the block
 also answers `is_available` for that exact stay.
+
+It also has a `viewer_review` block, `{"can_review": ..., "my_review": ...}`,
+for the caller (TICKET-032, see "Reviews API").
 
 ### Writing (admin)
 
@@ -727,11 +739,15 @@ Response (`201`, the same shape every endpoint returns):
  "cancel_deadline": "2026-10-31T15:00:00+02:00",
  "payment": {"status": "open", "amount": "320.00", "currency": "eur",
              "expires_at": "2026-10-01T18:32:00+03:00", "paid_at": null, "can_pay": true},
+ "can_review": false, "my_review": null,
  "guest_email": null, "created_at": "..."}
 ```
 
 `payment` is `null` for a booking that doesn't take online payment
 (seeded, or booked while payments were off) - see "Payments (Stripe)".
+
+`can_review` / `my_review` drive the "Leave a review" button (TICKET-032,
+see "Reviews API").
 
 `guest_email` is only filled in for admins. `can_cancel` tells the
 frontend whether the *current caller* may cancel right now, so it can
@@ -1051,6 +1067,115 @@ hand-built data with every number worked out by hand:
 - all the bad-parameter `400`s, and 366 days allowed
 - `401`/`403`
 - a constant query count
+
+## Reviews API (TICKET-032)
+
+Guests rate a place 1-5 stars (with an optional comment) after they've
+stayed there; everyone can read the reviews under a property; admins can
+hide a review. Code: `backend/reviews/` (`models.py`, `serializers.py`,
+`views.py`, `urls.py`, `tests.py`).
+
+### Business rules
+
+| Rule | How it's enforced |
+| --- | --- |
+| **Who can review:** a logged-in guest with a **confirmed** booking at that property whose **check-out date has arrived** (check-out today counts) | `reviews.models.has_finished_stay()`, checked in `ReviewCreateSerializer.validate()`. Pending (unpaid), cancelled, future and in-progress stays never count. |
+| **One review per guest per property** | Checked in `validate()`; the DB `UniqueConstraint` (from TICKET-009) is the backstop - two quick submits that both pass validation get a `400`, never a `500` (the `IntegrityError` is caught). |
+| **Reviews are final** | There is no edit or delete: `/api/reviews/` only accepts `POST`. A guest with several stays at the same place still has one review. |
+| **Rating 1-5, comment optional (max 1,000 characters)** | Serializer validation (the DB `CheckConstraint` is the backstop for the rating). The comment is trimmed. |
+| **Only active properties** | Reviewing a retired property is a `400`; its reviews list is a `404` for everyone but admins (same as the property page). |
+| **Admins hide, not delete** | `Review.is_hidden` (migration `0002_review_is_hidden`). A hidden review disappears from the public list **and** from `rating_avg`/`review_count` everywhere (cards, detail, admin properties table). The guest still can't post a second one, and still sees their own rating. Unhide puts it back. |
+| **Privacy** | Reviewers are shown as first name + last initial (`Maria K.`), or `Guest` without a first name. Emails appear only in the admin list. |
+
+### Endpoints
+
+| Method | URL | Who | What |
+| --- | --- | --- | --- |
+| `GET` | `/api/properties/{id}/reviews/` | anyone | Visible reviews, newest first, **5 per page** (`?page=`, `?page_size=` up to 50), plus a `summary` over all visible reviews |
+| `POST` | `/api/reviews/` | logged in | `{property, rating, comment?}` → `201` with the review; `400` if not allowed |
+| `GET` | `/api/admin/reviews/` | admin | Every review incl. hidden, newest first, 12 per page. Filters: `?rating=1-5`, `?property=<id>`, `?hidden=true\|false`, `?search=` (property title, guest email/name, comment) |
+| `PATCH` | `/api/admin/reviews/{id}/` | admin | `{"is_hidden": true\|false}` - the only writable field (anything else is ignored). No `PUT`/`DELETE` (`405`). |
+
+Public list response:
+
+```json
+{
+  "count": 7, "next": ".../reviews/?page=2", "previous": null,
+  "results": [
+    {"id": 41, "rating": 5, "comment": "Spotless and central.", "author_name": "Maria K.",
+     "created_at": "2026-09-20T10:12:00Z"}
+  ],
+  "summary": {
+    "rating_avg": 4.3, "review_count": 7,
+    "breakdown": [{"rating": 5, "count": 4}, {"rating": 4, "count": 1}, {"rating": 3, "count": 2},
+                  {"rating": 2, "count": 0}, {"rating": 1, "count": 0}]
+  }
+}
+```
+
+Errors from `POST /api/reviews/` (shown by the frontend as the form's
+general message):
+
+- `"You can review a place once a confirmed stay there has ended."`
+- `"You've already reviewed this place."`
+
+### What the frontend uses to show the buttons
+
+So the frontend never re-implements the rule, two existing responses gained
+fields (both computed for the **caller**):
+
+- **Property detail** (`GET /api/properties/{id}/`) - `viewer_review`:
+  `{"can_review": true|false, "my_review": {id, rating, comment, created_at} | null}`.
+  Anonymous callers always get `false` / `null`.
+- **Each booking** (`GET /api/bookings/`) - `can_review` (this is my
+  booking, it's confirmed, check-out has arrived, and I haven't reviewed
+  the place) and `my_review` (my review of that property, from any of my
+  stays there). An admin looking at someone else's booking gets `false` /
+  `null`. The caller's reviews are loaded **once per response** (one extra
+  query, not one per row) - a test checks the query count doesn't grow with
+  the number of bookings.
+
+### Try it with curl
+
+```bash
+# Anyone: the reviews under property 1
+curl http://localhost:8000/api/properties/1/reviews/
+
+# A guest with an ended, confirmed stay at property 1
+curl -X POST http://localhost:8000/api/reviews/ \
+  -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json" \
+  -d '{"property": 1, "rating": 5, "comment": "Lovely view"}'
+
+# Admin: hidden reviews only, then hide review 41
+curl "http://localhost:8000/api/admin/reviews/?hidden=true" -H "Authorization: Bearer $ADMIN_ACCESS"
+curl -X PATCH http://localhost:8000/api/admin/reviews/41/ \
+  -H "Authorization: Bearer $ADMIN_ACCESS" -H "Content-Type: application/json" -d '{"is_hidden": true}'
+```
+
+### Tests
+
+`docker compose exec backend python manage.py test reviews` - 37 tests:
+
+- the name format (`Maria K.`, first name only, `Guest`)
+- the stay rule: confirmed + ended counts (check-out today too); pending,
+  cancelled, future, in-progress, another property or another guest don't
+- public list: hidden excluded, newest first, no emails, the summary and
+  breakdown, 5 per page with the summary over all pages, `404` for a
+  retired or unknown property (admin still sees a retired one), a fixed
+  query count
+- hidden reviews left out of `rating_avg`/`review_count` on the list and
+  the detail
+- posting: `401` anonymous, `201` after a stay (comment trimmed, optional,
+  `guest` in the body ignored), `400` for each not-allowed stay, a second
+  review (even if the first is hidden), bad rating/comment/property, a
+  retired property, and the race (`IntegrityError` → `400`)
+- reviews are final: no `GET`/`PUT`/`PATCH`/`DELETE`
+- `viewer_review` for anonymous, no stay, eligible, then after posting
+- bookings: `can_review`/`my_review` per row, nothing for an admin looking
+  at another guest's booking, the same query count for 4 or 8 bookings
+- admin: `401`/`403`, hidden included, every filter, bad filters `400`,
+  hide → gone from the public list → unhide → back, only `is_hidden`
+  writable, no `PUT`/`DELETE`
 
 ## Frontend auth (Angular)
 
@@ -3698,7 +3823,7 @@ written the code:
 | `PropertyImage` | `listings/admin.py` | Also has its own standalone list |
 | `Profile` | `accounts/admin.py` | Inline on the built-in `User` admin page |
 | `Booking` | `bookings/admin.py` | Filterable by status, date-hierarchy on `check_in` |
-| `Review` | `reviews/admin.py` | Filterable by rating |
+| `Review` | `reviews/admin.py` | Filterable by rating and hidden |
 | `Payment` | `payments/admin.py` | Filterable by status; Stripe fields read-only (Stripe owns them) |
 | `StripeEvent` | `payments/admin.py` | Read-only log of handled webhook events |
 
@@ -3740,8 +3865,8 @@ the demo never starts out empty:
   few `cancelled`; future ones are a mix of `pending`/`confirmed`/
   `cancelled`.
 - **Reviews** - only generated for a guest who actually had a past,
-  non-cancelled booking for that property (mirrors the real-world rule the
-  API will eventually enforce), with a rating distribution skewed positive
+  confirmed booking for that property (the same rule the API enforces
+  since TICKET-032), with a rating distribution skewed positive
   (mostly 4-5 stars) and realistic per-rating comment text rather than
   Faker's default lorem-ipsum, so it looks authentic in front of an
   audience.
@@ -4230,4 +4355,8 @@ and on Render; see "Emails". **TICKET-031 (responsive layout + PWA) is
 done:** shared breakpoints, admin tables as cards, the detail page's bottom
 bar, safe areas, and the app is installable (manifest + icons, no service
 worker) with an Install app button (iPhone: the Share → Add to Home Screen
-steps); see "Mobile & PWA". Next: TICKET-032 (reviews/ratings UI).
+steps); see "Mobile & PWA". **TICKET-032 (reviews/ratings) is in
+progress:** step 1 (the reviews API - public list with a star summary,
+posting after a confirmed stay, `can_review`/`my_review` for the buttons,
+admin hide/unhide) is done; see "Reviews API (TICKET-032)". Next: step 2,
+the reviews on the property page.

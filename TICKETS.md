@@ -603,6 +603,21 @@ test, always last).
 
 - [ ] **TICKET-032** — Reviews/ratings UI
   - Priority: P2 · Depends on: TICKET-009, TICKET-019
+  - Decisions (agreed before building):
+    - **who can review:** only a guest with a **confirmed** booking at that property whose check-out date has arrived
+    - **where:** both a "Write a review" button on the property page and "Leave a review" on past stays in My bookings (one shared dialog)
+    - **reviews are final:** one per guest per property, no edit or delete
+    - **admin:** a new Reviews page in the admin area with **Hide/Unhide** (not delete); hidden reviews leave the public list and the rating
+  - Plan: step 1 backend API · step 2 reviews on the property page · step 3 the review dialog (property page + My bookings) · step 4 admin Reviews page · step 5 seeder, README, browser check.
+  - Step 1 done (backend API):
+    - `Review.is_hidden` (migration `0002_review_is_hidden`), `Review.objects.visible()`, and `has_finished_stay()` (the rule, in one place).
+    - `GET /api/properties/{id}/reviews/` - public, 5 per page, newest first, with a `summary` (average, count, per-star breakdown); names shown as "Maria K.", never emails.
+    - `POST /api/reviews/` - rule checks, one per property (race → `400` via the DB constraint), comment optional up to 1,000 characters; no edit/delete routes.
+    - `viewer_review` on the property detail and `can_review`/`my_review` on each booking, so the frontend never repeats the rule (one extra query per bookings response).
+    - `GET /api/admin/reviews/` (filters: rating, property, hidden, search) and `PATCH {is_hidden}`.
+    - `rating_avg`/`review_count` on cards and the detail now skip hidden reviews. The seeder only reviews *confirmed* past stays (same rule).
+    - 37 new tests; all 297 backend tests pass on Postgres. Smoke-tested on seeded data with curl.
+    - README: new "Reviews API (TICKET-032)" section; layout, data model, bookings/properties responses, seeding and next steps updated.
 
 - [ ] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018
