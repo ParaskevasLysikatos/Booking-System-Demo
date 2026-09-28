@@ -641,7 +641,7 @@ test, always last).
     - Fresh database: `migrate` from zero + `seed_demo_data` → every seeded review backed by an ended, confirmed stay.
     - Browser regression against the real API: **27/27 checks** (visitor, unpaid past stay, eligible guest posting with the keyboard, reload, duplicate/edit refused, My bookings, guest blocked from admin, admin hide → public rating/card/guest view, Hidden filter, show again, admin properties rating). Table in README "Reviews: final check".
     - Render: auto-deployed; **Hosted demo check green** on `cc63916`; live API reviews endpoints + summary, 401s for anonymous writes/admin list, live property page Reviews section + header link, `/admin/reviews` route guarded.
-    - Not checked on Render: the admin Reviews page while logged in as admin (I don't type passwords on the hosted site) - a quick look as `admin_demo` is worth doing before the meetup.
+    - Render as admin (owner logged in, then tested in that tab): list of the 5 live reviews, Visible/Hidden toggle + Clear filters, search, rating and property filters (combined), browser Back; **Hide** on one review → live summary, listing card and public page dropped it ("New", "No reviews yet") → **Show** → restored (all 5 visible again, as before).
   - **Done.** Guests with an ended, confirmed stay rate a place 1-5 stars with an optional comment (final, one per place) from the property page or My bookings; everyone sees the reviews with a star summary and per-star bars; admins filter all reviews and Hide / Show them again, and hidden reviews leave the public list and every rating. Backend 297 tests, frontend 257 tests. Follow-up: more seeded reviews in TICKET-037.
 
 - [ ] **TICKET-033** — Favorites

@@ -2362,9 +2362,20 @@ answers `/api/properties/{id}/reviews/` with the summary (matching the
 card), anonymous `POST /api/reviews/` → 401 and `/api/admin/reviews/` →
 401; property 2's page shows the Reviews section (4.0, 2 reviews, per-star
 bars) and the header link scrolls to it; `/admin/reviews` exists and
-sends a non-admin to "Admins only". The admin Reviews page itself on
-Render needs an admin login, which I don't type on the hosted site - see
-the note in TICKETS.
+sends a non-admin to "Admins only".
+
+**Render as admin** (the owner logged in as the demo admin, then the checks
+ran in that Chrome tab): `/admin/reviews` lists the 5 live reviews with
+the Reviews tab active and no sideways scroll; Hidden → "No reviews match
+these filters." → Clear filters → 5; search "street" → 2 (URL
+`?search=street`); Rating 5 stars → 2; + Property "Quiet House in
+Nafplio" → no match (its reviews are 4 stars); browser Back restores the
+previous filter. **Hide** on Breezy Villa in Chania (confirm dialog →
+Hide review) → the row turned Hidden/greyed with a Show button, the live
+API summary and the listing card went from 5.0 / 1 review to none, and
+the public page showed "New" + "No reviews yet". **Show** (via the Hidden
+filter) → back to 5.0 / 1 review; all 5 live reviews visible again, as
+before the test.
 
 ## Payments (Stripe, TICKET-029)
 
