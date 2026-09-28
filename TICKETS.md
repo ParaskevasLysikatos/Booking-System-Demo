@@ -711,6 +711,13 @@ test, always last).
     - Nominatim usage policy kept on the server: identifying User-Agent, ≤ 1 request/s per process (lock + timestamp), results cached 24 h (1 h for nothing found; case/space-insensitive key), attribution returned. Settings `GEOCODING_URL` / `_USER_AGENT` / `_LANGUAGE` / `_TIMEOUT` (defaults work; empty URL = off), documented in `.env.example`. No new dependency (`urllib`).
     - 16 new tests (Nominatim mocked); **388 backend tests** pass on Postgres. Render (after `5e4ad97`, via Chrome): steps 1-2 live - the backfill gave all 13 active stays a position (`/map/` → 13 pins, `missing_position: 0`, approximate for a guest); `/api/admin/geocode/` → 401 logged out, 403 as a demo guest. The live Nominatim lookup needs an admin session (this sandbox can't reach Nominatim) - to do with the owner in step 8.
     - README: new "Admin place search API (TICKET-034)"; layout, environment variables, status and next steps updated.
+  - Step 4 done (shared map component):
+    - Decisions: **CARTO Voyager** tiles (light base map, no key; credits OpenStreetMap + CARTO); **clusters** with `leaflet.markercluster`.
+    - New packages: `leaflet` ^1.9.4, `leaflet.markercluster` ^1.5.3 (+ `@types/*` dev); `allowedCommonJsDependencies` for both. Docker: `docker compose up -d --build -V frontend` after pulling (node_modules lives in its own volume).
+    - `shared/map/` `<app-map>`: `markers` (price tag with `label`, round pin without, shaded circle with `areaRadiusM`; markers without a position skipped), `highlightedId` (marker or its bubble), `cluster`, `fitToMarkers` (all points / one at zoom 15 / Greece), `maxFitZoom`, `scrollWheelZoom`, `ariaLabel`; outputs `markerSelect`, `mapClick`; optional `<ng-template let-marker>` pop-up rendered as an Angular view. Spinner, "The map couldn't load." + Try again, ResizeObserver, focusable named markers/bubbles.
+    - `MapLoader`: Leaflet + markercluster by dynamic `import()` and a `map-styles.css` bundle built non-injected - loaded once, on the first map; a failure can be retried. Production build: initial bundle byte-identical; with a map on a page Leaflet (37.6 kB gz) + clusters (8.0 kB gz) are lazy chunks; no warnings.
+    - 20 new tests (real Leaflet in jsdom); **318 frontend tests** pass; production build clean. Browser check comes with step 5 (first page using it).
+    - README: new "Shared map component (Angular, TICKET-034)"; layout, status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

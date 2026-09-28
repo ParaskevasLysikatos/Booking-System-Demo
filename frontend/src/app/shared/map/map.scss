@@ -1,0 +1,69 @@
+// Shared map (TICKET-034). Not encapsulated (see map.ts) - keep every
+// selector under .app-map so nothing leaks into the rest of the app.
+.app-map {
+  --app-map-accent: #005cbb;
+  position: relative;
+  display: block;
+  min-height: 200px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #eef0f2;
+
+  .app-map-canvas { position: absolute; inset: 0; font: inherit; }
+
+  .app-map-overlay {
+    position: absolute; inset: 0; z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    background: rgb(238 240 242 / 85%); color: #44474e; text-align: center;
+    p { margin: 0; }
+  }
+
+  // Price tag: anchored so its bottom-centre sits on the point.
+  .app-map-marker { background: none; border: 0; }
+  .app-map-price, .app-map-pin {
+    position: absolute; left: 0; top: 0;
+    transform: translate(-50%, calc(-100% - 6px));
+    transition: transform 120ms ease, background-color 120ms ease;
+  }
+  .app-map-price {
+    padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+    background: #fff; color: #1d1b20; font-weight: 600; font-size: 13px; line-height: 18px;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 8%);
+  }
+  .app-map-pin {
+    width: 18px; height: 18px; border-radius: 50% 50% 50% 0;
+    transform: translate(-50%, calc(-100% - 4px)) rotate(-45deg);
+    background: var(--app-map-accent); border: 3px solid #fff;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  }
+  .app-map-marker:hover .app-map-price,
+  .app-map-marker.is-highlighted .app-map-price {
+    background: #1d1b20; color: #fff; transform: translate(-50%, calc(-100% - 6px)) scale(1.08);
+  }
+  .app-map-marker:focus-visible { outline: none; }
+  .app-map-marker:focus-visible .app-map-price,
+  .app-map-marker:focus-visible .app-map-pin { outline: 3px solid var(--app-map-accent); outline-offset: 2px; }
+
+  // Cluster bubble.
+  .app-map-cluster-icon { background: none; border: 0; }
+  .app-map-cluster {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--app-map-accent); color: #fff; font-weight: 700; font-size: 14px;
+    box-shadow: 0 0 0 4px rgb(0 92 187 / 25%), 0 1px 4px rgb(0 0 0 / 30%);
+    transition: transform 120ms ease;
+  }
+  .app-map-cluster-icon.is-highlighted .app-map-cluster { background: #1d1b20; transform: scale(1.1); }
+  .app-map-cluster-icon:focus-visible { outline: 3px solid #1d1b20; outline-offset: 2px; border-radius: 50%; }
+
+  // Approximate-location area.
+  .app-map-area { stroke: var(--app-map-accent); stroke-width: 2; fill: var(--app-map-accent); fill-opacity: 0.15; }
+
+  .leaflet-control-attribution { font-size: 11px; }
+}
+
+// Pop-ups are attached inside the map container, so this still applies.
+.app-map .app-map-popup {
+  .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
+  .leaflet-popup-content { margin: 0; width: auto !important; font: inherit; }
+}

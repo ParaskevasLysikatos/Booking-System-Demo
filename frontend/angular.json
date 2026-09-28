@@ -30,11 +30,22 @@
               }
             ],
             "styles": [
-              "src/styles.scss"
+              "src/styles.scss",
+              {
+                "input": "node_modules/leaflet/dist/leaflet.css",
+                "bundleName": "map-styles",
+                "inject": false
+              },
+              {
+                "input": "node_modules/leaflet.markercluster/dist/MarkerCluster.css",
+                "bundleName": "map-styles",
+                "inject": false
+              }
             ],
             "stylePreprocessorOptions": {
               "includePaths": ["src/styles"]
-            }
+            },
+            "allowedCommonJsDependencies": ["leaflet", "leaflet.markercluster"]
           },
           "configurations": {
             "production": {

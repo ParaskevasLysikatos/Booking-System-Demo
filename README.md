@@ -47,7 +47,10 @@ can have a map position (exact for admins; everyone else only gets a
 /api/properties/map/` returns every matching stay as a map pin; see "Map
 pins API (TICKET-034)"; step 3 is done - admins can look up an address in
 Greece (`GET /api/admin/geocode/`) to place a pin; see "Admin place search
-API (TICKET-034)". See "Next steps" at the bottom for
+API (TICKET-034)"; step 4 is done - the shared map component
+(`<app-map>`: Leaflet with the light CARTO Voyager map, price tags,
+numbered bubbles for nearby stays, approximate-area circles, pop-ups),
+loaded only when a page shows a map; see "Shared map component". See "Next steps" at the bottom for
 what's next.
 
 ## Prerequisites
@@ -239,6 +242,7 @@ frontend/
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
     shared/favorite-button.ts           The heart: a toggle button (overlay on card photos, or "Save/Saved" in a header) - TICKET-033
+    shared/map/                         The map used everywhere (Leaflet + CARTO Voyager, price tags, clusters, areas, pop-ups), lazy-loaded - TICKET-034
     core/favorites/                     FavoriteService: save/remove, the heart state per place, logged-out -> login -> save - TICKET-033
     core/reviews/                       ReviewService (a property's reviews page by page) + review models - TICKET-032
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or Saved (guests) + My bookings (+ Admin) and an account menu
@@ -2316,6 +2320,171 @@ Undo, also on the server; un-heart → gone at once, removed on the server
 reload; page 2 in the URL; a heart on the listings → first on the Saved
 page; phones: Saved in the account menu, the Undo bar fits, no sideways
 scroll; the empty state; no Saved link or menu item for the admin.
+
+## Shared map component (Angular, TICKET-034)
+
+Step 4 of the map view: one `<app-map>` for the three places that show a
+map. Steps 5-7 put it on:
+
+- the `/listings` split view
+- the property page
+- the admin form
+
+Code: `frontend/src/app/shared/map/`:
+
+- `map.ts`: the component
+- `map.scss`
+- `map-markers.ts`: types, tile settings and small pure helpers
+- `map-loader.ts`: lazy loading
+
+### Decisions (agreed before building)
+
+- **Map style: CARTO Voyager.** A light, low-contrast base map, so the
+  price tags stand out. It's free, needs no API key and is built on
+  OpenStreetMap data. The credit line reads "© OpenStreetMap contributors
+  © CARTO". CARTO's free basemaps are meant for light use like this demo.
+- **Nearby stays merge into numbered bubbles.** This uses the
+  `leaflet.markercluster` package. Clicking a bubble zooms in; stays at the
+  exact same spot fan out.
+
+### New packages
+
+- `leaflet` ^1.9.4 and `leaflet.markercluster` ^1.5.3, plus their types
+  (`@types/leaflet`, `@types/leaflet.markercluster`, dev only).
+- Both ship as CommonJS, so they're listed in `angular.json`'s
+  `allowedCommonJsDependencies`. That's expected, and it's fine because
+  they're lazy.
+- **Docker:** the frontend container keeps `node_modules` in its own
+  volume. After pulling this change, rebuild it and renew that volume:
+
+  ```bash
+  docker compose up -d --build -V frontend
+  ```
+
+  Without the rebuild, `ng serve` can't find `leaflet`. Outside Docker,
+  `npm install` in `frontend/` is enough.
+
+### Using it
+
+```html
+<app-map
+  style="height: 480px"
+  ariaLabel="Stays on a map"
+  [markers]="markers"          <!-- MapMarker[] -->
+  [highlightedId]="hoveredId"  <!-- lift one marker (or its bubble) -->
+  [cluster]="true"             <!-- merge nearby markers (default) -->
+  [fitToMarkers]="true"        <!-- refit when markers change (default) -->
+  [maxFitZoom]="15"            <!-- how far a fit may zoom in (default) -->
+  [scrollWheelZoom]="true"     <!-- off for small embedded maps -->
+  (markerSelect)="onPick($event)"
+  (mapClick)="onClick($event)" <!-- { lat, lng } -->
+>
+  <ng-template let-marker>     <!-- optional pop-up, any Angular content -->
+    <a [routerLink]="['/listings', marker.id]">{{ marker.title }}</a>
+  </ng-template>
+</app-map>
+```
+
+The host element needs a height. The component is 200 px high at minimum,
+with rounded corners.
+
+**`MapMarker`** (`map-markers.ts`):
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Used by `highlightedId` and handed back in `markerSelect` |
+| `lat`, `lng` | The point. Markers with `null`, `NaN` or out-of-range coordinates are skipped, since the API sends `null` for a place without a position |
+| `title` | The accessible name (`aria-label`) and hover title, e.g. "Cozy Loft in Chania, €126 a night" |
+| `label` | Text of a **price tag** ("€126"). Without it, the marker is a **round pin** (property page, admin form) |
+| `areaRadiusM` | Draws a **shaded circle** of that radius instead of a marker. This is the approximate-location area (`location_radius_m` from the API) |
+| `data` | Anything the page wants back in `markerSelect` or the pop-up |
+
+### What it does
+
+- **Lazy loading (`MapLoader`):**
+  - The first map in the app loads Leaflet and the cluster plugin with
+    dynamic `import()`, and adds a `<link>` to `map-styles.css`. That file
+    is Leaflet's CSS plus the cluster CSS, which `angular.json` builds as a
+    separate, non-injected bundle.
+  - It's loaded once per app. If it fails, the next try starts again.
+  - The map doesn't wait for the stylesheet forever (at most 8 s).
+  - The cluster plugin extends the global `L`. Leaflet sets `window.L`
+    itself, and the loader makes sure it's there before loading the plugin.
+- **States:**
+  - A spinner while the map code loads.
+  - If it fails: "The map couldn't load." with **Try again**.
+- **Fitting the view:**
+  - The view fits all markers and circles, with 32 px of padding.
+  - A single point is shown at zoom 15 (`maxFitZoom`).
+  - With nothing to show, it shows all of Greece (zoom 6).
+  - It refits whenever `markers` changes.
+- **Price tags:**
+  - A white pill whose bottom-centre sits on the point. It turns dark on
+    hover, on keyboard focus and when highlighted.
+  - Labels are HTML-escaped.
+- **Bubbles:**
+  - A blue circle with the count and the accessible name "N stays here -
+    zoom in".
+  - `highlightedId` highlights the bubble when the stay is inside one, and
+    is re-applied after every zoom or pan, because the plugin re-creates
+    the bubbles.
+- **Pop-up:** clicking a marker emits `markerSelect`. If the page gave an
+  `<ng-template>`, it's rendered as a real Angular view (so `routerLink`
+  etc. work) inside a Leaflet pop-up. The view is destroyed when the pop-up
+  closes, and the pop-up closes when `markers` changes.
+- **Keyboard and screen readers:**
+  - The map is a `region` with `ariaLabel`.
+  - Every marker and bubble is a focusable `role="button"` with a name.
+  - Enter opens a marker's pop-up.
+  - Leaflet's own zoom buttons and keyboard panning stay available.
+- **Resizing:** a `ResizeObserver` tells Leaflet when the box changes size,
+  for example when the split view or the List/Map toggle changes it without
+  a window resize.
+- **Styles:** Leaflet builds its markers outside Angular's templates, so
+  the component's styles aren't encapsulated. Every selector is prefixed
+  `app-map-` and scoped under `.app-map`.
+
+### Bundle size
+
+- **Production build before and after:** the initial bundle is
+  byte-identical (same `main` hash, 146 kB transferred).
+- **With a map on a page** (tried with a throwaway `<app-map>` on
+  `/listings`): Leaflet (37.6 kB transferred) and the cluster plugin
+  (8.0 kB) are separate **lazy** chunks, and the initial total moves by
+  0.3 kB.
+- **Stylesheet:** `map-styles.css` is 11.8 kB and is only downloaded when a
+  map is shown.
+- **Warnings:** the build has none.
+
+### Tests
+
+- `map-markers.spec.ts` has 4 tests:
+  - HTML escaping
+  - price tag vs pin
+  - the bubble label
+  - skipping markers without a position
+- `map.spec.ts` has 16 tests. They use the **real Leaflet** in jsdom,
+  with element sizes stubbed so it can fit and cluster, and a loader that
+  skips the stylesheet. They cover:
+  - spinner → a labelled region
+  - Voyager tiles and both credits
+  - keyboard-reachable, named price tags, and a pin without a label
+  - markers without a position skipped
+  - fitting to all points, to one point, and to Greece
+  - a circle for an approximate area, fully in view
+  - nearby stays → a "2" bubble with its name
+  - highlighting a marker and its bubble
+  - click → `markerSelect` and the pop-up template, closed on close and
+    when `markers` changes
+  - `mapClick`
+  - load failure → Try again → the map
+  - the Leaflet map removed on destroy
+  - `MapLoader` adds the stylesheet once, caches the load and retries
+    after a failure
+- **Results:** **318** frontend tests pass (298 before), and the
+  production build is clean.
+- **In a browser:** the component is checked in Chrome in step 5, when the
+  listings page first uses it.
 
 ## Booking form (Angular)
 
@@ -5336,5 +5505,8 @@ pin, with `missing_position` and a 500-pin safety limit) is done; see "Map
 pins API (TICKET-034)"; step 3 (`GET /api/admin/geocode/`: up to 5
 specific places in Greece from OpenStreetMap Nominatim for the admin
 form's Find on map - cached, 1 request/s, 503 when unavailable) is done;
-see "Admin place search API (TICKET-034)". Next: step 4, the shared
-Leaflet map component.
+see "Admin place search API (TICKET-034)"; step 4 (the shared `<app-map>`
+component: Leaflet + CARTO Voyager tiles, price tags, `leaflet.markercluster`
+bubbles, approximate-area circles, pop-up template, map clicks - all
+lazy-loaded, initial bundle unchanged) is done; see "Shared map component
+(Angular, TICKET-034)". Next: step 5, the `/listings` split view.
