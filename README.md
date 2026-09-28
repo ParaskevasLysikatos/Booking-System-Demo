@@ -3305,11 +3305,92 @@ hosted site and look at Django Admin (`/admin/` on the API) → *Booking
 emails*: `sent` with Gmail's message id; the email is in the Gmail's
 "Sent" folder.
 
-If the token stops working (you removed the app's access at
-https://myaccount.google.com/permissions, changed the password, or the app
-was still in "Testing"), sends fail with `invalid_grant … run manage.py
-gmail_authorize again` - get a new token, update it in `.env` / Render, then
-*Retry sending* the failed emails in Django Admin.
+If the token stops working (the app is still in "Testing" and 7 days have
+passed, you removed the app's access at
+https://myaccount.google.com/permissions, or you changed the password),
+sends fail with `invalid_grant … run manage.py gmail_authorize again` -
+see the next section.
+
+### Gmail token: renew it, or make it permanent
+
+The Google app (`booking-demo-email`) is in **Testing** mode, with
+lysikatosparaskevas@gmail.com as its only test user. In Testing, Google
+makes the refresh token (`GMAIL_REFRESH_TOKEN`) **stop working after 7
+days**. The current one was created on 28 Sep 2026, so it expires around
+**5 Oct 2026**.
+
+**How you notice:** booking emails stop arriving. In Django Admin →
+*Booking emails* they show **Failed** with `Google answered 400:
+invalid_grant - … run manage.py gmail_authorize again`. Bookings keep
+working normally; only the emails wait.
+
+#### Renew the token (about 2 minutes, every 7 days while in Testing)
+
+1. In the project folder (Docker running):
+   ```
+   docker compose exec backend python manage.py gmail_authorize
+   ```
+2. Ctrl+click the `https://accounts.google.com/...` link it prints and sign
+   in as **lysikatosparaskevas@gmail.com**. At "Google hasn't verified this
+   app" click **Continue**, then allow **Send email on your behalf**.
+3. The browser ends on an error page ("This site can't be reached") -
+   expected. Click the address bar, copy the **whole address** (it starts
+   with `http://127.0.0.1:8765/?state=…&code=…`) and paste it into the
+   terminal at the `Browser address` prompt. (Not your email address - and
+   use the link from *this* run; an old one gives "state mismatch".)
+4. It prints `GMAIL_REFRESH_TOKEN=1//…`. Replace the old line in **`.env`**
+   with it, then `docker compose up -d backend`.
+5. Check locally:
+   `docker compose exec backend python manage.py send_test_email lysikatosparaskevas@gmail.com`
+   → "Sent … via gmail".
+6. **Render** → `booking-demo-api` → *Environment* → *Edit* → paste the new
+   value into `GMAIL_REFRESH_TOKEN` → **Save, rebuild and deploy**.
+7. Send the emails that failed meanwhile: Django Admin on the API
+   (https://booking-demo-api.onrender.com/admin/ → *Booking emails*, filter
+   *Failed*) → select them → **Retry sending the selected emails**. Emails
+   whose booking has moved on are skipped automatically; a sent one is
+   never sent twice. (Locally: `docker compose exec backend python
+   manage.py send_pending_emails`.)
+
+#### Make it permanent (publish the Google app - once)
+
+A **published** ("In production") app gets a refresh token that doesn't
+expire after 7 days. It only stops working if you revoke it
+(https://myaccount.google.com/permissions), change your Google password,
+or don't use it for 6 months. Google doesn't need to review a personal app
+like this one: it stays "unverified" (you keep seeing the "Google hasn't
+verified this app" screen when running `gmail_authorize`), which is fine
+for sending from your own account.
+
+Google only lets you publish once the *Branding* page is complete, which
+means the app needs a public **home page** and **privacy policy** page:
+
+1. **Create the two pages** (needs a small code change and a deploy -
+   ask for it as a follow-up ticket): e.g. a simple `/privacy` page in the
+   Angular app ("This demo sends booking emails from the owner's Gmail
+   using the gmail.send permission only; it doesn't read your mailbox;
+   bookings are stored only to run the demo; contact: …"). The home page
+   can be the site itself: https://booking-demo-g4aw.onrender.com.
+2. **Google Cloud** → https://console.cloud.google.com/auth/branding
+   (project `booking-demo-email`, signed in as your Gmail):
+   - *Application home page*: `https://booking-demo-g4aw.onrender.com`
+   - *Application privacy policy link*:
+     `https://booking-demo-g4aw.onrender.com/privacy`
+   - *Authorized domains* → *Add domain*: `booking-demo-g4aw.onrender.com`
+     (`onrender.com` itself is a shared domain, so the full site name is
+     what counts). If Google refuses it, use a domain you own for the two
+     pages instead.
+   - **Save**.
+3. *Audience* → **Publish app** → **Confirm**. The status must now say
+   **In production**. (If Google asks you to "prepare for verification",
+   you don't have to submit anything for your own use - the app just
+   stays unverified.)
+4. **Get a new token once more** - a token created while the app was in
+   Testing keeps its 7-day limit. Do steps 1-7 of *Renew the token* above.
+   From then on there's nothing to renew.
+
+After publishing you can remove yourself from *Audience → Test users*
+(optional).
 
 ### Gmail API backend (`notifications/backends.py`)
 
@@ -3432,12 +3513,8 @@ not done; see the note below).
 | Render | Admin Confirm #45 (waived) | **"Booking #45 confirmed"** + **"New booking #45 … (€464)"** - both from the real Gmail, in the inbox (not spam) | EM-04, EM-18, EM-21 |
 | Render | Admin Cancel #45 (the admin's own booking) | **"Booking #45 cancelled"** - "as you requested" (the booking's own guest cancelled it), "Nothing was charged." | EM-05, EM-21 |
 
-**Testing mode:** Google expires the refresh token of a "Testing" app
-after **7 days** (this one: about 5 Oct 2026). When emails start failing
-with `invalid_grant`, run `gmail_authorize` again (1 minute), update
-`GMAIL_REFRESH_TOKEN` in `.env` and on Render, and *Retry sending* the
-failed emails in Django Admin. To stop that for good: fill in the app's
-home page + privacy policy on the Branding page and *Publish app*.
+**Testing mode:** the refresh token expires after **7 days** (this one:
+about 5 Oct 2026) - see "Gmail token: renew it, or make it permanent".
 
 ### Emails: end-to-end results - Render (28 Sep 2026, with Brevo - replaced afterwards)
 
