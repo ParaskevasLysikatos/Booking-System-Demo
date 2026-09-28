@@ -1,9 +1,12 @@
+@use 'responsive' as r;
+
 .toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
   gap: 8px;
-  padding: 0 16px;
+  /* Notched phones in landscape: keep content clear of the rounded corners. */
+  padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
   background: var(--mat-sys-surface-container);
   border-bottom: 1px solid var(--mat-sys-outline-variant);
 }
@@ -61,9 +64,14 @@
   .menu-link { display: none; }
 }
 
-@media (max-width: 720px) {
-  .brand span,
-  .links,
+/* Tablets: the email collapses into the account icon; the links stay. */
+@include r.tablet {
   .account .email { display: none; }
+}
+
+/* Phones: only the logo icon; the links move into the account menu. */
+@include r.phone {
+  .brand span,
+  .links { display: none; }
   ::ng-deep .mat-mdc-menu-panel .menu-link { display: flex; }
 }

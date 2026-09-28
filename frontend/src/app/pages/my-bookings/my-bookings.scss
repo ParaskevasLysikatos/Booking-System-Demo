@@ -1,3 +1,5 @@
+@use 'responsive' as r;
+
 .page {
   max-width: 900px;
   margin: 0 auto;
@@ -121,7 +123,7 @@ mat-paginator { margin-top: 16px; background: transparent; }
   .ph-body { margin: 16px; border-radius: 8px; }
 }
 
-@media (max-width: 600px) {
+@include r.phone {
   .card { grid-template-columns: 1fr; }
   .photo { aspect-ratio: 16 / 9; }
 }

@@ -216,6 +216,7 @@ frontend/
     pages/forbidden/                    403 "Admins only" page
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
+  src/styles/_responsive.scss         Shared breakpoints (phone ≤ 600, tablet ≤ 960) + table-cards mixin (TICKET-031)
 
 docker-compose.yml   Wires the four services together
 scripts/hosted-check.sh           Wakes the hosted demo and smoke-checks it (TICKET-028)
@@ -3557,6 +3558,66 @@ seeded guest `guest_4_rick71@example.com`, reading every email in Mailpit
 All emails rendered correctly (HTML and text); Mailpit's HTML check scored
 94-95%.
 
+## Mobile & PWA (TICKET-031)
+
+The same Angular app works on phones, tablets and laptops, and can be
+installed to a phone's home screen like an app - no separate mobile
+codebase.
+
+### Agreed design
+
+- **Two breakpoints for the whole app** (`src/styles/_responsive.scss`):
+  **phone ≤ 600 px** and **tablet ≤ 960 px**. Components use them with
+  `@use 'responsive' as r;` and `@include r.phone { ... }` /
+  `@include r.tablet { ... }` (`angular.json` →
+  `stylePreprocessorOptions.includePaths: ["src/styles"]`). They replace the
+  earlier one-off 480/600/720/900/960 px values.
+- **The page never scrolls sideways** at any width; wide things (the
+  dashboard's period buttons) scroll inside their own strip instead.
+- **Admin tables become cards** at ≤ 960 px (`r.table-cards` mixin): one
+  template, CSS only - each `<td data-label="Guest">` shows its label in
+  front of its value, the header row is hidden.
+- **Notched phones:** `viewport-fit=cover` plus `env(safe-area-inset-*)`
+  padding on the toolbar, footer and the detail page's bottom bar.
+  `100dvh` for the page height (ignores the collapsing address bar).
+
+### What changes per page
+
+| Page | Tablet (≤ 960 px) | Phone (≤ 600 px) |
+|---|---|---|
+| Toolbar | Account button shows the icon only | Logo icon only; My bookings / Admin move into the account menu |
+| Listings | - | Full-width Search; price fields share a row |
+| Property detail | One column; a **bottom bar** with the price (and stay total) and *Choose dates* → scrolls to the booking panel, or *Book now* once the dates are fine; hides while the panel is on screen | Calendar shows one month |
+| Booking form | One column, summary on top | Shorter photo, full-width fields, less stepper indent |
+| My bookings | - | Cards stack photo above text |
+| Admin shell | Side nav → a bar above the page | Four equal tabs (icon above label, pending badge on Bookings) |
+| Admin bookings | **Cards**: #ref + status, property, then labelled rows; actions at the bottom | same |
+| Admin properties | **Cards**: photo, title with "€/night · Sleeps · rating", location, status, actions | same |
+| Admin dashboard | - | Period buttons scroll sideways; breakdown shows property, occupancy, revenue |
+| Login / Register | - | Name fields stacked |
+
+On laptops (961-1440 px, side nav open) the admin bookings table drops the
+"Booked" column and wraps the text columns, and long guest emails are
+shortened with the full address on hover, so it fits without scrolling.
+
+### How it was checked
+
+A headless-Chrome script (not committed) opens every route as a visitor,
+a guest and the admin at 360, 390, 768 and 1280 px against a local backend
+with seeded data, takes full-page screenshots and reports: the page
+scrolling sideways, elements sticking out of the viewport, text inputs
+under 16 px (iOS zooms into those) and small tap targets. Before this
+ticket: no page scrolled sideways, but the admin tables were cut off on
+phones and tablets (the bookings table was 1,567 px wide), the dashboard's
+period buttons overflowed and the admin side nav squeezed tablets. After:
+nothing sticks out at any of the four widths.
+
+Tests: 3 new Vitest tests for the detail page's bottom bar (Choose dates
+scrolls to and focuses the panel; Book now + stay total once the dates are
+confirmed; hidden while the panel is on screen, observer disconnected when
+leaving the page). The table cards are CSS only, so the existing admin
+table tests cover them unchanged.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -4097,5 +4158,7 @@ cancelled, admin alert - sent at every booking change) and step 3
 (the owner alert in the real Gmail inbox); changes after review: admin
 accounts' mail goes to the owner's inbox, and emails are sent through the
 **Gmail API** as the owner's real Gmail (Brevo removed) - tested locally
-and on Render; see "Emails". Next:
-TICKET-031 (responsive layout + PWA manifest).
+and on Render; see "Emails". **TICKET-031 (responsive layout + PWA) is
+in progress:** the responsive part is done (shared breakpoints, admin
+tables as cards, the detail page's bottom bar, safe areas); the PWA
+manifest, icons and Install button are next. See "Mobile & PWA".

@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -217,6 +217,28 @@ export class PropertyDetailPage {
   }
 
   // --- actions ------------------------------------------------------------
+
+  // --- the phone/tablet bottom bar (TICKET-031) ----------------------------
+
+  private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+  /** True while the booking panel is on screen; the bottom bar then hides. */
+  readonly panelInView = signal(false);
+
+  private readonly watchPanel = effect((onCleanup) => {
+    const el = this.panel()?.nativeElement;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => this.panelInView.set(entry.isIntersecting), { threshold: 0.15 });
+    io.observe(el);
+    onCleanup(() => io.disconnect());
+  });
+
+  /** Bottom bar "Choose dates": bring the booking panel into view. */
+  goToPanel(): void {
+    const el = this.panel()?.nativeElement;
+    if (!el) return;
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    el.focus({ preventScroll: true });
+  }
 
   onCalendar(sel: DateSelection): void {
     this.form.controls.dates.setValue({ start: sel.start, end: sel.end });

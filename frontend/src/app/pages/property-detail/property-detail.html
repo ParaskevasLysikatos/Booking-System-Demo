@@ -81,7 +81,7 @@
           </section>
         </div>
 
-        <aside class="panel" aria-label="Book this stay">
+        <aside #panel class="panel" aria-label="Book this stay" tabindex="-1">
           <p class="price"><strong>{{ nightly() }}</strong>&nbsp;/ night</p>
 
           <form [formGroup]="form" (ngSubmit)="bookNow()">
@@ -127,6 +127,22 @@
           </form>
         </aside>
       </div>
+
+      <!-- Tablets/phones (TICKET-031): the panel sits below the calendar, so this bar keeps the
+           price and the next step in reach. Hidden by CSS on wide screens, and while the panel is visible. -->
+      @if (!panelInView()) {
+        <div class="mobile-bar" role="region" aria-label="Price and booking">
+          <p>
+            <span><strong>{{ nightly() }}</strong>&nbsp;/ night</span>
+            @if (total(); as t) { <span class="bar-total">{{ t }} total</span> }
+          </p>
+          @if (canBook()) {
+            <button mat-flat-button type="button" (click)="bookNow()">Book now</button>
+          } @else {
+            <button mat-flat-button type="button" (click)="goToPanel()">{{ checkIn() ? 'Check dates' : 'Choose dates' }}</button>
+          }
+        </div>
+      }
     }
   }
 </section>

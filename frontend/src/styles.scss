@@ -14,7 +14,15 @@ html, body {
   margin: 0;
 }
 
+html {
+  /* Stop iOS enlarging text after rotating to landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
+  /* Installed app (display: standalone): no grey flash when tapping links. */
+  -webkit-tap-highlight-color: transparent;
   font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 

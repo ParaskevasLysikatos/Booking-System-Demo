@@ -13,7 +13,8 @@ export const ADMIN_NAV = [
 
 /**
  * Shell for everything under /admin (TICKET-022): a left side nav with the
- * page on the right; on phones the nav becomes a scrollable bar on top.
+ * page on the right; on tablets the nav becomes a bar on top, on phones
+ * four equal tabs (TICKET-031).
  * The whole group is protected once by adminGuard in app.routes.ts.
  */
 @Component({
@@ -42,6 +43,8 @@ export const ADMIN_NAV = [
     </div>
   `,
   styles: `
+    @use 'responsive' as r;
+
     .admin { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 64px - 45px); }
     .side {
       display: flex; flex-direction: column; gap: 2px; padding: 16px 8px;
@@ -61,12 +64,20 @@ export const ADMIN_NAV = [
     .back { margin-top: 16px; color: var(--mat-sys-on-surface-variant); }
     .who { margin: auto 12px 0; font-size: 12px; color: var(--mat-sys-on-surface-variant); overflow: hidden; text-overflow: ellipsis; }
     .content { padding: 24px; min-width: 0; }
-    @media (max-width: 720px) {
+    /* Tablets: the nav becomes a bar above the page, so tables get the full width. */
+    @include r.tablet {
       .admin { grid-template-columns: 1fr; }
       .side { flex-direction: row; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--mat-sys-outline-variant); }
       .heading, .who { display: none; }
       .back { margin: 0 0 0 auto; }
       .content { padding: 16px; }
+    }
+    /* Phones: four equal tabs, icon above a short label (fits 320 px without scrolling). */
+    @include r.phone {
+      .side { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 6px 8px; }
+      a { position: relative; flex-direction: column; gap: 2px; padding: 6px 4px; border-radius: 12px; font-size: 12px; }
+      .back { margin: 0; }
+      .badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; min-width: 18px; padding: 0 4px; font-size: 11px; line-height: 18px; }
     }
   `,
 })

@@ -1,0 +1,50 @@
+// Shared breakpoints + responsive helpers (TICKET-031).
+// Use from any component style:  @use 'responsive' as r;
+// (angular.json -> stylePreprocessorOptions.includePaths has src/styles.)
+
+/// Phones (portrait and small landscape).
+$phone: 600px;
+/// Tablets and small laptops: single-column layouts, admin nav on top.
+$tablet: 960px;
+
+@mixin phone {
+  @media (max-width: $phone) { @content; }
+}
+
+@mixin tablet {
+  @media (max-width: $tablet) { @content; }
+}
+
+/// Turns a `<table mat-table>` into one card per row (put it inside a
+/// breakpoint mixin). Each `<td>` with a `data-label` attribute shows that
+/// label in front of its value; cells without one span the card.
+/// `.table-wrap` is the scroll box the tables already sit in.
+@mixin table-cards($label-width: 84px) {
+  .table-wrap { overflow: visible; border: 0; border-radius: 0; }
+  table, tbody, tr, td { display: block; width: auto; }
+  thead, tr.mat-mdc-header-row { display: none; }
+  tr.mat-mdc-row {
+    height: auto;
+    margin-bottom: 12px;
+    padding: 10px 16px;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 16px;
+  }
+  td.mat-mdc-cell {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-height: 0;
+    padding: 3px 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 $label-width;
+    font-size: 12px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}

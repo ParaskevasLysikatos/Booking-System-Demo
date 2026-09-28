@@ -144,4 +144,65 @@ describe('PropertyDetailPage', () => {
     await settle();
     expect(text()).toContain("This stay doesn't exist or is no longer available.");
   });
+
+  describe('bottom bar on tablets and phones (TICKET-031)', () => {
+    const bar = () => (harness.routeNativeElement as HTMLElement).querySelector<HTMLElement>('.mobile-bar');
+    const barButton = () => bar()!.querySelector('button')!;
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('offers Choose dates, which brings the booking panel into view', async () => {
+      await open('/listings/5');
+      detailReq().flush(detail());
+      await settle();
+      expect(bar()!.textContent).toContain('€91');
+      expect(barButton().textContent).toContain('Choose dates');
+
+      const panel = (harness.routeNativeElement as HTMLElement).querySelector<HTMLElement>('.panel')!;
+      panel.scrollIntoView = vi.fn();
+      barButton().click();
+      expect(panel.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+      expect(document.activeElement).toBe(panel);
+    });
+
+    it('turns into Book now with the stay total once the dates are confirmed', async () => {
+      const page = await open(`/listings/5?check_in=${day(3)}&check_out=${day(8)}`, true);
+      detailReq().flush(detail());
+      await settle();
+      availabilityReq().flush(detail({ availability: { booked_ranges: [], is_available: true } }));
+      await settle();
+      expect(bar()!.textContent).toContain('€455 total');
+      expect(barButton().textContent).toContain('Book now');
+
+      const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+      barButton().click();
+      expect(page.canBook()).toBe(true);
+      expect(navigate).toHaveBeenCalled();
+    });
+
+    it('hides while the booking panel itself is on screen', async () => {
+      let report: ((entries: { isIntersecting: boolean }[]) => void) | undefined;
+      const disconnect = vi.fn();
+      vi.stubGlobal('IntersectionObserver', class {
+        constructor(cb: (entries: { isIntersecting: boolean }[]) => void) { report = cb; }
+        observe() {}
+        disconnect = disconnect;
+      });
+      await open('/listings/5');
+      detailReq().flush(detail());
+      await settle();
+      expect(bar()).not.toBeNull();
+
+      report!([{ isIntersecting: true }]);
+      await settle();
+      expect(bar()).toBeNull();
+
+      report!([{ isIntersecting: false }]);
+      await settle();
+      expect(bar()).not.toBeNull();
+
+      harness.fixture.destroy();
+      expect(disconnect).toHaveBeenCalled();
+    });
+  });
 });

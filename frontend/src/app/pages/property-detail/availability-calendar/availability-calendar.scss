@@ -1,3 +1,5 @@
+@use 'responsive' as r;
+
 .bar {
   display: flex;
   align-items: center;
@@ -41,7 +43,7 @@ h4 {
   border-top: 1px solid currentColor;
 }
 
-@media (max-width: 720px) {
+@include r.phone {
   .months { grid-template-columns: 1fr; }
   .month.second { display: none; }
 }

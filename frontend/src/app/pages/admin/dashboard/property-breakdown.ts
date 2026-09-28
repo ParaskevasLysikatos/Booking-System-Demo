@@ -15,10 +15,10 @@ import { formatPrice } from '../../../core/money';
         <thead>
           <tr>
             <th scope="col">Property</th>
-            <th scope="col" class="num">Booked nights</th>
+            <th scope="col" class="num nights">Booked nights</th>
             <th scope="col" class="occ">Occupancy</th>
             <th scope="col" class="num">Revenue</th>
-            <th scope="col" class="num">Expected</th>
+            <th scope="col" class="num expected">Expected</th>
           </tr>
         </thead>
         <tbody>
@@ -30,7 +30,7 @@ import { formatPrice } from '../../../core/money';
                   <span class="retired">Retired</span>
                 }
               </th>
-              <td class="num">{{ p.booked_nights }}</td>
+              <td class="num nights">{{ p.booked_nights }}</td>
               <td class="occ">
                 <span class="meter" role="img" [attr.aria-label]="pct(p.occupancy_rate) + ' occupied'">
                   <span class="fill" [style.width.%]="(p.occupancy_rate ?? 0) * 100"></span>
@@ -38,7 +38,7 @@ import { formatPrice } from '../../../core/money';
                 <span class="pct">{{ pct(p.occupancy_rate) }}</span>
               </td>
               <td class="num">{{ money(p.revenue) }}</td>
-              <td class="num muted">{{ p.pending_revenue === '0.00' ? '–' : money(p.pending_revenue) }}</td>
+              <td class="num muted expected">{{ p.pending_revenue === '0.00' ? '–' : money(p.pending_revenue) }}</td>
             </tr>
           }
         </tbody>
@@ -46,6 +46,8 @@ import { formatPrice } from '../../../core/money';
     </div>
   `,
   styles: `
+    @use 'responsive' as r;
+
     .wrap { overflow-x: auto; border: 1px solid var(--mat-sys-outline-variant); border-radius: 16px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     caption { text-align: left; padding: 14px 16px 6px; font-weight: 500; font-size: 16px; }
@@ -64,6 +66,13 @@ import { formatPrice } from '../../../core/money';
     .pct { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
     .retired { margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px;
       background: var(--mat-sys-surface-container-highest); color: var(--mat-sys-on-surface-variant); }
+    /* Phones: property, occupancy and revenue only; long titles wrap. */
+    @include r.phone {
+      .nights, .expected { display: none; }
+      th, td { padding: 10px 12px; }
+      tbody th { white-space: normal; }
+      .occ { min-width: 110px; }
+    }
   `,
 })
 export class PropertyBreakdownComponent {

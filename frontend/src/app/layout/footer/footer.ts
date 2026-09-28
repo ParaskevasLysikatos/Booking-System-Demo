@@ -25,6 +25,8 @@ type Health = 'checking' | 'ok' | 'down';
     .footer {
       display: flex; justify-content: space-between; align-items: center; gap: 12px;
       padding: 12px 16px; font-size: 12px;
+      /* Home indicator on iPhones when installed as an app (viewport-fit=cover). */
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
       color: var(--mat-sys-on-surface-variant);
       border-top: 1px solid var(--mat-sys-outline-variant);
     }

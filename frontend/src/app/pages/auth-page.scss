@@ -1,3 +1,5 @@
+@use 'responsive' as r;
+
 /* Shared by the login and register pages. */
 .auth-page {
   display: flex;
@@ -67,7 +69,7 @@ form {
   color: var(--mat-sys-on-surface-variant);
 }
 
-@media (max-width: 480px) {
+@include r.phone {
   .row {
     flex-direction: column;
     gap: 0;

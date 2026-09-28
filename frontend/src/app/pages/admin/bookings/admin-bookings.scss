@@ -1,3 +1,5 @@
+@use 'responsive' as r;
+
 h1 { margin: 0 0 8px; font-size: 26px; font-weight: 500; }
 
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
@@ -36,3 +38,25 @@ mat-paginator { margin-top: 12px; background: transparent; }
 .message { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 16px; color: var(--mat-sys-on-surface-variant); }
 .message mat-icon { font-size: 40px; width: 40px; height: 40px; }
 .message p { margin: 0; }
+
+/* Tablets and phones: one card per booking (TICKET-031). */
+@include r.tablet {
+  @include r.table-cards(64px);
+  tr.mat-mdc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  td.mat-mdc-cell { grid-column: 1 / -1; }
+  td.ref { grid-area: 1 / 1; gap: 0; color: var(--mat-sys-on-surface-variant); }
+  td.ref::before { content: '#'; }
+  td.status { grid-area: 1 / 2; }
+  td.property { font-size: 16px; font-weight: 500; }
+  td.actions { flex-wrap: wrap; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--mat-sys-outline-variant); }
+  .refund-note { max-width: none; white-space: normal; }
+}
+
+/* Laptops (961-1440 px, side nav open): drop "Booked" and let the text columns
+   wrap, so the table fits without scrolling sideways. */
+@media (min-width: #{r.$tablet + 1}) and (max-width: 1440px) {
+  .mat-column-booked { display: none; }
+  td.mat-column-property, td.mat-column-dates, td.mat-column-payment { white-space: normal; }
+  td.mat-column-guest { max-width: 170px; overflow: hidden; text-overflow: ellipsis; } /* full email on hover */
+  td.mat-column-dates { min-width: 130px; }
+}
