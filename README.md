@@ -3109,6 +3109,14 @@ locally in Mailpit and on Render with Brevo (step 5).
 "Received" and "confirmed" are always two emails, even when the guest pays
 straight away.
 
+**Admin accounts' mail goes to the owner's real inbox** (change after
+review): when the "guest" of a booking is an admin account (role `admin`,
+e.g. the demo admin booking a stay), its received / confirmed / cancelled
+emails go to `BOOKING_ALERT_EMAILS` instead of the account's login email -
+an admin login such as `admin_demo@example.com` isn't a real inbox. With
+`BOOKING_ALERT_EMAILS` empty they fall back to the account's own email.
+Normal guests always get mail at their own address.
+
 **Provider: Brevo's HTTP API** (free: 300 emails/day, a single verified
 sender address is enough - no domain needed). Not SMTP, because Render's
 free web services block outbound SMTP ports; so the email goes out as one
@@ -3369,6 +3377,7 @@ step 5 (locally in Mailpit, then on Render with a real inbox).
 | EM-17 | Seeded / Django Admin bookings send nothing | `seed_demo_data` | No rows in Booking emails | EMAIL-20 | |
 | EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | local ✅, Render ✅ |
 | EM-19 | Email settings can never stop a deploy (warnings only); Brevo without a key → console | Deploy before setting `BREVO_API_KEY` | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
+| EM-21 | An admin account's guest emails go to `BOOKING_ALERT_EMAILS`, not its login email (fallback: its own email when the list is empty) | Book as `admin_demo` | The received / confirmed / cancelled emails arrive at the owner's Gmail | EMAIL-33 | |
 | EM-20 | User content is escaped in HTML | Property title with `<b>` | Shown as text | EMAIL-31 | auto only |
 
 ### Emails: end-to-end results - Render (28 Sep 2026)

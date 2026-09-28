@@ -182,6 +182,25 @@ class OutboxTests(TestCase):
         self.assertEqual(mail.outbox[0].to, ["guest@example.com"])
         self.assertEqual(mail.outbox[0].extra_headers["Idempotency-Key"], f"booking-{self.booking.pk}-booking_received")
 
+    def test_admin_accounts_mail_goes_to_the_alert_list(self):
+        """EMAIL-33: a booking by an admin account -> its guest emails go to BOOKING_ALERT_EMAILS
+        (the owner's real inbox), not the admin's login email; a normal guest keeps their own."""
+        admin = User.objects.create_superuser("boss", "admin_demo@example.com", "S3cure-Booking-Pass!")
+        admin_booking = make_booking()
+        admin_booking.guest = admin
+        admin_booking.save()
+        row = self.enqueue(booking=admin_booking)
+        self.assertEqual(row.recipient_list, ["owner@example.com"])
+        self.assertEqual(mail.outbox[-1].to, ["owner@example.com"])
+        self.assertEqual(self.enqueue(booking=self.booking).recipient_list, ["guest@example.com"])
+
+    @override_settings(BOOKING_ALERT_EMAILS=[])
+    def test_admin_accounts_fall_back_to_their_own_email(self):
+        admin = User.objects.create_superuser("boss", "boss@example.com", "S3cure-Booking-Pass!")
+        self.booking.guest = admin
+        self.booking.save()
+        self.assertEqual(self.enqueue().recipient_list, ["boss@example.com"])
+
     def test_rolled_back_change_sends_nothing(self):
         """EMAIL-08: no email for a change that didn't happen."""
         with self.captureOnCommitCallbacks(execute=True):
