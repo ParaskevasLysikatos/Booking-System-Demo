@@ -29,7 +29,6 @@ import {
   MapMarker,
   TILE_ATTRIBUTION,
   TILE_MAX_ZOOM,
-  TILE_SUBDOMAINS,
   TILE_URL,
   clusterHtml,
   clusterTitle,
@@ -42,7 +41,7 @@ export type MapStatus = 'loading' | 'ready' | 'error';
 
 /**
  * The one map used across the app (TICKET-034): the listings split view,
- * the property page and the admin form. Leaflet with CARTO Voyager tiles,
+ * the property page and the admin form. Leaflet with softened OpenStreetMap tiles,
  * loaded lazily (MapLoader).
  *
  * - `markers`: price tags / round pins, or shaded circles (`areaRadiusM`)
@@ -164,10 +163,9 @@ export class MapComponent<T = unknown> {
       worldCopyJump: false,
     });
     L.tileLayer(TILE_URL, {
-      subdomains: TILE_SUBDOMAINS,
       maxZoom: TILE_MAX_ZOOM,
       attribution: TILE_ATTRIBUTION,
-      detectRetina: false,
+      className: 'app-map-tiles',
     }).addTo(this.map);
     this.map.on('click', (e: Leaflet.LeafletMouseEvent) => this.mapClick.emit({ lat: e.latlng.lat, lng: e.latlng.lng }));
     this.map.on('popupclose', () => this.destroyPopupView());

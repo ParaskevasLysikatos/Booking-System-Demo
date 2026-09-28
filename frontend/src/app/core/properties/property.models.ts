@@ -16,6 +16,44 @@ export interface PropertySummary {
   is_favorite?: boolean;
   /** How many accounts saved it - admin responses only (TICKET-033). */
   favorite_count?: number;
+  /**
+   * Map position (TICKET-034): exact for admins, otherwise a point 100-400 m
+   * away (`location_is_approximate`), inside a `location_radius_m` circle.
+   * null when the place has no position.
+   */
+  latitude?: number | null;
+  longitude?: number | null;
+  location_is_approximate?: boolean;
+  location_radius_m?: number | null;
+}
+
+/** One pin from GET /api/properties/map/ (backend PropertyPinSerializer, TICKET-034). */
+export interface MapPin {
+  id: number;
+  title: string;
+  location: string;
+  latitude: number;
+  longitude: number;
+  location_is_approximate: boolean;
+  location_radius_m: number | null;
+  price_per_night: string;
+  capacity: number;
+  is_active: boolean;
+  cover_image: string | null;
+  rating_avg: number | null;
+  review_count: number;
+  is_favorite: boolean;
+}
+
+/** GET /api/properties/map/: every stay matching the filters, not paginated. */
+export interface MapPins {
+  /** Matching stays with a position (= results.length unless truncated). */
+  count: number;
+  /** Matching stays without a position - in the list, not on the map. */
+  missing_position: number;
+  /** More than the API's 500-pin safety limit matched. */
+  truncated: boolean;
+  results: MapPin[];
 }
 
 export interface Paginated<T> {

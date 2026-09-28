@@ -27,16 +27,17 @@ export interface LatLng {
 }
 
 /**
- * CARTO Voyager raster tiles (agreed for TICKET-034): a light, low-contrast
- * base map so the price tags stand out. Free, no API key; built on
- * OpenStreetMap data, so both are credited.
+ * OpenStreetMap's standard tiles (TICKET-034). No account or key. map.scss
+ * softens them (lighter, less colour) so the price tags stand out - the
+ * light look first planned with CARTO Voyager, whose tiles turned out to
+ * need an API key ("API KEY REQUIRED" placeholders) by the time of step 5.
+ * OSM's tile usage policy asks for the attribution below and light use,
+ * which a demo is: https://operations.osmfoundation.org/policies/tiles/
  */
-export const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-export const TILE_SUBDOMAINS = 'abcd';
-export const TILE_MAX_ZOOM = 20;
+export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const TILE_MAX_ZOOM = 19;
 export const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ' +
-  '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 
 /** What the map shows when there's nothing to fit to: all of Greece. */
 export const GREECE_VIEW = { center: { lat: 38.6, lng: 23.9 } as LatLng, zoom: 6 };

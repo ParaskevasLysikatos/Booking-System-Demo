@@ -1,6 +1,7 @@
+import { BreakpointObserver } from '@angular/cdk/layout';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, inject } from '@angular/core';
-import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
   FormBuilder,
@@ -16,21 +17,58 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { ActivatedRoute, Router } from '@angular/router';
-import { BehaviorSubject, catchError, combineLatest, debounceTime, map, merge, of, startWith, switchMap } from 'rxjs';
+import {
+  BehaviorSubject,
+  catchError,
+  combineLatest,
+  debounceTime,
+  distinctUntilChanged,
+  map,
+  merge,
+  of,
+  scan,
+  startWith,
+  switchMap,
+} from 'rxjs';
 
 import { parseApiErrors } from '../../core/api-errors';
 import { addDays, nightsBetween, todayLocal, toIsoDate } from '../../core/dates';
-import { Paginated, PropertyFilters, PropertyOrdering, PropertySummary } from '../../core/properties/property.models';
+import { formatPrice } from '../../core/money';
+import {
+  MapPin,
+  MapPins,
+  Paginated,
+  PropertyFilters,
+  PropertyOrdering,
+  PropertySummary,
+} from '../../core/properties/property.models';
 import { PropertyService } from '../../core/properties/property.service';
-import { ListingQuery, PAGE_SIZES, parseListingQuery, toQueryParams } from './listing-query';
+import { MapComponent } from '../../shared/map/map';
+import { MapMarker } from '../../shared/map/map-markers';
+import { ListingQuery, PAGE_SIZES, listKey, parseListingQuery, pinsKey, toQueryParams } from './listing-query';
+import { MapPopupCardComponent } from './map-popup-card/map-popup-card';
 import { PropertyCardComponent } from './property-card/property-card';
 
 type ListState =
   | { status: 'loading'; query: ListingQuery }
   | { status: 'ok'; query: ListingQuery; data: Paginated<PropertySummary> }
   | { status: 'error'; query: ListingQuery; message: string; badRequest: boolean };
+
+/**
+ * The map's pins (TICKET-034). `data` is the last pins that loaded - kept
+ * while a new search loads, so the map doesn't flash empty.
+ */
+type PinsState =
+  | { status: 'off' }
+  | { status: 'loading'; data?: MapPins }
+  | { status: 'ok'; data: MapPins }
+  | { status: 'error'; data?: MapPins };
+
+/** List and map side by side from this width (TICKET-034). Same as $wide in styles/_responsive.scss. */
+export const SPLIT_VIEW_QUERY = '(min-width: 1100px)';
 
 /** API field names -> words, for messages like "check_in can't be in the past." */
 function humanize(message: string): string {
@@ -64,7 +102,10 @@ const priceRangeValidator: ValidatorFn = (group: AbstractControl): ValidationErr
     MatIconModule,
     MatInputModule,
     MatPaginatorModule,
+    MatProgressBarModule,
     MatSelectModule,
+    MapComponent,
+    MapPopupCardComponent,
     PropertyCardComponent,
   ],
   // Native Date adapter + dd/mm/yyyy display (how dates are written in Greece).
@@ -108,10 +149,12 @@ export class PropertyListPage {
   /** Bumped by "Try again" to re-run the current query. */
   private readonly retry$ = new BehaviorSubject<void>(undefined);
   private readonly query$ = this.route.queryParamMap.pipe(map(parseListingQuery));
+  /** The list only reloads when the search or page changes - not on List/Map. */
+  private readonly listQuery$ = this.query$.pipe(distinctUntilChanged((a, b) => listKey(a) === listKey(b)));
 
   /** The URL is the source of truth: every URL change -> one API call (older ones cancelled). */
   readonly state = toSignal(
-    combineLatest([this.query$, this.retry$]).pipe(
+    combineLatest([this.listQuery$, this.retry$]).pipe(
       switchMap(([query]) =>
         this.properties.list(query.filters, query.page).pipe(
           map((data): ListState => ({ status: 'ok', query, data })),
@@ -129,6 +172,74 @@ export class PropertyListPage {
     ),
     { requireSync: true },
   );
+
+  // --- map (TICKET-034) ---------------------------------------------------
+
+  /** Wide screens: list and map side by side, no List/Map button. */
+  readonly splitView = toSignal(
+    inject(BreakpointObserver).observe(SPLIT_VIEW_QUERY).pipe(map((r) => r.matches)),
+    { initialValue: false },
+  );
+  private readonly view = toSignal(this.query$.pipe(map((q) => q.view)), { initialValue: undefined });
+  /** Phones/tablets: the map instead of the list (`?view=map`). */
+  readonly mapOnly = computed(() => !this.splitView() && this.view() === 'map');
+  readonly showMap = computed(() => this.splitView() || this.mapOnly());
+  readonly showList = computed(() => !this.mapOnly());
+
+  /** The card under the mouse / keyboard focus - its pin is lifted. */
+  readonly hoveredId = signal<number | null>(null);
+
+  private readonly pinsRetry$ = new BehaviorSubject<void>(undefined);
+  /** Pins load only while the map is shown, and only when the filters change (not the page). */
+  readonly pins = toSignal(
+    combineLatest([
+      this.query$.pipe(distinctUntilChanged((a, b) => pinsKey(a) === pinsKey(b))),
+      toObservable(this.showMap),
+      this.pinsRetry$,
+    ]).pipe(
+      switchMap(([query, show]) =>
+        !show
+          ? of<PinsState>({ status: 'off' })
+          : this.properties.mapPins(query.filters).pipe(
+              map((data): PinsState => ({ status: 'ok', data })),
+              catchError(() => of<PinsState>({ status: 'error' })),
+              startWith<PinsState>({ status: 'loading' }),
+            ),
+      ),
+      // Keep the previous pins on the map while the next ones load (or fail).
+      scan((prev: PinsState, next: PinsState): PinsState => {
+        const last = prev.status === 'off' ? undefined : prev.data;
+        return next.status === 'loading' || next.status === 'error' ? { ...next, data: last } : next;
+      }, { status: 'off' } as PinsState),
+    ),
+    { initialValue: { status: 'off' } as PinsState },
+  );
+
+  readonly markers = computed<MapMarker<MapPin>[]>(() => {
+    const pins = this.pins();
+    const results = pins.status === 'off' ? [] : (pins.data?.results ?? []);
+    return results.map((p) => {
+      const price = formatPrice(p.price_per_night);
+      return {
+        id: p.id,
+        lat: p.latitude,
+        lng: p.longitude,
+        label: price,
+        title: `${p.title}, ${price} a night`,
+        data: p,
+      };
+    });
+  });
+
+  /** "2 stays aren't on the map" - matching stays with no position. */
+  readonly missingOnMap = computed(() => {
+    const pins = this.pins();
+    return pins.status === 'ok' ? pins.data.missing_position : 0;
+  });
+  readonly pinsTruncated = computed(() => {
+    const pins = this.pins();
+    return pins.status === 'ok' && pins.data.truncated;
+  });
 
   constructor() {
     // URL -> form (initial load, Back/Forward, shared links). emitEvent:false
@@ -202,12 +313,27 @@ export class PropertyListPage {
   clearFilters(): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: toQueryParams({ filters: {}, page: { ...this.query.page, page: 1 } }),
+      queryParams: toQueryParams({ filters: {}, page: { ...this.query.page, page: 1 }, view: this.view() }),
     });
   }
 
   retry(): void {
     this.retry$.next();
+  }
+
+  retryPins(): void {
+    this.pinsRetry$.next();
+  }
+
+  /** Phones/tablets: switch between the list and the map (kept in the URL). */
+  toggleView(): void {
+    const toMap = this.view() !== 'map';
+    void this.router
+      .navigate([], {
+        relativeTo: this.route,
+        queryParams: toQueryParams({ ...this.query, view: toMap ? 'map' : undefined }),
+      })
+      .then(() => window.scrollTo({ top: 0 }));
   }
 
   onPage(event: PageEvent): void {
@@ -218,6 +344,7 @@ export class PropertyListPage {
         queryParams: toQueryParams({
           filters: this.query.filters,
           page: { page: sizeChanged ? 1 : event.pageIndex + 1, pageSize: event.pageSize },
+          view: this.view(),
         }),
       })
       .then(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -259,7 +386,7 @@ export class PropertyListPage {
   private navigate(filters: PropertyFilters, page: number): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: toQueryParams({ filters, page: { page, pageSize: this.query.page.pageSize } }),
+      queryParams: toQueryParams({ filters, page: { page, pageSize: this.query.page.pageSize }, view: this.view() }),
     });
   }
 }

@@ -82,6 +82,76 @@ mat-paginator {
   to { background-position: -200% 0; }
 }
 
+// --- map (TICKET-034) -----------------------------------------------------
+
+.map-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.map-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.map-box {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.map-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+}
+
+.map { height: 100%; }
+
+// Phones/tablets, map instead of the list: the map fills the screen below the search.
+.map-only .map-box { height: calc(100dvh - 240px); min-height: 360px; }
+
+// Room under the last card / paginator for the floating List/Map button.
+.listings:not(.split) { padding-bottom: 96px; }
+
+.view-toggle {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 5;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 25%);
+}
+
+// Wide screens: ~60% list (2 cards per row) + a sticky ~40% map.
+@include r.wide {
+  .listings.split { max-width: 1600px; }
+
+  .split .results {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .split .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .split .map-col {
+    position: sticky;
+    top: 80px; // below the 64px sticky toolbar
+    height: calc(100vh - 96px);
+  }
+}
+
 @include r.phone {
   .go { width: 100%; }
   .price { flex: 1 1 120px; }

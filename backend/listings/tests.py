@@ -593,7 +593,7 @@ class MapPinTests(PropertyAPITestBase):
     PIN_FIELDS = {
         "id", "title", "location", "latitude", "longitude", "location_is_approximate",
         "location_radius_m", "price_per_night", "capacity", "is_active", "cover_image",
-        "rating_avg", "review_count",
+        "rating_avg", "review_count", "is_favorite",
     }
 
     def setUp(self):
@@ -704,6 +704,14 @@ class MapPinTests(PropertyAPITestBase):
     def test_read_only(self):
         self.client.force_authenticate(self.admin)
         self.assertEqual(self.client.post(self.MAP_URL, {}, format="json").status_code, 405)
+
+    def test_is_favorite_for_the_caller(self):
+        Favorite.objects.create(user=self.guest, property=self.thess)
+        pins = {p["id"]: p["is_favorite"] for p in self.get(user=self.guest).data["results"]}
+        self.assertEqual(pins, {self.thess.id: True, self.athens.id: False})
+        other = User.objects.create_user("other", "other@example.com", PASSWORD)
+        self.assertFalse(any(p["is_favorite"] for p in self.get(user=other).data["results"]))
+        self.assertFalse(any(p["is_favorite"] for p in self.get().data["results"]))
 
     def test_map_is_not_a_property_id(self):
         # the router must match /properties/map/ before /properties/{pk}/

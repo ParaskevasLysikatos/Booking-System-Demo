@@ -718,6 +718,14 @@ test, always last).
     - `MapLoader`: Leaflet + markercluster by dynamic `import()` and a `map-styles.css` bundle built non-injected - loaded once, on the first map; a failure can be retried. Production build: initial bundle byte-identical; with a map on a page Leaflet (37.6 kB gz) + clusters (8.0 kB gz) are lazy chunks; no warnings.
     - 20 new tests (real Leaflet in jsdom); **318 frontend tests** pass; production build clean. Browser check comes with step 5 (first page using it).
     - README: new "Shared map component (Angular, TICKET-034)"; layout, status and next steps updated.
+  - Step 5 done (listings map):
+    - Decisions: **60/40 split from 1100 px** (2 cards per row, sticky map below the toolbar), a floating **Show map / Show list** button below that with `?view=map` in the URL; pop-up card with photo, title, rating, location, price, **stay total** when dates are picked and the **♡ heart**.
+    - **Base map changed:** CARTO now returns an "API KEY REQUIRED" placeholder for every Voyager (and light_all) tile, whatever the referrer (checked in Chrome) → owner chose **softened OpenStreetMap** (standard OSM tiles + a CSS filter on the tile layer only; credit "© OpenStreetMap contributors"; no key).
+    - `/listings`: pins for **every** matching stay (`PropertyService.mapPins`, same filters, `is_active=true`); the list reloads only on search/page (`listKey`), pins only on filter changes and only while the map is shown (`pinsKey`); old pins kept while new ones load (progress bar); notes for stays without a position / the 500-pin limit / a failed load (Try again). Card hover/focus lifts the stay's tag (or its bubble). New search / Clear filters / paging keep the view.
+    - `map-popup-card/`: links to the stay with dates/guests; heart via the shared `FavoriteService` (none for admins). Backend: map pins now include `is_favorite` (+1 test). `.app-map { isolation: isolate }` keeps Leaflet's z-indexes under the sticky toolbar / floating button.
+    - 16 new frontend tests (**334** pass), **389** backend tests pass; production build clean (initial +0.6 kB, Leaflet still lazy).
+    - Chrome, local app: split 946/630 px at 2560 px, tags + bubbles over Greece, pop-up (Rhodes €66), card hover → right bubble, bubble zoom-in split, Kalamata search → 2 tags; 390 px frame: Show map → `?view=map`, 343×520 map, Show list, no sideways scroll; no console errors.
+    - README: new "Listings map (Angular, TICKET-034)"; "Shared map component" (base map decision), "Map pins API" (`is_favorite`), layout, status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

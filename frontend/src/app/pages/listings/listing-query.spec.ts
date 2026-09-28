@@ -1,6 +1,6 @@
 import { convertToParamMap } from '@angular/router';
 
-import { parseListingQuery, toQueryParams } from './listing-query';
+import { listKey, parseListingQuery, pinsKey, toQueryParams } from './listing-query';
 
 describe('listing query <-> URL', () => {
   it('round-trips a full search', () => {
@@ -31,5 +31,25 @@ describe('listing query <-> URL', () => {
     });
     expect(query.page).toEqual({ page: 1, pageSize: 12 });
     expect(toQueryParams(query)).toEqual({});
+  });
+});
+
+describe('listing query: map view (TICKET-034)', () => {
+  it('reads and writes ?view=map, ignoring anything else', () => {
+    expect(parseListingQuery(convertToParamMap({ view: 'map' })).view).toBe('map');
+    expect(parseListingQuery(convertToParamMap({ view: 'list' })).view).toBeUndefined();
+    const q = parseListingQuery(convertToParamMap({ location: 'volos', view: 'map' }));
+    expect(toQueryParams(q)).toEqual({ location: 'volos', view: 'map' });
+  });
+
+  it('the list key ignores the view; the pins key also ignores the page', () => {
+    const a = parseListingQuery(convertToParamMap({ location: 'volos', page: '2' }));
+    const b = parseListingQuery(convertToParamMap({ location: 'volos', page: '2', view: 'map' }));
+    const c = parseListingQuery(convertToParamMap({ location: 'volos', page: '3' }));
+    const d = parseListingQuery(convertToParamMap({ location: 'corfu' }));
+    expect(listKey(a)).toBe(listKey(b));
+    expect(listKey(a)).not.toBe(listKey(c));
+    expect(pinsKey(a)).toBe(pinsKey(c));
+    expect(pinsKey(a)).not.toBe(pinsKey(d));
   });
 });

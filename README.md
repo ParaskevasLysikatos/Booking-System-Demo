@@ -48,9 +48,12 @@ can have a map position (exact for admins; everyone else only gets a
 pins API (TICKET-034)"; step 3 is done - admins can look up an address in
 Greece (`GET /api/admin/geocode/`) to place a pin; see "Admin place search
 API (TICKET-034)"; step 4 is done - the shared map component
-(`<app-map>`: Leaflet with the light CARTO Voyager map, price tags,
+(`<app-map>`: Leaflet with a softened OpenStreetMap map, price tags,
 numbered bubbles for nearby stays, approximate-area circles, pop-ups),
-loaded only when a page shows a map; see "Shared map component". See "Next steps" at the bottom for
+loaded only when a page shows a map; see "Shared map component"; step 5 is
+done - `/listings` shows the list and a map side by side on wide screens
+(a Show map / Show list button on phones), with a pop-up card per price
+tag; see "Listings map". See "Next steps" at the bottom for
 what's next.
 
 ## Prerequisites
@@ -242,13 +245,14 @@ frontend/
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
     shared/favorite-button.ts           The heart: a toggle button (overlay on card photos, or "Save/Saved" in a header) - TICKET-033
-    shared/map/                         The map used everywhere (Leaflet + CARTO Voyager, price tags, clusters, areas, pop-ups), lazy-loaded - TICKET-034
+    shared/map/                         The map used everywhere (Leaflet + softened OpenStreetMap, price tags, clusters, areas, pop-ups), lazy-loaded - TICKET-034
     core/favorites/                     FavoriteService: save/remove, the heart state per place, logged-out -> login -> save - TICKET-033
     core/reviews/                       ReviewService (a property's reviews page by page) + review models - TICKET-032
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or Saved (guests) + My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     layout/wake-notice/                 "Waking up the demo server" banner under the toolbar (production only)
-    pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
+    pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/);
+                                        map split view / ?view=map + map-popup-card/ (TICKET-034)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
                                         calendar, sticky booking panel with live availability + Book now,
                                         reviews/ (star summary + reviews, Show more - TICKET-032)
@@ -1497,7 +1501,7 @@ current page. Code: `listings/views.py:PropertyViewSet.map` and
       "location_is_approximate": true, "location_radius_m": 500,
       "price_per_night": "126.00", "capacity": 6, "is_active": true,
       "cover_image": "https://picsum.photos/seed/13-0/800/600",
-      "rating_avg": 4.5, "review_count": 2 }
+      "rating_avg": 4.5, "review_count": 2, "is_favorite": false }
   ]
 }
 ```
@@ -1507,7 +1511,7 @@ current page. Code: `listings/views.py:PropertyViewSet.map` and
 | `count` | Matching stays **with** a map position (the pins) |
 | `missing_position` | Matching stays **without** one. They're in the list but not on the map, so the page can say "N stays not shown on the map". |
 | `truncated` | `true` only if there are more than 500 pins (`MAP_PIN_LIMIT` in `views.py`); `results` then holds the first 500 in the requested order. The demo never gets near this; it's only a safety limit. |
-| `results` | One small item per pin: what the price tag and its pop-up card need. There's no description, amenities or favorite state; the pop-up links to the property page for those. |
+| `results` | One small item per pin: what the price tag and its pop-up card need, including `is_favorite` (added in step 5 for the pop-up's heart). There's no description or amenities; the pop-up links to the property page for those. |
 
 - **Location precision:** same rule as the cards. Admins get the exact
   point; everyone else gets the approximate one with
@@ -2339,10 +2343,20 @@ Code: `frontend/src/app/shared/map/`:
 
 ### Decisions (agreed before building)
 
-- **Map style: CARTO Voyager.** A light, low-contrast base map, so the
-  price tags stand out. It's free, needs no API key and is built on
-  OpenStreetMap data. The credit line reads "© OpenStreetMap contributors
-  © CARTO". CARTO's free basemaps are meant for light use like this demo.
+- **Map style: a light, low-contrast base map**, so the price tags stand
+  out. The first choice was CARTO Voyager. **Changed in step 5:** CARTO no
+  longer serves those tiles without an API key. Every tile came back as an
+  "API KEY REQUIRED" placeholder, checked from the browser, whatever the
+  referrer.
+  - The map now uses **OpenStreetMap's standard tiles**, softened with a
+    CSS filter on the tile layer only (`.app-map-tiles { filter:
+    saturate(0.35) brightness(1.05) contrast(0.9) }` in `map.scss`), so it
+    stays light without any account or key.
+  - The credit line reads "© OpenStreetMap contributors".
+  - OSM's [tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+    asks for that credit and light use, which fits a demo.
+  - To switch provider later, change `TILE_URL` / `TILE_ATTRIBUTION` in
+    `map-markers.ts`.
 - **Nearby stays merge into numbered bubbles.** This uses the
   `leaflet.markercluster` package. Clicking a bubble zooms in; stays at the
   exact same spot fan out.
@@ -2467,7 +2481,7 @@ with rounded corners.
   with element sizes stubbed so it can fit and cluster, and a loader that
   skips the stylesheet. They cover:
   - spinner → a labelled region
-  - Voyager tiles and both credits
+  - OpenStreetMap tiles, the softening class and the credit
   - keyboard-reachable, named price tags, and a pin without a label
   - markers without a position skipped
   - fitting to all points, to one point, and to Greece
@@ -2485,6 +2499,140 @@ with rounded corners.
   production build is clean.
 - **In a browser:** the component is checked in Chrome in step 5, when the
   listings page first uses it.
+
+## Listings map (Angular, TICKET-034)
+
+Step 5 of the map view: `/listings` shows every stay that matches the
+search on a map, next to the list. Code: `pages/listings/` (`listings.ts`,
+`.html`, `.scss`, `listing-query.ts`, `map-popup-card/`),
+`PropertyService.mapPins()` and the shared `<app-map>` (see "Shared map
+component").
+
+### Decisions (agreed before building)
+
+- **Layout (the recommended one):**
+  - From **1100 px** wide: about **60% list**, with 2 cards per row, and
+    **40% map**. The map is sticky, just below the toolbar, and fills the
+    screen's height.
+  - Narrower screens: the list only, with a floating **Show map** button.
+- **Pop-up card:** a photo, the title, the rating, the location and the
+  price per night. When dates are picked it also shows **the total for the
+  stay**, like the listing cards, and it has the **♡ heart**.
+- **Base map:** softened OpenStreetMap. CARTO Voyager now needs an API key;
+  see "Shared map component" → Decisions.
+
+### Wide screens: the split view (≥ 1100 px)
+
+- `section.listings.split` widens to 1600 px. The results become a grid,
+  `3fr` for the list and `2fr` for the map.
+- **The map column is sticky:** `top: 80px`, below the 64 px toolbar, and
+  `height: calc(100vh - 96px)`. It stays in view while the list scrolls.
+- The breakpoint is `SPLIT_VIEW_QUERY` in `listings.ts`, the same as
+  `$wide` in `styles/_responsive.scss`. It's watched with the CDK
+  `BreakpointObserver`, so the layout switches live when the window is
+  resized.
+- `?view=map` in the URL is ignored here, because both are already shown.
+
+### Phones and tablets: Show map / Show list
+
+- A round **Show map** button floats at the bottom centre, above the
+  safe area. Tapping it adds **`?view=map`** to the URL, so **Back** returns
+  to the list and the link can be shared.
+- In map view, the cards and paginator make way for the map, which fills
+  the screen below the search (`calc(100dvh - 240px)`, at least 360 px).
+  The "N stays" count stays visible, and the button reads **Show list**.
+- **A new search, Clear filters and paging keep the view you're in.**
+  `view` is part of `ListingQuery`, so every navigation carries it along.
+- The page has extra room at the bottom, so the button never covers the
+  last card or the paginator.
+
+### What's on the map
+
+- **One price tag per matching stay**, not just the 12 on the current page.
+  The pins come from `GET /api/properties/map/` with the **same filters**
+  as the list, and `is_active=true` like the list sends.
+- **Tag text and name:** the tag shows the nightly price ("€126"). Its
+  accessible name is "Cozy Loft in Chania, €126 a night".
+- **Nearby stays** merge into numbered bubbles; click one to zoom in.
+- **Which requests run when:**
+  - The **list** reloads only when the search or the page changes, not on
+    Show map / Show list (`listKey()`).
+  - The **pins** reload only when the filters change, not the page
+    (`pinsKey()`), and **only while the map is shown**. On a phone in list
+    view, no pins are requested at all.
+- **While new pins load:** a thin progress bar runs across the top of the
+  map, and the old tags stay until the new ones arrive, so the map never
+  flashes empty.
+- **Hover or keyboard focus on a card** lifts that stay's tag: it turns
+  dark and moves on top. If the stay is inside a bubble, the bubble is lit
+  up instead.
+- **Notes above the map:**
+  - "2 stays aren't on the map (no location set yet)." when some matching
+    stays have no position (`missing_position`).
+  - "Showing the first N stays - narrow the search to see the rest." if the
+    500-pin limit is ever hit.
+  - If the pins fail to load: "Couldn't load the map's stays." with **Try
+    again**, which reloads only the pins.
+
+### The pop-up card (`map-popup-card/`)
+
+- **Clicking a tag** (or Enter on it) opens a 260 px card:
+  - the cover photo (a placeholder if it's missing or fails)
+  - the title and ★ rating ("New" without reviews)
+  - the location and "€126 / night"
+  - with dates picked, **"€630 for 5 nights"**
+- **The whole card links to the stay** and keeps the search's dates and
+  guests, exactly like the listing cards (`cardLinkParams()`).
+- **The ♡ heart** sits over the photo, next to the round close button, and
+  outside the link. It's the same `FavoriteService` as the cards, so saving
+  from the map also fills the card's heart. Admins get no heart, and a
+  logged-out visitor goes through login first, as everywhere.
+- For the heart to start in the right state, **map pins now include
+  `is_favorite`** (a backend change in this step: `PropertyPinSerializer`,
+  plus 1 new backend test).
+
+### Tests
+
+- `listings-map.spec.ts` has 9 tests. The map loader is stubbed; the map
+  itself is tested in `shared/map`.
+  - Wide screens:
+    - list and map side by side, with the right tags and names
+    - paging reloads the list but not the pins, and a new search reloads
+      both
+    - card hover or focus → `highlightedId`
+    - the missing and truncated notes
+    - old pins kept while loading, then an error and Try again
+    - `?view=map` ignored
+  - Phones:
+    - no map and no pins request until Show map
+    - Show map → `?view=map`, the list isn't refetched and the cards make
+      way for the map; Show list goes back
+    - a new search keeps the map view
+- `map-popup-card.spec.ts` has 4 tests:
+  - content and the link with the search
+  - the stay total
+  - "New" and the missing photo
+  - the heart for guests, outside the link, and none for admins
+- `listing-query.spec.ts` (+2) and `property.service.spec.ts` (+1) cover
+  `?view=map`, `listKey`/`pinsKey` and the `/map/` request.
+- **Results:** **334** frontend tests and **389** backend tests pass. The
+  production build is clean; the initial bundle grew by 0.6 kB, and Leaflet
+  is still a lazy chunk.
+- **Checked in Chrome** against the local app (Docker, your data):
+  - At 2560 px: a 946/630 px split, capped at 1600 px, with 2 cards per
+    row and the sticky map.
+  - Tags and bubbles over Greece.
+  - Clicking €66 opened the Rhodes card (photo, heart, close button,
+    "New", €66 / night).
+  - Hovering each of 4 cards lit the right bubble, and the highlight
+    cleared when the mouse left.
+  - The tags have names.
+  - A "3" bubble zoomed in and split into €169 and a "2".
+  - A Kalamata search narrowed the map to its 2 tags.
+  - In a 390 px frame: list only with Show map → `?view=map`, a 343×520
+    map with 6 tags or bubbles, Show list, and no sideways scroll.
+  - No console errors.
+  - This check is also what caught the CARTO key problem.
 
 ## Booking form (Angular)
 
@@ -5506,7 +5654,13 @@ pins API (TICKET-034)"; step 3 (`GET /api/admin/geocode/`: up to 5
 specific places in Greece from OpenStreetMap Nominatim for the admin
 form's Find on map - cached, 1 request/s, 503 when unavailable) is done;
 see "Admin place search API (TICKET-034)"; step 4 (the shared `<app-map>`
-component: Leaflet + CARTO Voyager tiles, price tags, `leaflet.markercluster`
+component: Leaflet + map tiles (CARTO Voyager at first, softened OpenStreetMap since step 5), price tags, `leaflet.markercluster`
 bubbles, approximate-area circles, pop-up template, map clicks - all
 lazy-loaded, initial bundle unchanged) is done; see "Shared map component
-(Angular, TICKET-034)". Next: step 5, the `/listings` split view.
+(Angular, TICKET-034)"; step 5 (the `/listings` map: a 60/40 split view
+from 1100 px with a sticky map, Show map / Show list with `?view=map` on
+phones, pins for every matching stay, card hover lifts its tag, pop-up card
+with photo, rating, price, stay total and heart; the base map switched to
+softened OpenStreetMap because CARTO now needs a key) is done; see
+"Listings map (Angular, TICKET-034)". Next: step 6, the map on the
+property page.

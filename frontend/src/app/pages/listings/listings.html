@@ -1,4 +1,4 @@
-<section class="listings">
+<section class="listings" [class.split]="splitView()" [class.map-only]="mapOnly()">
   <form class="search" role="search" [formGroup]="form" (ngSubmit)="search()" novalidate>
     <div class="main">
       <mat-form-field appearance="outline" class="dates" subscriptSizing="dynamic">
@@ -60,13 +60,17 @@
     }
   </form>
 
+  <div class="results">
+  <div class="list">
   @switch (state().status) {
     @case ('loading') {
+      @if (showList()) {
       <div class="grid" aria-busy="true" aria-label="Loading stays">
         @for (i of [1, 2, 3, 4, 5, 6, 7, 8]; track i) {
           <div class="skeleton"><div class="ph-img"></div><div class="ph-line"></div><div class="ph-line short"></div></div>
         }
       </div>
+      }
     }
 
     @case ('error') {
@@ -98,12 +102,23 @@
             available for {{ n }} {{ n === 1 ? 'night' : 'nights' }}
           }
         </p>
+        @if (showList()) {
         <div class="grid">
           @for (p of data.results; track p.id) {
-            <app-property-card [property]="p" [nights]="nights()" [linkParams]="cardLinkParams()" />
+            <!-- Hover / keyboard focus lifts this stay's price tag on the map (TICKET-034). -->
+            <app-property-card
+              [property]="p"
+              [nights]="nights()"
+              [linkParams]="cardLinkParams()"
+              (mouseenter)="hoveredId.set(p.id)"
+              (mouseleave)="hoveredId.set(null)"
+              (focusin)="hoveredId.set(p.id)"
+              (focusout)="hoveredId.set(null)"
+            />
           }
         </div>
-        @if (data.count > query.page.pageSize) {
+        }
+        @if (showList() && data.count > query.page.pageSize) {
           <mat-paginator
             [length]="data.count"
             [pageIndex]="query.page.page - 1"
@@ -115,5 +130,49 @@
         }
       }
     }
+  }
+  </div>
+
+  @if (showMap()) {
+    <!-- TICKET-034: every stay matching the search (not just this page), as price tags. -->
+    <div class="map-col">
+      @if (pins().status === 'error') {
+        <p class="map-note" role="alert">
+          Couldn't load the map's stays.
+          <button mat-button type="button" (click)="retryPins()">Try again</button>
+        </p>
+      } @else if (missingOnMap(); as missing) {
+        <p class="map-note">
+          {{ missing }} {{ missing === 1 ? "stay isn't" : "stays aren't" }} on the map (no location set yet).
+        </p>
+      }
+      @if (pinsTruncated()) {
+        <p class="map-note">Showing the first {{ markers().length }} stays - narrow the search to see the rest.</p>
+      }
+      <div class="map-box">
+        @if (pins().status === 'loading') {
+          <mat-progress-bar class="map-progress" mode="indeterminate" aria-label="Loading the map's stays" />
+        }
+        <app-map
+          class="map"
+          ariaLabel="Map of the stays that match your search"
+          [markers]="markers()"
+          [highlightedId]="hoveredId()"
+        >
+          <ng-template let-marker>
+            <app-map-popup-card [pin]="marker.data" [nights]="nights()" [linkParams]="cardLinkParams()" />
+          </ng-template>
+        </app-map>
+      </div>
+    </div>
+  }
+  </div>
+
+  @if (!splitView()) {
+    <!-- Phones/tablets: switch between the list and the map (?view=map). -->
+    <button mat-flat-button type="button" class="view-toggle" (click)="toggleView()">
+      <mat-icon>{{ mapOnly() ? 'view_list' : 'map' }}</mat-icon>
+      {{ mapOnly() ? 'Show list' : 'Show map' }}
+    </button>
   }
 </section>

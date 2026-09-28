@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 import { toIsoDate } from '../dates';
 import {
   DEFAULT_PAGE_SIZE,
+  MapPins,
   PageRequest,
   Paginated,
   PropertyDetail,
@@ -49,6 +50,16 @@ export class PropertyService {
   list(filters: PropertyFilters, page: PageRequest): Observable<Paginated<PropertySummary>> {
     const params = toPropertyParams(filters, page).set('is_active', 'true');
     return this.http.get<Paginated<PropertySummary>>(PROPERTIES_URL, { params });
+  }
+
+  /**
+   * Every stay matching `filters` as map pins (TICKET-034) - the same
+   * filters as `list` (and `is_active=true` for the same reason), but no
+   * paging: the map shows them all.
+   */
+  mapPins(filters: PropertyFilters): Observable<MapPins> {
+    const params = toPropertyParams(filters).set('is_active', 'true');
+    return this.http.get<MapPins>(`${PROPERTIES_URL}map/`, { params });
   }
 
   /**

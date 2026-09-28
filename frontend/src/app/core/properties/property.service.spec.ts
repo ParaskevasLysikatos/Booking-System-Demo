@@ -46,3 +46,13 @@ describe('PropertyService', () => {
     expect(req.request.params.toString()).toBe('check_in=2027-02-02&check_out=2027-02-04');
   });
 });
+
+describe('PropertyService.mapPins (TICKET-034)', () => {
+  it('asks /map/ with the same filters, active only, never a page', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(PropertyService).mapPins({ location: 'Chania', guests: 2, ordering: 'price' }).subscribe();
+    const req = TestBed.inject(HttpTestingController).expectOne((r) => r.url === `${PROPERTIES_URL}map/`);
+    expect(req.request.params.toString()).toBe('location=Chania&guests=2&ordering=price&is_active=true');
+    req.flush({ count: 0, missing_position: 0, truncated: false, results: [] });
+  });
+});

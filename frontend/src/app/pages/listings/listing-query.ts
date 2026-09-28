@@ -11,6 +11,12 @@ import { DEFAULT_PAGE_SIZE, PageRequest, PropertyFilters, PropertyOrdering } fro
 export interface ListingQuery {
   filters: PropertyFilters;
   page: PageRequest;
+  /**
+   * `?view=map` - phones/tablets show the map instead of the list
+   * (TICKET-034). In the URL so Back returns to the list; wide screens show
+   * both side by side and ignore it.
+   */
+  view?: 'map';
 }
 
 const ORDERINGS: PropertyOrdering[] = ['newest', 'price', '-price', 'capacity', '-capacity'];
@@ -47,11 +53,12 @@ export function parseListingQuery(params: ParamMap): ListingQuery {
       page: positiveInt(params.get('page')) ?? 1,
       pageSize: pageSize && PAGE_SIZES.includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
     },
+    view: params.get('view') === 'map' ? 'map' : undefined,
   };
 }
 
 /** Query -> URL params. Defaults are left out to keep URLs short. */
-export function toQueryParams({ filters, page }: ListingQuery): Params {
+export function toQueryParams({ filters, page, view }: ListingQuery): Params {
   const params: Params = {};
   if (filters.location) params['location'] = filters.location;
   if (filters.guests) params['guests'] = filters.guests;
@@ -64,5 +71,16 @@ export function toQueryParams({ filters, page }: ListingQuery): Params {
   if (filters.ordering && filters.ordering !== 'newest') params['ordering'] = filters.ordering;
   if (page.page > 1) params['page'] = page.page;
   if (page.pageSize !== DEFAULT_PAGE_SIZE) params['page_size'] = page.pageSize;
+  if (view === 'map') params['view'] = 'map';
   return params;
+}
+
+/** The part of the query the list depends on (not the view) - as a comparable key. */
+export function listKey({ filters, page }: ListingQuery): string {
+  return JSON.stringify(toQueryParams({ filters, page }));
+}
+
+/** The part the map pins depend on: filters only (pins aren't paged). */
+export function pinsKey({ filters }: ListingQuery): string {
+  return JSON.stringify(toQueryParams({ filters, page: { page: 1, pageSize: DEFAULT_PAGE_SIZE } }));
 }

@@ -15,6 +15,14 @@ $tablet: 960px;
   @media (max-width: $tablet) { @content; }
 }
 
+/// Wide screens: the listings split view (list + map side by side,
+/// TICKET-034). Keep in sync with SPLIT_VIEW_QUERY in pages/listings/listings.ts.
+$wide: 1100px;
+
+@mixin wide {
+  @media (min-width: $wide) { @content; }
+}
+
 /// Turns a `<table mat-table>` into one card per row (put it inside a
 /// breakpoint mixin). Each `<td>` with a `data-label` attribute shows that
 /// label in front of its value; cells without one span the card.

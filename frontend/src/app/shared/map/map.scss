@@ -4,12 +4,19 @@
   --app-map-accent: #005cbb;
   position: relative;
   display: block;
+  // Leaflet's panes use z-index 400-1000: keep them inside the map, so a
+  // sticky toolbar or a floating button can sit on top of it.
+  isolation: isolate;
   min-height: 200px;
   border-radius: 12px;
   overflow: hidden;
   background: #eef0f2;
 
   .app-map-canvas { position: absolute; inset: 0; font: inherit; }
+
+  // Softened OpenStreetMap tiles: lighter and less colourful, so the white
+  // price tags and blue bubbles stand out (only the tiles - not markers).
+  .app-map-tiles { filter: saturate(0.35) brightness(1.05) contrast(0.9); }
 
   .app-map-overlay {
     position: absolute; inset: 0; z-index: 1000;
@@ -66,4 +73,12 @@
 .app-map .app-map-popup {
   .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
   .leaflet-popup-content { margin: 0; width: auto !important; font: inherit; }
+  // A round white close button over the pop-up's top-right corner (pop-ups
+  // usually start with a photo).
+  .leaflet-popup-close-button {
+    z-index: 1; top: 8px; right: 8px; width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: #fff; color: #1d1b20; font: 22px/1 sans-serif;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
+  }
 }

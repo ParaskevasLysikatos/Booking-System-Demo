@@ -176,6 +176,9 @@ class PropertyPinSerializer(RatingFieldsMixin, CoordinatesMixin, serializers.Mod
     Coordinates follow the same exact/approximate rule as the cards."""
 
     cover_image = serializers.SerializerMethodField()
+    # The pop-up card has a heart (TICKET-034 step 5): whether the caller
+    # saved it - the same annotation as the cards (listings/queries.py).
+    is_favorite = serializers.SerializerMethodField()
 
     class Meta:
         model = Property
@@ -193,11 +196,15 @@ class PropertyPinSerializer(RatingFieldsMixin, CoordinatesMixin, serializers.Mod
             "cover_image",
             "rating_avg",
             "review_count",
+            "is_favorite",
         ]
         read_only_fields = fields
 
     def get_cover_image(self, obj):
         return _cover_url(obj)
+
+    def get_is_favorite(self, obj):
+        return bool(getattr(obj, "is_favorite", False))
 
 
 class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, CoordinatesMixin, serializers.ModelSerializer):

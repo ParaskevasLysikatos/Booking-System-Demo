@@ -99,16 +99,16 @@ describe('MapComponent', () => {
     expect(el.querySelector('.leaflet-container')).not.toBeNull();
   });
 
-  it('uses CARTO Voyager tiles with OpenStreetMap + CARTO credits', async () => {
+  it('uses softened OpenStreetMap tiles with the OpenStreetMap credit', async () => {
     await ready();
     let tiles: Leaflet.TileLayer | undefined;
     leaflet().eachLayer((l) => {
       if ((l as Leaflet.TileLayer).getTileUrl) tiles = l as Leaflet.TileLayer;
     });
-    expect((tiles as unknown as { _url: string })._url).toContain('basemaps.cartocdn.com/rastertiles/voyager');
+    expect((tiles as unknown as { _url: string })._url).toBe('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(tiles!.options.className).toBe('app-map-tiles'); // the softening filter (map.scss)
     const credits = el.querySelector('.leaflet-control-attribution')?.textContent ?? '';
-    expect(credits).toContain('OpenStreetMap');
-    expect(credits).toContain('CARTO');
+    expect(credits).toContain('OpenStreetMap contributors');
   });
 
   it('draws a keyboard-reachable price tag per marker', async () => {
