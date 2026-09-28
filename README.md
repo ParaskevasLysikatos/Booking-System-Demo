@@ -3271,10 +3271,13 @@ are added, emails are only printed to Render's log (warning
 4. *Data Access* → *Add or remove scopes* → add
    `https://www.googleapis.com/auth/gmail.send` (send only - it can't read
    the mailbox) → *Update* → *Save*.
-5. *Audience* → **Publish app** → status **In production**. Important: in
-   "Testing" Google expires refresh tokens after 7 days. A personal app
-   like this doesn't need Google's review; you'll just see an "unverified
-   app" warning once when signing in.
+5. *Audience*: either **Publish app** (status **In production** - needs a
+   home page and privacy-policy link on the *Branding* page first; the
+   token then doesn't expire), or - what this project does for now - stay
+   in **Testing** and **add your Gmail under *Test users***: then Google
+   expires the refresh token after **7 days** and `gmail_authorize` has to
+   be run again. Either way you'll see an "unverified app" warning once
+   when signing in.
 6. *Clients* → *Create client* → type **Desktop app** → copy the **Client
    ID** and **Client secret** into `.env` as `GMAIL_CLIENT_ID` /
    `GMAIL_CLIENT_SECRET`.
@@ -3349,7 +3352,7 @@ To apply locally: `docker compose up -d` (pulls Mailpit, recreates the
 backend with the email settings; the backend runs the new migrations
 `notifications/0001_initial.py` and `0002_cancel_reason.py` on start).
 
-### Tests (`notifications/tests.py`, 45)
+### Tests (`notifications/tests.py`, 46)
 
 - **Step 1 (18, the backend part replaced by the Gmail API tests below):**
   the
@@ -3380,7 +3383,7 @@ backend with the email settings; the backend runs the new migrations
   exchanged, token printed; another sign-in's address refused; needs the
   client settings); `send_test_email`.
 
-All **259 backend tests pass** on Postgres.
+All **260 backend tests pass** on Postgres.
 
 ## Emails: business rules & test cases (TICKET-030)
 
@@ -3408,11 +3411,33 @@ step 5 (locally in Mailpit, then on Render with a real inbox).
 | EM-15 | A send stuck in `sending` is retried only after 10 minutes | (needs a crash mid-send) | - | EMAIL-13 | auto only |
 | EM-16 | No recipient → no email (account without email, empty alert list) | Empty `BOOKING_ALERT_EMAILS`, confirm | Only the guest's email | EMAIL-10 | |
 | EM-17 | Seeded / Django Admin bookings send nothing | `seed_demo_data` | No rows in Booking emails | EMAIL-20 | |
-| EM-18 | Gmail API: sent as the owner's real Gmail (text + HTML, Reply-To, header); errors readable, never a secret | Book on Render; look at the email in Gmail and in its *Sent* folder | Sender = the owner's Gmail address, not a service address | EMAIL-01…04 | Render (Brevo, replaced) ✅ |
+| EM-18 | Gmail API: sent as the owner's real Gmail (text + HTML, Reply-To, header); errors readable, never a secret | Book on Render; look at the email in Gmail and in its *Sent* folder | Sender = the owner's Gmail address, not a service address | EMAIL-01…04 | Gmail API: local ✅, Render ✅ |
 | EM-19 | Email settings can never stop a deploy (warnings only); `gmail` without its settings → console | Deploy before setting the `GMAIL_*` values | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
-| EM-21 | An admin account's guest emails go to `BOOKING_ALERT_EMAILS`, not its login email (fallback: its own email when the list is empty) | Book as `admin_demo` | The received / confirmed / cancelled emails arrive at the owner's Gmail | EMAIL-33 | |
-| EM-22 | `gmail_authorize` gives a working refresh token; a revoked token fails with advice | Run it, then `send_test_email` | `GMAIL_REFRESH_TOKEN=…` printed; the test email arrives from the Gmail | EMAIL-03, EMAIL-34 | |
+| EM-21 | An admin account's guest emails go to `BOOKING_ALERT_EMAILS`, not its login email (fallback: its own email when the list is empty) | Book as `admin_demo` | The received / confirmed / cancelled emails arrive at the owner's Gmail | EMAIL-33 | Render ✅ |
+| EM-22 | `gmail_authorize` gives a working refresh token; a revoked token fails with advice | Run it, then `send_test_email` | `GMAIL_REFRESH_TOKEN=…` printed; the test email arrives from the Gmail | EMAIL-03, EMAIL-34 | local ✅ |
 | EM-20 | User content is escaped in HTML | Property title with `<b>` | Shown as text | EMAIL-31 | auto only |
+
+### Emails: end-to-end results - Gmail API (28 Sep 2026)
+
+After the change to the Gmail API. Google Cloud: project
+`booking-demo-email`, Gmail API enabled, `gmail.send` scope, a "Desktop app"
+client; the app stays in **Testing** with the owner's Gmail as the only test
+user (publishing needs a home page + privacy policy on the Branding page -
+not done; see the note below).
+
+| Where | What was done | Result | Rules |
+| --- | --- | --- | --- |
+| Local | `gmail_authorize` (first try: an email pasted instead of the browser address → "state mismatch"; the prompt was then made clearer), then `send_test_email` | Refresh token printed; the test email arrived **from lysikatosparaskevas@gmail.com** and is in its *Sent* folder | EM-22 |
+| Render | `GMAIL_*` set, `EMAIL_PROVIDER=gmail`, `BREVO_API_KEY` deleted, redeployed `29e3e9d`. As `admin_demo`: book #45 (Nafplio, 12-14 Apr 2027) → Stripe page, not paid | **"Complete your payment - booking #45"** in the owner's Gmail inbox, **sender = the real Gmail** (no brevosend.com), and addressed to the owner's Gmail instead of `admin_demo@example.com` | EM-01, EM-18, EM-21 |
+| Render | Admin Confirm #45 (waived) | **"Booking #45 confirmed"** + **"New booking #45 … (€464)"** - both from the real Gmail, in the inbox (not spam) | EM-04, EM-18, EM-21 |
+| Render | Admin Cancel #45 (the admin's own booking) | **"Booking #45 cancelled"** - "as you requested" (the booking's own guest cancelled it), "Nothing was charged." | EM-05, EM-21 |
+
+**Testing mode:** Google expires the refresh token of a "Testing" app
+after **7 days** (this one: about 5 Oct 2026). When emails start failing
+with `invalid_grant`, run `gmail_authorize` again (1 minute), update
+`GMAIL_REFRESH_TOKEN` in `.env` and on Render, and *Retry sending* the
+failed emails in Django Admin. To stop that for good: fill in the app's
+home page + privacy policy on the Branding page and *Publish app*.
 
 ### Emails: end-to-end results - Render (28 Sep 2026, with Brevo - replaced afterwards)
 
@@ -3994,5 +4019,6 @@ cancelled, admin alert - sent at every booking change) and step 3
 **TICKET-030 is done**: tested end to end locally (Mailpit) and on Render
 (the owner alert in the real Gmail inbox); changes after review: admin
 accounts' mail goes to the owner's inbox, and emails are sent through the
-**Gmail API** as the owner's real Gmail (Brevo removed); see "Emails". Next:
+**Gmail API** as the owner's real Gmail (Brevo removed) - tested locally
+and on Render; see "Emails". Next:
 TICKET-031 (responsive layout + PWA manifest).
