@@ -26,6 +26,18 @@
   .star { color: #f5a623; }
 }
 
+.rating-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Keep the heading clear of the sticky toolbar when scrolled to (TICKET-032). */
+.reviews { scroll-margin-top: 80px; outline: none; }
+
 .new {
   padding: 1px 8px;
   border-radius: 999px;

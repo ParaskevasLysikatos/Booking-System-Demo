@@ -128,6 +128,32 @@ describe('PropertyDetailPage', () => {
     expect(router.serializeUrl(go.mock.calls[0][0] as never)).toBe(`/booking/5?check_in=${day(3)}&check_out=${day(5)}&guests=1`);
   });
 
+  it('shows a Reviews section, and the header rating scrolls to it (TICKET-032)', async () => {
+    const page = await open('/listings/5');
+    detailReq().flush(detail());
+    await settle();
+    const reviewsReq = http.expectOne(`${PROPERTIES_URL}5/reviews/`);
+    reviewsReq.flush({
+      count: 1, next: null, previous: null,
+      results: [{ id: 1, rating: 5, comment: 'Lovely view', author_name: 'Maria K.', created_at: '2026-09-20T10:00:00Z' }],
+      summary: { rating_avg: 5, review_count: 1, breakdown: [5, 4, 3, 2, 1].map((rating) => ({ rating, count: rating === 5 ? 1 : 0 })) },
+    });
+    await settle();
+    expect(text()).toContain('Lovely view');
+
+    const section = (harness.routeNativeElement as HTMLElement).querySelector('#reviews') as HTMLElement;
+    const scroll = vi.fn();
+    section.scrollIntoView = scroll;
+    const link = (harness.routeNativeElement as HTMLElement).querySelector('.rating-link') as HTMLAnchorElement;
+    expect(link.textContent).toContain('4.5 · 2 reviews');
+    const url = router.url;
+    link.click();
+    expect(scroll).toHaveBeenCalled();
+    expect(document.activeElement).toBe(section);
+    expect(router.url).toBe(url); // no navigation: the stay in the query params is kept
+    expect(page).toBeTruthy();
+  });
+
   it('an inactive property (admin view) shows a banner and cannot be booked', async () => {
     const page = await open(`/listings/5?check_in=${day(3)}&check_out=${day(5)}`);
     detailReq().flush(detail({ is_active: false }));

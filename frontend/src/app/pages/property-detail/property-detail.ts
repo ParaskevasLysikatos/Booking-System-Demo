@@ -34,6 +34,7 @@ import { stayDateFilter, stayProblem } from '../../core/properties/stay-rules';
 import { PropertyService } from '../../core/properties/property.service';
 import { AvailabilityCalendarComponent, DateSelection } from './availability-calendar/availability-calendar';
 import { GalleryComponent } from './gallery/gallery';
+import { PropertyReviewsComponent } from './reviews/property-reviews';
 
 type DetailState =
   | { status: 'loading' }
@@ -56,6 +57,7 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
     MatSelectModule,
     AvailabilityCalendarComponent,
     GalleryComponent,
+    PropertyReviewsComponent,
   ],
   providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
   templateUrl: './property-detail.html',
@@ -237,6 +239,20 @@ export class PropertyDetailPage {
     const el = this.panel()?.nativeElement;
     if (!el) return;
     el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    el.focus({ preventScroll: true });
+  }
+
+  // --- reviews (TICKET-032) ------------------------------------------------
+
+  private readonly reviewsSection = viewChild<ElementRef<HTMLElement>>('reviews');
+
+  /** Header "★ 4.5 · 2 reviews": scroll to the Reviews section (no URL change, so
+   *  the query params that hold the chosen stay stay as they are). */
+  goToReviews(event: Event): void {
+    event.preventDefault();
+    const el = this.reviewsSection()?.nativeElement;
+    if (!el) return;
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
     el.focus({ preventScroll: true });
   }
 

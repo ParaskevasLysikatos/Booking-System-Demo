@@ -618,6 +618,12 @@ test, always last).
     - `rating_avg`/`review_count` on cards and the detail now skip hidden reviews. The seeder only reviews *confirmed* past stays (same rule).
     - 37 new tests; all 297 backend tests pass on Postgres. Smoke-tested on seeded data with curl.
     - README: new "Reviews API (TICKET-032)" section; layout, data model, bookings/properties responses, seeding and next steps updated.
+  - Step 2 done (reviews on the property page):
+    - New `pages/property-detail/reviews/` section under Availability, loading its own data (`core/reviews/ReviewService`): the average + stars (half stars), "N reviews", one bar per star rating (share of reviews, count beside it, dashboard meter style, screen-reader label per row), then the reviews in two columns (one on phones) with initial, "Maria K.", month, stars and comment.
+    - **Show more reviews** (5 at a time, "Showing 5 of 8", no duplicates if the pages shift, Try again on failure); skeleton, "No reviews yet", load error + Try again; `reload()` ready for step 3.
+    - The header "★ 3.9 · 8 reviews" is now a link that scrolls to the section (URL unchanged). Shared `shared/star-rating.ts`.
+    - 9 new tests (234 frontend tests pass); production build clean (no budget warnings). Checked in headless Chrome at 1280 and 390 px with a property that has 8 reviews: no sideways scroll.
+    - README: new "Reviews section (TICKET-032)" under "Property detail page"; layout, tests and next steps updated.
 
 - [ ] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018
@@ -638,6 +644,7 @@ test, always last).
 
 - [ ] **TICKET-037** — UI polish pass + refresh seed data
   - Priority: P0 · Depends on: Epic 3 & 4 complete
+  - Seed data must include **enough reviews** to show the TICKET-032 Reviews section well (requested during TICKET-032: the current seeder only produced 3 reviews in total). E.g. more past *confirmed* stays so most properties get several reviews, with a mix of ratings and some without a comment - every review still backed by a real ended, confirmed booking (the rule the API enforces).
 
 - [ ] **TICKET-041** — Simple demo logins in the seeder (admin + guests)
   - Priority: P0 · Depends on: TICKET-026 · Do before TICKET-039 (requested after TICKET-026)

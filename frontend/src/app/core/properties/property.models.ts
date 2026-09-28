@@ -1,3 +1,5 @@
+import type { ViewerReview } from '../reviews/review.models';
+
 /** GET /api/properties/ card shape (backend listings/serializers.py:PropertyListSerializer). */
 export interface PropertySummary {
   id: number;
@@ -64,6 +66,8 @@ export interface PropertyDetail extends PropertySummary {
   description: string;
   images: PropertyImage[];
   availability: Availability;
+  /** What the logged-in caller may do with reviews (TICKET-032); anonymous: false / null. */
+  viewer_review?: ViewerReview;
   created_at: string;
   updated_at: string;
 }

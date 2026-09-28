@@ -204,12 +204,15 @@ frontend/
     core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
+    shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
+    core/reviews/                       ReviewService (a property's reviews page by page) + review models - TICKET-032
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     layout/wake-notice/                 "Waking up the demo server" banner under the toolbar (production only)
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
-                                        calendar, sticky booking panel with live availability + Book now
+                                        calendar, sticky booking panel with live availability + Book now,
+                                        reviews/ (star summary + reviews, Show more - TICKET-032)
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
     pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog,
@@ -1441,7 +1444,8 @@ the searched dates and guests
   `/listings` if you opened the page directly. The browser tab title
   becomes the property's name.
 - **Header:** title, location, ★ rating · N reviews (or **New**), and
-  "Sleeps N".
+  "Sleeps N". The rating is a link that scrolls to **Reviews** (it doesn't
+  change the URL, so the chosen dates stay in it).
 - **Gallery** (`gallery/`):
   - a large photo with prev/next arrows (they wrap around), a "2 / 5"
     counter and a thumbnail strip
@@ -1466,6 +1470,38 @@ the searched dates and guests
     or **Not available for these dates**
   - price breakdown: "€182 × 2 nights = €364", marked as an estimate
   - **Book now**
+- **Reviews** (`reviews/property-reviews.ts`, TICKET-032) - see below.
+
+### Reviews section (TICKET-032)
+
+The last section of the page, under Availability. It loads its own data
+from `GET /api/properties/{id}/reviews/` (see "Reviews API"), so the page
+itself is still one request.
+
+- **Summary:** the average in large type (e.g. **3.9**) with stars
+  (rounded to the nearest half star), "8 reviews", and one bar per star
+  rating (5 to 1) showing the share of reviews that gave it, with the
+  count printed beside each bar. The bars use the app's primary colour on
+  a lighter track of the same hue - the same meter style as the admin
+  dashboard - and each row reads e.g. "5 stars: 3 reviews" to screen
+  readers.
+- **Reviews:** two columns on wide screens, one on phones. Each has the
+  initial in a circle, the name ("Maria K."), the month ("September
+  2026"), the stars and the comment (a review without a comment shows
+  only the stars). Hidden reviews never reach the page.
+- **Show more reviews** loads the next 5 and adds them under the others,
+  with "Showing 5 of 8" beside it; it disappears once all are shown. If a
+  review is posted in between (which shifts the pages by one), the one
+  already shown isn't repeated. If loading more fails, the shown reviews
+  stay and the button becomes **Try again**.
+- **States:** a skeleton while loading; "No reviews yet. Guests can leave
+  one after their stay."; "Couldn't load the reviews." + Try again.
+- `reload()` re-reads from page 1 - step 3 uses it after a review is
+  posted.
+
+Checked in a headless Chrome against a seeded property with 8 reviews,
+at 1280 px and 390 px (no sideways scroll, the header link scrolls to
+the section).
 
 ### Availability rules (same as the backend)
 
@@ -1550,6 +1586,18 @@ Also checked by hand in Chrome against the seeded data:
 - a calendar pick ending on the 4th (someone's check-in day) → the API
   confirms "Available", €364, and the URL updates
 - the full-screen viewer with ← → and Esc, returning on the last photo
+
+**TICKET-032 step 2** added 9 tests (234 frontend tests in total):
+
+- `starIcons()` rounding to half stars (and clamping), the stars' screen
+  reader label
+- `ReviewService` sends `?page=` only after page 1
+- Reviews section: the summary, per-star bar labels and widths, month
+  dates, a review without a comment; Show more appends, skips a
+  duplicate and disappears at the end; a failed Show more keeps the list
+  and retries; no reviews; a failed load + Try again
+- the page: the Reviews section renders, and the header rating scrolls
+  to it without changing the URL
 
 ## Booking form (Angular)
 
@@ -4358,5 +4406,7 @@ worker) with an Install app button (iPhone: the Share → Add to Home Screen
 steps); see "Mobile & PWA". **TICKET-032 (reviews/ratings) is in
 progress:** step 1 (the reviews API - public list with a star summary,
 posting after a confirmed stay, `can_review`/`my_review` for the buttons,
-admin hide/unhide) is done; see "Reviews API (TICKET-032)". Next: step 2,
-the reviews on the property page.
+admin hide/unhide) is done; see "Reviews API (TICKET-032)"; step 2 (the
+Reviews section on the property page: star summary with per-star bars,
+reviews, Show more) is done; see "Property detail page → Reviews
+section". Next: step 3, writing a review (property page + My bookings).

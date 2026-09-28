@@ -1,0 +1,109 @@
+@use 'responsive' as r;
+
+:host { display: block; }
+
+.summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px 40px;
+  align-items: center;
+  margin-bottom: 24px;
+
+  @include r.phone { grid-template-columns: minmax(0, 1fr); }
+}
+
+.score {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+
+  .avg { font-size: 40px; font-weight: 500; line-height: 1; }
+  .count { font-size: 14px; color: var(--mat-sys-on-surface-variant); }
+}
+
+/* Breakdown: one hue (the app's primary) on a lighter step of the same hue
+   as the track - the same meter style as the admin dashboard. */
+.bars {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li { display: grid; grid-template-columns: 32px minmax(0, 1fr) 28px; align-items: center; gap: 8px; font-size: 14px; }
+  .label { display: inline-flex; align-items: center; gap: 2px; color: var(--mat-sys-on-surface-variant); }
+  .label mat-icon { font-size: 14px; width: 14px; height: 14px; }
+  .track { display: block; height: 8px; border-radius: 999px; background: var(--mat-sys-primary-container); overflow: hidden; }
+  .fill { display: block; height: 100%; border-radius: 999px; background: var(--mat-sys-primary); }
+  .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--mat-sys-on-surface-variant); }
+}
+
+.list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  @include r.phone { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+}
+
+.review { display: grid; gap: 6px; align-content: start; }
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  p { margin: 0; }
+  .name { font-weight: 500; }
+  .when { font-size: 13px; color: var(--mat-sys-on-surface-variant); }
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-weight: 500;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.comment { margin: 0; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 24px;
+
+  mat-spinner { margin: 0 auto; }
+  .shown { font-size: 13px; color: var(--mat-sys-on-surface-variant); }
+}
+
+.more-error,
+.message,
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.more-error { flex-basis: 100%; color: var(--mat-sys-error); }
+
+.skeleton {
+  display: grid;
+  gap: 10px;
+
+  .ph { border-radius: 8px; background: var(--mat-sys-surface-container-high); }
+  .score { width: 120px; height: 48px; }
+  .line { height: 14px; max-width: 420px; }
+  .short { max-width: 260px; }
+}
