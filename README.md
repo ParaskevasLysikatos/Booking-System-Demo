@@ -3616,6 +3616,13 @@ phones and tablets (the bookings table was 1,567 px wide), the dashboard's
 period buttons overflowed and the admin side nav squeezed tablets. After:
 nothing sticks out at any of the four widths.
 
+Fix after review: on phones a real 4:3 photo on a **My bookings** card
+spilled out of its 16:9 box and covered the text (the audit had missed it
+because the stock photos couldn't load there). The photo is now pinned to
+its box (`position: absolute; inset: 0` + `object-fit: cover`), the same fix
+for the booking form's summary photo (it was cropped off-centre), and the
+audit now serves a real photo and flags any image larger than its box.
+
 Tests: 3 new Vitest tests for the detail page's bottom bar (Choose dates
 scrolls to and focuses the panel; Book now + stay total once the dates are
 confirmed; hidden while the panel is on screen, observer disconnected when

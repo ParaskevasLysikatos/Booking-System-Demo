@@ -39,8 +39,10 @@ h2 { margin: 0 0 4px; font-size: 18px; font-weight: 500; }
   overflow: hidden;
   display: grid;
   place-items: center;
+  position: relative;
   background: var(--mat-sys-surface-container-high);
-  img { width: 100%; height: 100%; object-fit: cover; }
+  /* Fill the box whatever the photo's own size (was cropped off-centre). */
+  img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 }
 
 .muted {
