@@ -665,6 +665,14 @@ test, always last).
     - `shared/favorite-button.ts`: a toggle button (`aria-pressed`, fixed label "Save {title}" - the pressed state says whether it's saved), round 44 px overlay on card photos (next to the card link, not inside it) and "Save / Saved" in the property page header. No hearts for admins.
     - 25 new tests (282 frontend tests pass); production build clean. Browser check against the real API at 1280 and 390 px: 27/27.
     - README: new "Favorites: the heart (Angular, TICKET-033)"; status, layout, cards, property page header and next steps updated.
+    - Decision after review (shown with screenshots): keep the fixed label + `aria-pressed` ("Save Harbour Loft, toggle button, pressed") rather than switching to "Remove … from saved".
+  - Step 3 done (the Saved page):
+    - `/favorites` (authGuard, "Saved · Booking System Demo"): "N saved places", the listings' cards, newest saved first, 12 per page (`?page=`); **♡ Saved** in the toolbar for guests and in the account menu (phones); none for admins.
+    - Un-hearting removes the card at once + "Removed "…" from saved." with **Undo** (5 s) → back in the same spot; a failed remove brings it back with the error.
+    - Deactivated places: greyed out, "No longer available" badge, not a link, **Remove** instead of the heart (no Undo - they can't be saved again).
+    - A page emptied here refills from the server (or steps back a page) once the Undo bar is gone; skeleton, error + Try again, empty state + Browse stays.
+    - 15 new tests (297 frontend tests pass); production build clean. Browser check against the real API at 1280 and 390 px: 24/24.
+    - README: new "Saved page (Angular, TICKET-033)"; status, layout, toolbar and next steps updated.
 
 - [ ] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018

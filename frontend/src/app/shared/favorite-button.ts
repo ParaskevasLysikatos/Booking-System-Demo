@@ -1,4 +1,4 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
@@ -104,6 +104,8 @@ export class FavoriteButtonComponent {
 
   readonly property = input.required<FavoriteTarget>();
   readonly variant = input<'overlay' | 'labeled'>('overlay');
+  /** The new state after a tap that changed it (true = saved) - the Saved page offers Undo on false. */
+  readonly toggled = output<boolean>();
 
   protected readonly saved = computed(() => this.favorites.isSaved(this.property()));
   protected readonly busy = computed(() => this.favorites.isBusy(this.property().id));
@@ -113,6 +115,7 @@ export class FavoriteButtonComponent {
     // Never let the tap reach a surrounding link or card.
     event.preventDefault();
     event.stopPropagation();
-    this.favorites.toggle(this.property());
+    const saved = this.favorites.toggle(this.property());
+    if (saved !== null) this.toggled.emit(saved);
   }
 }

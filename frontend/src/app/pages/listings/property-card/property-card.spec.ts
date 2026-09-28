@@ -77,4 +77,35 @@ describe('PropertyCardComponent', () => {
     const heart = render({ is_favorite: true }).querySelector('app-favorite-button button')!;
     expect(heart.getAttribute('aria-pressed')).toBe('true');
   });
+
+  describe('a place that was deactivated (Saved page, TICKET-033)', () => {
+    it('is greyed out, not a link, says "No longer available" and has Remove instead of the heart', () => {
+      const el = render({ is_active: false, is_favorite: true });
+      expect(el.querySelector('a')).toBeNull();
+      expect(el.querySelector('.card.unavailable')).not.toBeNull();
+      expect(el.querySelector('.gone-badge')!.textContent).toBe('No longer available');
+      expect(el.querySelector('app-favorite-button')).toBeNull();
+      const remove = el.querySelector<HTMLButtonElement>('button.remove')!;
+      expect(remove.getAttribute('aria-label')).toBe('Remove Harbour Loft from saved');
+    });
+
+    it('Remove deletes the favorite and tells the page', () => {
+      localStorage.setItem('bsd.user', JSON.stringify({ id: 7, email: 'g@example.com', role: 'guest' }));
+      TestBed.configureTestingModule({
+        imports: [PropertyCardComponent],
+        providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      });
+      const fixture = TestBed.createComponent(PropertyCardComponent);
+      fixture.componentRef.setInput('property', { ...property, is_active: false, is_favorite: true });
+      const emitted: boolean[] = [];
+      fixture.componentInstance.favoriteToggled.subscribe((v) => emitted.push(v));
+      fixture.detectChanges();
+      localStorage.clear();
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.remove')!.click();
+      expect(emitted).toEqual([false]);
+      const req = TestBed.inject(HttpTestingController).expectOne(`${FAVORITES_URL}5/`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush(null, { status: 204, statusText: 'No Content' });
+    });
+  });
 });

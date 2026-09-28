@@ -233,4 +233,21 @@ describe('FavoriteService', () => {
     TestBed.tick();
     expect(favorites.isSaved(loft)).toBe(false); // back to the card's own flag
   });
+
+  it('list() gets the saved places, with ?page= after the first page', () => {
+    setup();
+    favorites.list().subscribe();
+    expect(http.expectOne(FAVORITES_URL).request.params.keys()).toEqual([]);
+    favorites.list(2).subscribe();
+    http.expectOne((r) => r.url === FAVORITES_URL && r.params.get('page') === '2').flush({ count: 0, next: null, previous: null, results: [] });
+  });
+
+  it('toggle() reports the new state, or null when nothing changed', () => {
+    setup();
+    expect(favorites.toggle(loft)).toBe(true);
+    expect(favorites.toggle(loft)).toBeNull(); // busy
+    favReq(loft.id).flush({ property: 5, is_favorite: true, saved_at: '' });
+    expect(favorites.toggle(loft)).toBe(false);
+    favReq(loft.id).flush(null, { status: 204, statusText: 'No Content' });
+  });
 });

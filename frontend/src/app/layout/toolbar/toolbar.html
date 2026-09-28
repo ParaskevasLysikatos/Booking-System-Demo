@@ -7,6 +7,11 @@
 
   @if (auth.currentUser(); as user) {
     <nav class="links" aria-label="Main">
+      @if (!auth.isAdmin()) {
+        <a mat-button routerLink="/favorites" routerLinkActive="active" ariaCurrentWhenActive="page" class="saved-link">
+          <mat-icon>favorite_border</mat-icon>Saved
+        </a>
+      }
       <a mat-button routerLink="/my-bookings" routerLinkActive="active" ariaCurrentWhenActive="page">
         <mat-icon>luggage</mat-icon>My bookings
       </a>
@@ -30,6 +35,9 @@
       </div>
       <mat-divider />
       <!-- The main links repeat here for phones, where the inline links are hidden. -->
+      @if (!auth.isAdmin()) {
+        <a mat-menu-item routerLink="/favorites" class="menu-link"><mat-icon>favorite_border</mat-icon>Saved</a>
+      }
       <a mat-menu-item routerLink="/my-bookings" class="menu-link"><mat-icon>luggage</mat-icon>My bookings</a>
       @if (auth.isAdmin()) {
         <a mat-menu-item routerLink="/admin" class="menu-link"><mat-icon>admin_panel_settings</mat-icon>Admin</a>

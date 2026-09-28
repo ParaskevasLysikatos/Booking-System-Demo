@@ -1,0 +1,58 @@
+// Same grid, skeleton and message look as the listings page.
+.saved {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+h1 { margin: 0 0 4px; font-size: 28px; font-weight: 500; }
+
+.summary {
+  margin: 0 0 16px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+mat-paginator {
+  margin-top: 24px;
+  background: transparent;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon { font-size: 40px; width: 40px; height: 40px; }
+  p { margin: 0; }
+  .big { font-size: 18px; color: var(--mat-sys-on-surface); }
+  a, button { margin-top: 8px; }
+}
+
+.skeleton {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--mat-sys-outline-variant);
+
+  .ph-img, .ph-line {
+    background: linear-gradient(90deg, var(--mat-sys-surface-container) 25%, var(--mat-sys-surface-container-high) 50%, var(--mat-sys-surface-container) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
+  }
+  .ph-img { aspect-ratio: 4 / 3; }
+  .ph-line { height: 14px; margin: 12px 14px 0; border-radius: 4px; }
+  .ph-line.short { width: 40%; margin-bottom: 14px; }
+}
+
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}

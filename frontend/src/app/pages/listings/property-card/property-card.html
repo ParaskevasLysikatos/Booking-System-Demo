@@ -1,54 +1,72 @@
 <div class="wrap">
-  <a class="card" [routerLink]="['/listings', property().id]" [queryParams]="linkParams()">
-    <div class="photo">
-      @if (property().cover_image && !imageFailed()) {
-        <img
-          [src]="property().cover_image"
-          [alt]="property().title"
-          loading="lazy"
-          (error)="imageFailed.set(true)"
-        />
-      } @else {
-        <div class="no-photo" aria-hidden="true"><mat-icon>image_not_supported</mat-icon></div>
-      }
-    </div>
-
-    <div class="body">
-      <div class="top">
-        <h3 class="title">{{ property().title }}</h3>
-        <span class="rating" [attr.aria-label]="property().rating_avg ? property().rating_avg + ' out of 5' : 'No reviews yet'">
-          @if (property().rating_avg; as avg) {
-            <mat-icon>star</mat-icon> {{ avg.toFixed(1) }} <span class="muted">({{ property().review_count }})</span>
-          } @else {
-            <span class="new">New</span>
-          }
-        </span>
+  @if (unavailable()) {
+    <!-- Saved page only (TICKET-033): a place an admin deactivated. Not a
+         link - it can't be opened or booked - just shown greyed out. -->
+    <div class="card unavailable">
+      <span class="gone-badge">No longer available</span>
+      <ng-container *ngTemplateOutlet="content" />
+      <div class="unavailable-actions">
+        <button mat-stroked-button type="button" class="remove" [attr.aria-label]="'Remove ' + property().title + ' from saved'" (click)="remove()">
+          <mat-icon>delete_outline</mat-icon>Remove
+        </button>
       </div>
-
-      <p class="location"><mat-icon>place</mat-icon>{{ property().location }}</p>
-      <p class="meta"><mat-icon>group</mat-icon>Sleeps {{ property().capacity }}</p>
-
-      @if (amenities().length) {
-        <ul class="chips">
-          @for (a of amenities(); track a) {
-            <li>{{ a }}</li>
-          }
-          @if (moreAmenities()) {
-            <li class="more">+{{ moreAmenities() }}</li>
-          }
-        </ul>
-      }
-
-      <p class="price">
-        <strong>{{ nightly() }}</strong><span class="muted">&nbsp;/ night</span>
-        @if (stayTotal(); as total) {
-          <span class="total">{{ total }} for {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</span>
-        }
-      </p>
     </div>
-  </a>
+  } @else {
+    <a class="card" [routerLink]="['/listings', property().id]" [queryParams]="linkParams()">
+      <ng-container *ngTemplateOutlet="content" />
+    </a>
 
-  <!-- A sibling of the link, not inside it: a button inside <a> is invalid HTML
-       and a tap would also open the property (TICKET-033). -->
-  <app-favorite-button class="favorite" [property]="property()" />
+    <!-- A sibling of the link, not inside it: a button inside <a> is invalid HTML
+         and a tap would also open the property (TICKET-033). -->
+    <app-favorite-button class="favorite" [property]="property()" (toggled)="favoriteToggled.emit($event)" />
+  }
 </div>
+
+<ng-template #content>
+  <div class="photo">
+    @if (property().cover_image && !imageFailed()) {
+      <img
+        [src]="property().cover_image"
+        [alt]="property().title"
+        loading="lazy"
+        (error)="imageFailed.set(true)"
+      />
+    } @else {
+      <div class="no-photo" aria-hidden="true"><mat-icon>image_not_supported</mat-icon></div>
+    }
+  </div>
+
+  <div class="body">
+    <div class="top">
+      <h3 class="title">{{ property().title }}</h3>
+      <span class="rating" [attr.aria-label]="property().rating_avg ? property().rating_avg + ' out of 5' : 'No reviews yet'">
+        @if (property().rating_avg; as avg) {
+          <mat-icon>star</mat-icon> {{ avg.toFixed(1) }} <span class="muted">({{ property().review_count }})</span>
+        } @else {
+          <span class="new">New</span>
+        }
+      </span>
+    </div>
+
+    <p class="location"><mat-icon>place</mat-icon>{{ property().location }}</p>
+    <p class="meta"><mat-icon>group</mat-icon>Sleeps {{ property().capacity }}</p>
+
+    @if (amenities().length) {
+      <ul class="chips">
+        @for (a of amenities(); track a) {
+          <li>{{ a }}</li>
+        }
+        @if (moreAmenities()) {
+          <li class="more">+{{ moreAmenities() }}</li>
+        }
+      </ul>
+    }
+
+    <p class="price">
+      <strong>{{ nightly() }}</strong><span class="muted">&nbsp;/ night</span>
+      @if (stayTotal(); as total) {
+        <span class="total">{{ total }} for {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</span>
+      }
+    </p>
+  </div>
+</ng-template>

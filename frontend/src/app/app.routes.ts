@@ -37,6 +37,13 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/my-bookings/my-bookings').then((m) => m.MyBookingsPage),
   },
   {
+    // The guest's saved places (TICKET-033).
+    path: 'favorites',
+    title: 'Saved · Booking System Demo',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/favorites/favorites').then((m) => m.FavoritesPage),
+  },
+  {
     // Admin area (TICKET-022): one guard for the whole group - logged out ->
     // login; not an admin -> /forbidden. Navigation only; the API enforces roles.
     path: 'admin',

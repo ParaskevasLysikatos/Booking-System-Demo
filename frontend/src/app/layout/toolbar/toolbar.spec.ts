@@ -32,13 +32,13 @@ describe('ToolbarComponent', () => {
     expect(el.querySelector('.account')).toBeNull();
   });
 
-  it('guest: My bookings only - no Admin link', () => {
+  it('guest: Saved + My bookings - no Admin link', () => {
     const { links, el } = render('guest');
-    expect(links()).toEqual(['luggageMy bookings']);
+    expect(links()).toEqual(['favorite_borderSaved', 'luggageMy bookings']);
     expect(el.querySelector('.account')!.textContent).toContain('guest@example.com');
   });
 
-  it('admin: My bookings + Admin', () => {
+  it('admin: My bookings + Admin (no Saved - admins have no hearts)', () => {
     const { links } = render('admin');
     expect(links()).toEqual(['luggageMy bookings', 'admin_panel_settingsAdmin']);
   });
@@ -50,7 +50,17 @@ describe('ToolbarComponent', () => {
       id: 1, email: 'admin@example.com', role: 'guest',
     });
     fixture.detectChanges();
-    expect(links()).toEqual(['luggageMy bookings']);
+    expect(links()).toEqual(['favorite_borderSaved', 'luggageMy bookings']);
+  });
+
+  it('guest account menu repeats Saved for phones (TICKET-033)', async () => {
+    const { fixture, el } = render('guest');
+    (el.querySelector('.account') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const items = [...document.querySelectorAll('.mat-mdc-menu-panel a.menu-link')];
+    expect(items.map((a) => a.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['favorite_borderSaved', 'luggageMy bookings']);
+    expect(items[0].getAttribute('href')).toBe('/favorites');
   });
 
   it('account menu shows email, role and Log out', async () => {

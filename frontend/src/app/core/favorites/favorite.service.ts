@@ -1,4 +1,4 @@
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Router } from '@angular/router';
@@ -7,6 +7,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { parseApiErrors } from '../api-errors';
 import { AuthService } from '../auth/auth.service';
+import { Paginated, PropertySummary } from '../properties/property.models';
 
 export const FAVORITES_URL = `${environment.apiUrl}/favorites/`;
 
@@ -25,6 +26,11 @@ export interface FavoriteTarget {
 export interface FavoriteResponse {
   property: number;
   is_favorite: true;
+  saved_at: string;
+}
+
+/** A card on the Saved page: the listings card shape + when it was saved (GET /api/favorites/). */
+export interface SavedProperty extends PropertySummary {
   saved_at: string;
 }
 
@@ -83,6 +89,12 @@ export class FavoriteService {
 
   // --- API ------------------------------------------------------------------
 
+  /** GET - the caller's saved places, most recently saved first, 12 per page (step 3's Saved page). */
+  list(page = 1): Observable<Paginated<SavedProperty>> {
+    const params = page > 1 ? new HttpParams().set('page', page) : undefined;
+    return this.http.get<Paginated<SavedProperty>>(FAVORITES_URL, { params });
+  }
+
   /** PUT - save it (safe to repeat: 201 the first time, 200 after). */
   save(id: number): Observable<FavoriteResponse> {
     return this.http.put<FavoriteResponse>(`${FAVORITES_URL}${id}/`, {});
@@ -95,16 +107,21 @@ export class FavoriteService {
 
   // --- the heart ------------------------------------------------------------
 
-  /** What a heart tap does - see the class comment. */
-  toggle(target: FavoriteTarget): void {
-    if (!this.available() || this.isBusy(target.id)) return;
+  /**
+   * What a heart tap does - see the class comment. Returns the new state
+   * (true = saved) if the tap changed it, or null if it was ignored (busy,
+   * admin) or sent the visitor to log in.
+   */
+  toggle(target: FavoriteTarget): boolean | null {
+    if (!this.available() || this.isBusy(target.id)) return null;
     if (!this.auth.isLoggedIn()) {
       this.parkAndLogIn(target);
-      return;
+      return null;
     }
     const next = !this.isSaved(target);
     this.setOverride(target.id, next);
     this.send(target, next);
+    return next;
   }
 
   private send(target: FavoriteTarget, saved: boolean, onSaved?: () => void): void {

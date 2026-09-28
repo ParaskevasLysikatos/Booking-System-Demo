@@ -1,0 +1,49 @@
+<section class="saved">
+  <h1>Saved</h1>
+
+  @switch (state().status) {
+    @case ('loading') {
+      <div class="grid" aria-busy="true" aria-label="Loading saved places">
+        @for (i of [1, 2, 3, 4]; track i) {
+          <div class="skeleton"><div class="ph-img"></div><div class="ph-line"></div><div class="ph-line short"></div></div>
+        }
+      </div>
+    }
+
+    @case ('error') {
+      <div class="message" role="alert">
+        <mat-icon>cloud_off</mat-icon>
+        <p>Couldn't load your saved places.</p>
+        <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      </div>
+    }
+
+    @case ('ok') {
+      @if (total() === 0) {
+        <div class="message">
+          <mat-icon>favorite_border</mat-icon>
+          <p class="big">No saved places yet.</p>
+          <p>Tap the heart on any stay to save it here.</p>
+          <a mat-stroked-button routerLink="/listings">Browse stays</a>
+        </div>
+      } @else {
+        <p class="summary">{{ total() }} saved {{ total() === 1 ? 'place' : 'places' }}</p>
+        <div class="grid">
+          @for (p of visible(); track p.id) {
+            <app-property-card [property]="p" (favoriteToggled)="onToggled(p, $event)" />
+          }
+        </div>
+        @if ($any(state()).data.count > pageSize) {
+          <mat-paginator
+            [length]="$any(state()).data.count"
+            [pageIndex]="state().page - 1"
+            [pageSize]="pageSize"
+            [hidePageSize]="true"
+            (page)="onPage($event)"
+            aria-label="Choose saved places page"
+          />
+        }
+      }
+    }
+  }
+</section>

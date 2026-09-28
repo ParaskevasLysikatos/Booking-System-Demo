@@ -37,7 +37,8 @@ remove places, every card knows whether the caller saved it, and admins
 see how many accounts saved each place (see "Favorites API") - and every
 listing card and the property page have a **heart** to save a place
 (logged out, it goes through login and saves afterwards; see "Favorites:
-the heart"). See "Next
+the heart") - and a **Saved** page (`/favorites`) lists them, with Undo,
+and places that were deactivated greyed out (see "Saved page"). See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -202,7 +203,7 @@ frontend/
   package-lock.json                 Exact package versions; Render builds with `npm ci`
   src/app/
     app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
-    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings (authGuard),
+    app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings + /favorites (authGuard),
                                         /admin/** (adminGuard), /forbidden, /login, /register (all lazy)
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
     core/server-wake.ts                 ServerWakeService + interceptor: notices when the sleeping API is slow to answer
@@ -227,7 +228,7 @@ frontend/
     shared/favorite-button.ts           The heart: a toggle button (overlay on card photos, or "Save/Saved" in a header) - TICKET-033
     core/favorites/                     FavoriteService: save/remove, the heart state per place, logged-out -> login -> save - TICKET-033
     core/reviews/                       ReviewService (a property's reviews page by page) + review models - TICKET-032
-    layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
+    layout/toolbar/                     Role-aware top bar: Log in / Sign up, or Saved (guests) + My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
     layout/wake-notice/                 "Waking up the demo server" banner under the toolbar (production only)
     pages/listings/                     Listings page: URL-driven search, filters, grid, paginator (+ property-card/)
@@ -236,6 +237,7 @@ frontend/
                                         reviews/ (star summary + reviews, Show more - TICKET-032)
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
+    pages/favorites/                    Saved page (/favorites): the guest's saved places, Undo, deactivated places greyed out - TICKET-033
     pages/my-bookings/                  My Bookings: Upcoming/Past/Cancelled tabs (URL), booking cards, cancel dialog,
                                         payment line per card (countdown + Pay now, paid, refund)
     pages/payment-return/               /bookings/:id/payment - back from Stripe: confirming (polling), confirmed,
@@ -1895,6 +1897,83 @@ on the property page (both stay in sync, reload keeps the server's state,
 keyboard Space works, a tap never opens the stay); a place deactivated
 meanwhile → the heart switches back with the message; no sideways scroll
 on phones; no hearts for the admin.
+
+## Saved page (Angular, TICKET-033)
+
+`/favorites` (`pages/favorites/`, behind `authGuard`, tab title "Saved ·
+Booking System Demo") - the logged-in guest's saved places, from `GET
+/api/favorites/` (see "Favorites API").
+
+### Getting there
+
+- **Toolbar:** a **♡ Saved** link before My bookings, for guests (admins
+  have no hearts, so no Saved link either). On phones, where the inline
+  links are hidden, **Saved** is in the account menu.
+- Logged out, `/favorites` goes to login and comes back afterwards.
+
+### The page
+
+- "Saved" + **"N saved places"**, then the **same cards as the listings**
+  (the API returns the same shape, so it reuses `PropertyCard`), **most
+  recently saved first**, 12 per page with a paginator (`?page=` in the
+  URL) when there are more.
+- **Un-hearting a card removes it from the page at once**, and a snackbar
+  says **Removed "Harbour Loft" from saved.** with **Undo** for 5 seconds.
+  Undo saves it again and the card comes back **in the same spot** (the
+  page keeps the list it loaded and only hides removed cards, so nothing
+  jumps around). If the request fails, the card comes back by itself with
+  the error message (the heart logic in `FavoriteService`).
+- **Places an admin deactivated** stay on the page, **greyed out** with a
+  **No longer available** badge. They're not a link (they can't be opened
+  or booked) and have a **Remove** button instead of the heart. Removing
+  one shows the snackbar with OK instead of Undo, because a deactivated
+  place can't be saved again.
+- If you remove every card on the page but you have more saved places, the
+  page **refills itself from the server** (or steps back a page when the
+  last page empties) - after the Undo snackbar is gone, so Undo still
+  works.
+- **States:** skeleton cards while loading; "Couldn't load your saved
+  places." + Try again; empty: "No saved places yet. Tap the heart on any
+  stay to save it here." + **Browse stays**.
+
+### Pieces
+
+- `pages/favorites/favorites.ts` - the page (URL page → `FavoriteService.list(page)`,
+  the visible cards and count, Undo, refill).
+- `PropertyCard` gained a `favoriteToggled` output (from the heart or
+  Remove) and the greyed-out "No longer available" look for
+  `is_active: false` - the listings never return those, so only the Saved
+  page shows it.
+- `FavoriteService.toggle()` now returns the new state (or `null` when a
+  tap changed nothing) and `FavoriteService.list()` loads the page;
+  `FavoriteButton` emits `toggled`.
+
+### Tests
+
+- **`favorites.spec.ts`** (9): skeleton then the cards in the server's
+  order with the count; empty state; error + Try again; un-heart → card
+  gone at once + Undo snackbar → Undo → back in the same spot; a failed
+  remove brings the card back; a deactivated place (greyed, Remove, no
+  Undo); removing the only place → empty state, Undo still works; an
+  emptied page refills only after the Undo bar is gone; the last page
+  emptied → back to page 1.
+- **`property-card.spec.ts`** (+2): the deactivated look (no link, badge,
+  Remove, no heart) and Remove sends `DELETE` and tells the page.
+- **`toolbar.spec.ts`** (+1, 2 updated): Saved for guests (inline and in
+  the account menu), not for admins.
+- **`favorite.service.spec.ts`** (+2): `list()` with `?page=`, and what
+  `toggle()` returns. **`favorite-button.spec.ts`** (+1): `toggled` is
+  emitted once per real change.
+
+Browser check against the real API (headless Chrome, 1280 and 390 px,
+24/24): visitor → login → back to `/favorites`; the tab title and the
+toolbar link marked current; "14 saved places", 12 cards + paginator,
+server order; the deactivated place greyed with Remove → gone without
+Undo, also on the server; un-heart → gone at once, removed on the server
+→ Undo → same spot and saved again; left alone → still removed after a
+reload; page 2 in the URL; a heart on the listings → first on the Saved
+page; phones: Saved in the account menu, the Undo bar fits, no sideways
+scroll; the empty state; no Saved link or menu item for the admin.
 
 ## Booking form (Angular)
 
@@ -4833,4 +4912,6 @@ browser regression on a fresh database and the live Render check; see
 card and `favorite_count` for admins) is done; see "Favorites API
 (TICKET-033)"; step 2 (the heart on every listing card and the property
 page, with logged-out → login → saved) is done; see "Favorites: the
-heart". Next: step 3 (the `/favorites` Saved page).
+heart"; step 3 (the `/favorites` Saved page: Saved in the toolbar and the
+account menu, Undo, deactivated places greyed out with Remove) is done;
+see "Saved page". Next: step 4 (admin "Saved by N").

@@ -90,4 +90,14 @@ describe('FavoriteButtonComponent', () => {
       (render({ role: 'admin' }).nativeElement as HTMLElement).querySelector('button'),
     ).toBeNull();
   });
+
+  it('emits the new state after a tap (the Saved page listens for Undo)', () => {
+    const fixture = render({ saved: true });
+    const emitted: boolean[] = [];
+    fixture.componentInstance.toggled.subscribe((v) => emitted.push(v));
+    button(fixture.nativeElement).click();
+    button(fixture.nativeElement).click(); // ignored while busy: no second emit
+    expect(emitted).toEqual([false]);
+    http.expectOne(`${FAVORITES_URL}5/`).flush(null, { status: 204, statusText: 'No Content' });
+  });
 });
