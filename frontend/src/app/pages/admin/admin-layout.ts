@@ -9,12 +9,13 @@ export const ADMIN_NAV = [
   { path: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { path: 'properties', label: 'Properties', icon: 'holiday_village' },
   { path: 'bookings', label: 'Bookings', icon: 'event_note' },
+  { path: 'reviews', label: 'Reviews', icon: 'reviews' },
 ];
 
 /**
  * Shell for everything under /admin (TICKET-022): a left side nav with the
  * page on the right; on tablets the nav becomes a bar on top, on phones
- * four equal tabs (TICKET-031).
+ * five equal tabs (TICKET-031; Reviews added in TICKET-032).
  * The whole group is protected once by adminGuard in app.routes.ts.
  */
 @Component({
@@ -72,10 +73,11 @@ export const ADMIN_NAV = [
       .back { margin: 0 0 0 auto; }
       .content { padding: 16px; }
     }
-    /* Phones: four equal tabs, icon above a short label (fits 320 px without scrolling). */
+    /* Phones: five equal tabs, icon above a short label (fits 320 px without scrolling). */
     @include r.phone {
-      .side { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 6px 8px; }
-      a { position: relative; flex-direction: column; gap: 2px; padding: 6px 4px; border-radius: 12px; font-size: 12px; }
+      .side { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; padding: 6px 4px; }
+      a { position: relative; flex-direction: column; gap: 2px; padding: 6px 2px; border-radius: 12px; font-size: 11px; }
+      a { white-space: normal; text-align: center; line-height: 1.2; }
       .back { margin: 0; }
       .badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; min-width: 18px; padding: 0 4px; font-size: 11px; line-height: 18px; }
     }

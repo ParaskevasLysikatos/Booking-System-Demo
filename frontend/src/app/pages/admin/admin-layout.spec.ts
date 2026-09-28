@@ -37,7 +37,7 @@ describe('AdminLayout', () => {
     expect(router.url).toBe('/admin/dashboard');
     const el = harness.fixture.nativeElement as HTMLElement;
     const nav = [...el.querySelectorAll('nav.side a')].map((a) => a.textContent!.trim());
-    expect(nav.map((t) => t.replace(/\d+$/, ''))).toEqual(['dashboardDashboard', 'holiday_villageProperties', 'event_noteBookings', 'arrow_backBack to site']);
+    expect(nav.map((t) => t.replace(/\d+$/, ''))).toEqual(['dashboardDashboard', 'holiday_villageProperties', 'event_noteBookings', 'reviewsReviews', 'arrow_backBack to site']);
     expect(el.querySelector('nav.side a.active')!.textContent).toContain('Dashboard');
     expect(el.textContent).toContain('child page');
 

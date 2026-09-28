@@ -630,6 +630,12 @@ test, always last).
     - My bookings (past, not cancelled): **Leave a review** when `can_review`, "✓ You rated this place" when `my_review`; snackbar + list reload after posting.
     - 13 new tests (247 frontend tests pass); production build clean. End-to-end in headless Chrome against the real API at 1280 and 390 px (post from both places, rating required, header 8 → 9 reviews, no sideways scroll).
     - README: "The review dialog", "Reviews on past stays", tests and next steps.
+  - Step 4 done (admin Reviews page):
+    - `/admin/reviews` + "Reviews" in the admin nav (phones: five equal tabs, fits 320 px). `core/admin/admin-reviews.service.ts` (list with filters, `setHidden`).
+    - Filters in the URL: All / Visible / Hidden, search (guest, property, comment), property, rating; table with posted date, property (→ public page), guest name + email, stars, comment (2 lines, full on hover), Visible/Hidden chip, **Hide** (red) / **Show** - each asks first, then snackbar + refresh. Loading / empty / no-match + Clear filters / error states.
+    - Laptops drop "Posted" so the table fits at 1280; cards on tablets/phones.
+    - 10 new tests (257 frontend tests pass); production build clean. Checked as the demo admin against the real API: Hide took the property's public rating from 3.9 / 9 reviews to 4.1 / 8, Show put it back; no sideways scroll at 1280/768/390/320 px.
+    - README: new "Admin reviews (Angular, TICKET-032)" section; admin routes, admin layout, project layout and next steps updated.
 
 - [ ] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018

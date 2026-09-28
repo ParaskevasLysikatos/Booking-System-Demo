@@ -1,0 +1,65 @@
+@use 'responsive' as r;
+
+h1 { margin: 0 0 4px; font-size: 26px; font-weight: 500; }
+.intro { margin: 0; font-size: 14px; color: var(--mat-sys-on-surface-variant); }
+
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.search { flex: 1 1 240px; max-width: 340px; }
+.prop { width: 220px; }
+.stars { width: 150px; }
+
+.count { margin: 0 0 8px; color: var(--mat-sys-on-surface-variant); font-size: 14px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--mat-sys-outline-variant); border-radius: 16px; }
+table { width: 100%; }
+td, th { white-space: nowrap; }
+.muted { color: var(--mat-sys-on-surface-variant); }
+td a { color: inherit; }
+
+.guest .email { display: block; font-size: 12px; color: var(--mat-sys-on-surface-variant); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Long comments: two lines in the table, the full text on hover. */
+td.comment { white-space: normal; min-width: 220px; max-width: 420px; }
+td.comment > span:not(.muted) { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.chip { padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; background: #e8f5e9; color: #1b5e20; }
+.chip.hidden { background: var(--mat-sys-surface-container-highest); color: var(--mat-sys-on-surface-variant); }
+.hidden-row { background: var(--mat-sys-surface-container-low); }
+.hidden-row td.comment, .hidden-row td.rating { opacity: 0.6; }
+
+.actions { text-align: right; }
+.actions mat-icon { margin-right: 6px; }
+.actions .hide { color: var(--mat-sys-error); }
+
+mat-paginator { margin-top: 12px; background: transparent; }
+.skeleton .row { height: 52px; margin-bottom: 8px; border-radius: 8px; background: var(--mat-sys-surface-container-high); }
+.message { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 16px; color: var(--mat-sys-on-surface-variant); }
+.message mat-icon { font-size: 40px; width: 40px; height: 40px; }
+.message p { margin: 0; }
+
+/* Tablets and phones: one card per review. */
+@include r.tablet {
+  @include r.table-cards(64px);
+  tr.mat-mdc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  td.mat-mdc-cell { grid-column: 1 / -1; }
+  td.property { grid-area: 1 / 1; font-size: 16px; font-weight: 500; }
+  td.status { grid-area: 1 / 2; }
+  td.comment { max-width: none; min-width: 0; padding: 6px 0; }
+  td.comment > span:not(.muted) { display: block; }
+  .guest .email { display: inline; max-width: none; margin-left: 4px; }
+  td.actions { justify-content: flex-end; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--mat-sys-outline-variant); }
+}
+
+/* Laptops (961-1440 px, side nav open): drop "Posted", let the property wrap and
+   shorten the email (full one on hover), so the table fits without scrolling sideways. */
+@media (min-width: #{r.$tablet + 1}) and (max-width: 1440px) {
+  .mat-column-date { display: none; }
+  td.property { white-space: normal; min-width: 120px; }
+  .guest .email { max-width: 150px; }
+  td.comment { min-width: 180px; }
+}
+
+/* Phones: search on its own row, Property and Rating side by side. */
+@include r.phone {
+  .search { flex-basis: 100%; max-width: none; }
+  .prop, .stars { flex: 1 1 130px; width: auto; min-width: 0; }
+}

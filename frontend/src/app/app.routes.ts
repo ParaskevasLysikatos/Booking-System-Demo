@@ -69,6 +69,11 @@ export const routes: Routes = [
         title: 'Bookings · Admin · Booking System Demo',
         loadComponent: () => import('./pages/admin/bookings/admin-bookings').then((m) => m.AdminBookingsPage),
       },
+      {
+        path: 'reviews',
+        title: 'Reviews · Admin · Booking System Demo',
+        loadComponent: () => import('./pages/admin/reviews/admin-reviews').then((m) => m.AdminReviewsPage),
+      },
     ],
   },
   {

@@ -221,7 +221,8 @@ frontend/
                                         processing, not completed (countdown, Pay now, Cancel), time ran out
     pages/admin/                        Admin shell (side nav), dashboard/ (stat cards + breakdown table),
                                         properties/ (table + form with amenities picker and drag-drop photos),
-                                        bookings/ (every guest's bookings: tabs, filters, confirm/cancel)
+                                        bookings/ (every guest's bookings: tabs, filters, confirm/cancel),
+                                        reviews/ (every review: filters, Hide / Show again - TICKET-032)
     pages/forbidden/                    403 "Admins only" page
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
@@ -1875,6 +1876,7 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 | `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, per-property table; see "Admin dashboard" |
 | `/admin/properties` | `pages/admin/properties/` | Table of all properties; `/new` and `/:id/edit` form (unsaved-changes guard); see "Admin properties" |
 | `/admin/bookings` | `pages/admin/bookings/` | Every guest's bookings, Upcoming / Past / Cancelled, confirm and cancel; see "Admin bookings" |
+| `/admin/reviews` | `pages/admin/reviews/` | Every review (hidden too), filters, Hide / Show again; see "Admin reviews" (TICKET-032) |
 | `/forbidden` | `pages/forbidden/` | The friendly 403 page |
 
 ### `adminGuard` (`core/auth/auth.guards.ts`)
@@ -1897,8 +1899,10 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 
 ### Admin layout (`pages/admin/admin-layout.ts`)
 
-- A left **side nav**: Dashboard, Properties, Bookings, with the current
-  page highlighted and marked `aria-current="page"`.
+- A left **side nav**: Dashboard, Properties, Bookings, Reviews (TICKET-032),
+  with the current page highlighted and marked `aria-current="page"`.
+  On phones it's five equal tabs (icon above an 11 px label; "Back to site"
+  wraps onto two lines) - checked at 320 px, no sideways scroll.
 - **Back to site**, and the admin's email at the bottom.
 - On phones the side nav becomes a scrollable bar across the top.
 
@@ -2269,6 +2273,54 @@ Also checked in Chrome as the admin: 20 upcoming bookings, the badge
 showing 7, searching "sara" with Pending only down to booking #54, and
 the Confirm dialog, closed with **Not now**, so **nothing was changed**
 in the database.
+
+## Admin reviews (Angular, TICKET-032)
+
+`/admin/reviews` (`pages/admin/reviews/admin-reviews.ts`, "Reviews" in the
+admin nav) - review moderation. It uses `GET /api/admin/reviews/` and
+`PATCH /api/admin/reviews/{id}/` (see "Reviews API") through
+`core/admin/admin-reviews.service.ts`; the backend's `IsAdminRole` is the
+real protection.
+
+- **Filters**, all in the URL (`?status=hidden&rating=1&property=5&search=noisy&page=2`),
+  and any change goes back to page 1:
+  - **All / Visible / Hidden** toggle
+  - a search box (guest name or email, property title, comment text;
+    applied 0.3 s after typing stops)
+  - Property (all properties, retired ones marked) and Rating (1-5 stars)
+- **Table** (12 per page), newest first: Posted, Property (links to its
+  public page), Guest (name, email underneath), Rating (stars), Comment
+  (two lines, the full text on hover; "No comment" when empty), Status
+  chip (**Visible** / **Hidden**), and the action button. Hidden rows are
+  greyed.
+- **Hide** (red) asks first: "Hide this review? - Maria K.'s 2-star review
+  of Harbour Loft will no longer be shown to guests or counted in the
+  property's rating. Nothing is deleted - you can show it again any
+  time." → PATCH → snackbar "Review hidden from guests." → the list
+  refreshes. **Show** does the reverse ("Show this review again?" →
+  "Review shown again."). A refusal from the server shows its reason and
+  refreshes the list.
+- **States:** skeleton rows, "No reviews yet.", "No reviews match these
+  filters." + Clear filters, and "Couldn't load the reviews." + Try again.
+- **Layout:** laptops (961-1440 px) drop the Posted column and shorten
+  emails so the table never scrolls sideways; tablets and phones show one
+  card per review (property + status on top, then labelled rows, the
+  button at the bottom); on phones Property and Rating sit side by side.
+
+**Checked** in headless Chrome as the demo admin against the real API:
+13 reviews listed; search "air conditioning" → 1 row and `?search=` in
+the URL; Hide → the property's public summary went from 3.9 / 9 reviews
+to 4.1 / 8; Hidden filter → that one review, greyed; Show → back to 3.9 /
+9. No sideways scroll at 1280, 768, 390 and 320 px (nor inside the table
+at 1280).
+
+**Tests** (10 new, 257 frontend tests in total): URL parsing (junk
+dropped), API params, the PATCH body; the table (Visible/Hidden rows,
+stars, email, "No comment"); URL filters → API params and the "no match"
+state; a filter change → URL + page 1, Clear filters; Hide asks (text,
+red button) → PATCH → snackbar → refresh; Keep hidden sends nothing, Show
+→ PATCH; a refused change; error + Try again → empty state. The admin
+layout test now expects the Reviews item.
 
 ## Payments (Stripe, TICKET-029)
 
@@ -4482,5 +4534,6 @@ Reviews section on the property page: star summary with per-star bars,
 reviews, Show more) is done; see "Property detail page → Reviews
 section"; step 3 (writing a review: the shared review dialog with a star
 picker, "Write a review" on the property page and "Leave a review" on past
-stays in My bookings) is done; see "The review dialog". Next: step 4, the
-admin Reviews page.
+stays in My bookings) is done; see "The review dialog"; step 4 (the admin
+Reviews page with filters and Hide / Show again) is done; see "Admin
+reviews". Next: step 5, the final check and wrap-up.
