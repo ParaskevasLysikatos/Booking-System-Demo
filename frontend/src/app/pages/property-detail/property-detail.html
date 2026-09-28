@@ -32,7 +32,11 @@
       }
 
       <header class="head">
-        <h1>{{ p.title }}</h1>
+        <div class="head-row">
+          <h1>{{ p.title }}</h1>
+          <!-- The heart (TICKET-033); not shown to admins. -->
+          <app-favorite-button class="favorite" variant="labeled" [property]="p" />
+        </div>
         <p class="sub">
           <span><mat-icon>place</mat-icon>{{ p.location }}</span>
           <span>

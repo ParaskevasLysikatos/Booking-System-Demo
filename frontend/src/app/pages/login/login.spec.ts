@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 
 import { AUTH_URL } from '../../core/auth/auth.service';
 import { tokenExpiringIn } from '../../testing/fake-jwt';
@@ -64,5 +65,23 @@ describe('LoginPage', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[role=alert]')?.textContent).toContain(
       'No active account found',
     );
+  });
+});
+
+describe('LoginPage after a heart tap (TICKET-033)', () => {
+  it('explains that the place is saved after logging in', async () => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([{ path: 'login', component: LoginPage }]),
+      ],
+    });
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/login?returnUrl=%2Flistings&reason=favorite', LoginPage);
+    const text = (harness.routeNativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain("Log in to save this place - it's saved as soon as you're in.");
+    expect(text).not.toContain('Your session expired');
   });
 });

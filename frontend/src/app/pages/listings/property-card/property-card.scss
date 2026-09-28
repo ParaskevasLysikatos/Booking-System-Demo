@@ -2,6 +2,21 @@
   display: block;
 }
 
+// The link and the heart (TICKET-033) sit side by side in .wrap, so the
+// hover lift moves both together.
+.wrap {
+  position: relative;
+  height: 100%;
+  border-radius: 12px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+
+  &:hover,
+  &:has(.card:focus-visible) {
+    box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+    transform: translateY(-2px);
+  }
+}
+
 .card {
   display: flex;
   flex-direction: column;
@@ -12,18 +27,17 @@
   background: var(--mat-sys-surface);
   color: inherit;
   text-decoration: none;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
-
-  &:hover,
-  &:focus-visible {
-    box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
-    transform: translateY(-2px);
-  }
 
   &:focus-visible {
     outline: 2px solid var(--mat-sys-primary);
     outline-offset: 2px;
   }
+}
+
+.favorite {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 .photo {

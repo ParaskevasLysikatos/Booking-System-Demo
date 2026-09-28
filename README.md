@@ -34,7 +34,10 @@ summary, and admins can hide a review (TICKET-032, see "Reviews API",
 "Property detail page → Reviews section" and "Admin reviews"). Favorites
 (TICKET-033) are in progress: the API is done - logged-in guests save and
 remove places, every card knows whether the caller saved it, and admins
-see how many accounts saved each place (see "Favorites API"). See "Next
+see how many accounts saved each place (see "Favorites API") - and every
+listing card and the property page have a **heart** to save a place
+(logged out, it goes through login and saves afterwards; see "Favorites:
+the heart"). See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -221,6 +224,8 @@ frontend/
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
+    shared/favorite-button.ts           The heart: a toggle button (overlay on card photos, or "Save/Saved" in a header) - TICKET-033
+    core/favorites/                     FavoriteService: save/remove, the heart state per place, logged-out -> login -> save - TICKET-033
     core/reviews/                       ReviewService (a property's reviews page by page) + review models - TICKET-032
     layout/toolbar/                     Role-aware top bar: Log in / Sign up, or My bookings (+ Admin) and an account menu
     layout/footer/                      Footer with the API/database connectivity dot
@@ -1509,6 +1514,9 @@ Each card shows:
 - **price per night**, and the **total for the stay** once dates are
   picked, e.g. "€455 for 5 nights". This total is an estimate; the
   backend computes the real price when booking.
+- a **heart** in the photo's top-right corner to save the place
+  (TICKET-033, see "Favorites: the heart"). It sits *next to* the card's
+  link, not inside it, so tapping it never opens the stay.
 
 Clicking a card opens `/listings/:id` and carries the dates and guests
 along, so the detail page (see "Property detail page") can pre-fill the
@@ -1585,7 +1593,9 @@ the searched dates and guests
   becomes the property's name.
 - **Header:** title, location, ★ rating · N reviews (or **New**), and
   "Sleeps N". The rating is a link that scrolls to **Reviews** (it doesn't
-  change the URL, so the chosen dates stay in it).
+  change the URL, so the chosen dates stay in it). On the right of the
+  title, a **♡ Save / ♥ Saved** button (TICKET-033, see "Favorites: the
+  heart").
 - **Gallery** (`gallery/`):
   - a large photo with prev/next arrows (they wrap around), a "2 / 5"
     counter and a thumbnail strip
@@ -1797,6 +1807,94 @@ with two ended, confirmed stays): Write a review → no rating → message;
 "You rated this place"; My bookings → Past shows "You rated" on that stay
 and Leave a review on the other → posted from a 390 px phone (no sideways
 scroll).
+
+## Favorites: the heart (Angular, TICKET-033)
+
+Guests save a place with a heart on every listing card and on the
+property page. Uses the "Favorites API (TICKET-033)".
+
+### Where it is
+
+| Place | Looks like |
+| --- | --- |
+| Listing cards (`pages/listings/property-card/`) | A round white 44×44 px button in the photo's top-right corner: ♡ empty, ♥ filled (pink) when saved |
+| Property page header (`pages/property-detail/`) | "♡ Save" / "♥ Saved" to the right of the title |
+| Admin accounts | **No hearts at all** - admins manage listings, they don't book them |
+
+Both use one component, `shared/favorite-button.ts`
+(`<app-favorite-button [property]="p" variant="overlay|labeled" />`), and
+all the logic is in `core/favorites/favorite.service.ts`.
+
+### How a tap works (`FavoriteService`)
+
+- **Starting state from the server:** each card and the detail carry
+  `is_favorite` for the caller, so hearts are right on first paint.
+- **Optimistic:** the heart changes at once, then `PUT` (save) or `DELETE`
+  (remove) `/api/favorites/{id}/` runs. If it fails, the heart switches
+  back and a snackbar says why - e.g. "This place is no longer available,
+  so it can't be saved." (the place was deactivated meanwhile, `404`), or
+  "Couldn't remove this place. Can't reach the server. …".
+- **One place, one state:** taps made in this session are remembered per
+  place (`overrides`), so the card and the property page always agree -
+  save on the property page, go back, and the card's heart is filled too.
+  They're forgotten when the account changes (log out / another account).
+- **No double requests:** a second tap on the same heart while its request
+  is still running is ignored (`aria-busy` is set meanwhile); other hearts
+  keep working.
+- The tap never reaches the card link (`preventDefault` +
+  `stopPropagation`, and the button isn't inside the `<a>` anyway - a
+  button inside a link is invalid HTML).
+
+### Logged out: log in, then it's saved
+
+1. A visitor taps a heart. The place (id + title + time) is parked in
+   `sessionStorage` (`bsd.pendingFavorite`, this tab only).
+2. They go to `/login?returnUrl=<this page>&reason=favorite`; the login
+   page says "Log in to save this place - it's saved as soon as you're
+   in." ("Create one" keeps the same link, so signing up works too.)
+3. As soon as someone is logged in, the service completes the parked save
+   (`PUT`), the heart is filled on the page they return to, and a snackbar
+   says **Saved "Harbour Loft".** - even if the page loaded before the
+   save finished.
+4. A parked save older than **30 minutes** is dropped, and so is one when
+   an **admin** logs in. It also survives a reload of the login page.
+
+### Accessibility
+
+- A real `<button type="button">` with `aria-pressed` (a toggle button)
+  and a fixed label, "Save Harbour Loft", so a screen reader says "Save
+  Harbour Loft, toggle button, pressed / not pressed". (The label doesn't
+  switch to "Remove …": with `aria-pressed`, the pressed state already
+  says it, and a changing label would be read as a different button.)
+- Keyboard: Tab to it, Space/Enter toggles; a visible focus ring.
+- 44×44 px touch target on the cards and the header button.
+
+### Tests
+
+- **`favorite.service.spec.ts`** (13): starts from the server's flag;
+  optimistic save then remove; a second tap while busy is ignored; other
+  places aren't blocked; `404` and network failures switch back with the
+  right message; logged out → parked + login with `returnUrl` and
+  `reason`; the parked save completes after login (with the snackbar),
+  after a reload on the login page, but not when too old/broken or for an
+  admin; admins can't toggle; taps are forgotten on logout.
+- **`favorite-button.spec.ts`** (6): toggle button + label, saved state,
+  a tap fills it at once and saves (and doesn't bubble), labeled variant
+  text, shown to visitors, hidden from admins.
+- **`property-card.spec.ts`** (+2): the heart is outside the link and a tap
+  doesn't open the stay; filled for a saved place.
+- **`property-detail.spec.ts`** (+3): Saved in the header and a tap
+  removes it; logged out → login; no heart for admins.
+- **`login.spec.ts`** (+1): the "Log in to save this place" message.
+
+Browser check against the real API (headless Chrome, 1280 and 390 px,
+27/27): a heart on every card (44×44, not inside the link); visitor tap →
+login with the message → back to the listings with the heart filled, the
+snackbar and the favorite on the server; save/remove on the listings and
+on the property page (both stay in sync, reload keeps the server's state,
+keyboard Space works, a tap never opens the stay); a place deactivated
+meanwhile → the heart switches back with the message; no sideways scroll
+on phones; no hearts for the admin.
 
 ## Booking form (Angular)
 
@@ -4733,5 +4831,6 @@ browser regression on a fresh database and the live Render check; see
 "Reviews: final check"). **TICKET-033 (favorites) is in progress:** step 1
 (the favorites API - save/remove, the Saved list, `is_favorite` on every
 card and `favorite_count` for admins) is done; see "Favorites API
-(TICKET-033)". Next: step 2 (the heart button on the cards and the
-property page).
+(TICKET-033)"; step 2 (the heart on every listing card and the property
+page, with logged-out → login → saved) is done; see "Favorites: the
+heart". Next: step 3 (the `/favorites` Saved page).

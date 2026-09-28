@@ -6,6 +6,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { addDays, toIsoDate, todayLocal } from '../../core/dates';
 import { PropertyDetail } from '../../core/properties/property.models';
+import { FAVORITES_URL } from '../../core/favorites/favorite.service';
 import { PROPERTIES_URL } from '../../core/properties/property.service';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -214,6 +215,51 @@ describe('PropertyDetailPage', () => {
     await settle();
     expect(text()).toContain('Hidden from guests');
     expect(page.canBook()).toBe(false);
+  });
+
+  describe('the heart in the header (TICKET-033)', () => {
+    const heart = () => (harness.routeNativeElement as HTMLElement).querySelector<HTMLButtonElement>('.head app-favorite-button button');
+
+    it('shows Saved for a place the guest saved, and a tap removes it', async () => {
+      await open('/listings/5', true);
+      detailReq().flush(detail({ is_favorite: true }));
+      await settle();
+      expect(heart()!.getAttribute('aria-label')).toBe('Save Harbour Loft');
+      expect(heart()!.getAttribute('aria-pressed')).toBe('true');
+      expect(heart()!.textContent).toContain('Saved');
+      heart()!.click();
+      await settle();
+      expect(heart()!.getAttribute('aria-pressed')).toBe('false');
+      expect(heart()!.textContent).toContain('Save');
+      const req = http.expectOne(`${FAVORITES_URL}5/`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush(null, { status: 204, statusText: 'No Content' });
+    });
+
+    it('logged out: Save sends the visitor to log in, back to this page', async () => {
+      await open('/listings/5');
+      detailReq().flush(detail());
+      await settle();
+      const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      heart()!.click();
+      await settle();
+      http.expectNone(`${FAVORITES_URL}5/`);
+      expect(navigate).toHaveBeenCalledWith(['/login'], { queryParams: { returnUrl: '/listings/5', reason: 'favorite' } });
+    });
+
+    it('admins get no heart', async () => {
+      localStorage.clear();
+      TestBed.configureTestingModule({
+        providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([{ path: 'listings/:id', component: PropertyDetailPage }])],
+      });
+      localStorage.setItem('bsd.user', JSON.stringify({ id: 1, email: 'a@example.com', role: 'admin' }));
+      http = TestBed.inject(HttpTestingController);
+      harness = await RouterTestingHarness.create();
+      await harness.navigateByUrl('/listings/5', PropertyDetailPage);
+      detailReq().flush(detail());
+      await settle();
+      expect(heart()).toBeNull();
+    });
   });
 
   it('404 shows a friendly not-found message', async () => {

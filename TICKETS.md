@@ -659,6 +659,12 @@ test, always last).
     - `is_favorite` for the caller on the property list and detail; `favorite_count` for admins only. New `listings/queries.py:property_cards()` shared by both APIs - `EXISTS`/`COUNT` subqueries, so still one query per page and the rating isn't skewed.
     - 33 new tests (+1 existing listings test updated for the new field); all 330 backend tests pass on Postgres, `makemigrations --check` clean. Smoke-tested on seeded data with curl.
     - README: new "Favorites API (TICKET-033)" section; status, project layout, data model, properties responses, Django Admin table and next steps updated.
+  - Step 2 done (the heart):
+    - `core/favorites/FavoriteService`: the heart state per place (server's `is_favorite` + this session's taps, so cards and the property page agree), optimistic save/remove, switch back + snackbar on failure ("no longer available" for a `404`), second tap ignored while busy; forgotten on logout.
+    - Logged out: the tap is parked in `sessionStorage`, the visitor goes to `/login?returnUrl=…&reason=favorite` ("Log in to save this place…"), and the save completes right after login with a "Saved …" snackbar (dropped after 30 min or for an admin).
+    - `shared/favorite-button.ts`: a toggle button (`aria-pressed`, fixed label "Save {title}" - the pressed state says whether it's saved), round 44 px overlay on card photos (next to the card link, not inside it) and "Save / Saved" in the property page header. No hearts for admins.
+    - 25 new tests (282 frontend tests pass); production build clean. Browser check against the real API at 1280 and 390 px: 27/27.
+    - README: new "Favorites: the heart (Angular, TICKET-033)"; status, layout, cards, property page header and next steps updated.
 
 - [ ] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018

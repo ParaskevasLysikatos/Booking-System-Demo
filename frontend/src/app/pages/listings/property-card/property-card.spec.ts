@@ -1,5 +1,9 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
+
+import { FAVORITES_URL } from '../../../core/favorites/favorite.service';
 
 import { PropertySummary } from '../../../core/properties/property.models';
 import { amenityLabel } from '../../../core/amenities';
@@ -13,7 +17,10 @@ const property: PropertySummary = {
 
 describe('PropertyCardComponent', () => {
   function render(overrides: Partial<PropertySummary> = {}, nights: number | null = null) {
-    TestBed.configureTestingModule({ imports: [PropertyCardComponent], providers: [provideRouter([])] });
+    TestBed.configureTestingModule({
+      imports: [PropertyCardComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    });
     const fixture = TestBed.createComponent(PropertyCardComponent);
     fixture.componentRef.setInput('property', { ...property, ...overrides });
     fixture.componentRef.setInput('nights', nights);
@@ -50,5 +57,24 @@ describe('PropertyCardComponent', () => {
     const el = render({ cover_image: null });
     expect(el.querySelector('img')).toBeNull();
     expect(el.querySelector('.no-photo')).not.toBeNull();
+  });
+
+  it('has a heart next to the link (not inside it) that saves without opening the stay', () => {
+    localStorage.setItem('bsd.user', JSON.stringify({ id: 7, email: 'g@example.com', role: 'guest' }));
+    const el = render({ is_favorite: false });
+    localStorage.clear();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl');
+    const heart = el.querySelector<HTMLButtonElement>('app-favorite-button button')!;
+    expect(heart.closest('a')).toBeNull();
+    expect(heart.getAttribute('aria-label')).toBe('Save Harbour Loft');
+    heart.click();
+    expect(navigate).not.toHaveBeenCalled();
+    TestBed.inject(HttpTestingController).expectOne(`${FAVORITES_URL}5/`).flush({ property: 5, is_favorite: true, saved_at: '' });
+  });
+
+  it('shows a filled heart for a place the caller saved', () => {
+    const heart = render({ is_favorite: true }).querySelector('app-favorite-button button')!;
+    expect(heart.getAttribute('aria-pressed')).toBe('true');
   });
 });

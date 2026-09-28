@@ -35,6 +35,7 @@ import { MAX_DAYS_AHEAD, PropertyDetail } from '../../core/properties/property.m
 import { stayDateFilter, stayProblem } from '../../core/properties/stay-rules';
 import { PropertyService } from '../../core/properties/property.service';
 import { RatingSummary, Review, ViewerReview } from '../../core/reviews/review.models';
+import { FavoriteButtonComponent } from '../../shared/favorite-button';
 import { ReviewDialog, ReviewDialogData } from '../../shared/review-dialog';
 import { StarRatingComponent } from '../../shared/star-rating';
 import { AvailabilityCalendarComponent, DateSelection } from './availability-calendar/availability-calendar';
@@ -61,6 +62,7 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
     MatInputModule,
     MatSelectModule,
     AvailabilityCalendarComponent,
+    FavoriteButtonComponent,
     GalleryComponent,
     PropertyReviewsComponent,
     StarRatingComponent,

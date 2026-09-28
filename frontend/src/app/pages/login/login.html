@@ -11,6 +11,11 @@
           <mat-icon>schedule</mat-icon> Your session expired. Please log in again.
         </p>
       }
+      @if (savingFavorite && !error()) {
+        <p class="banner info" role="status">
+          <mat-icon>favorite_border</mat-icon> Log in to save this place - it's saved as soon as you're in.
+        </p>
+      }
       @if (error(); as message) {
         <p class="banner error" role="alert"><mat-icon>error</mat-icon> {{ message }}</p>
       }

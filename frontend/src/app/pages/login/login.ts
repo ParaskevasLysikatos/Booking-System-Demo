@@ -40,6 +40,8 @@ export class LoginPage {
   readonly hidePassword = signal(true);
   readonly error = signal<string | null>(null);
   readonly sessionExpired = this.route.snapshot.queryParamMap.get('reason') === 'expired';
+  /** Sent here by a heart tap while logged out (TICKET-033). */
+  readonly savingFavorite = this.route.snapshot.queryParamMap.get('reason') === 'favorite';
 
   submit(): void {
     if (this.form.invalid || this.submitting()) {

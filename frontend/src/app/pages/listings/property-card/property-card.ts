@@ -5,10 +5,11 @@ import { RouterLink } from '@angular/router';
 import { amenityLabel } from '../../../core/amenities';
 import { formatPrice } from '../../../core/money';
 import { PropertySummary } from '../../../core/properties/property.models';
+import { FavoriteButtonComponent } from '../../../shared/favorite-button';
 
 @Component({
   selector: 'app-property-card',
-  imports: [MatIconModule, RouterLink],
+  imports: [FavoriteButtonComponent, MatIconModule, RouterLink],
   templateUrl: './property-card.html',
   styleUrl: './property-card.scss',
 })

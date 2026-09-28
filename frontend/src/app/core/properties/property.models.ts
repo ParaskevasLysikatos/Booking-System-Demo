@@ -12,6 +12,10 @@ export interface PropertySummary {
   cover_image: string | null;
   rating_avg: number | null;
   review_count: number;
+  /** Has the logged-in caller saved it (TICKET-033)? Always false when logged out. */
+  is_favorite?: boolean;
+  /** How many accounts saved it - admin responses only (TICKET-033). */
+  favorite_count?: number;
 }
 
 export interface Paginated<T> {
