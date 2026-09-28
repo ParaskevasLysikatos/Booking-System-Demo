@@ -40,6 +40,7 @@ import { ReviewDialog, ReviewDialogData } from '../../shared/review-dialog';
 import { StarRatingComponent } from '../../shared/star-rating';
 import { AvailabilityCalendarComponent, DateSelection } from './availability-calendar/availability-calendar';
 import { GalleryComponent } from './gallery/gallery';
+import { PropertyLocationComponent } from './location/property-location';
 import { PropertyReviewsComponent } from './reviews/property-reviews';
 
 type DetailState =
@@ -64,6 +65,7 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
     AvailabilityCalendarComponent,
     FavoriteButtonComponent,
     GalleryComponent,
+    PropertyLocationComponent,
     PropertyReviewsComponent,
     StarRatingComponent,
   ],

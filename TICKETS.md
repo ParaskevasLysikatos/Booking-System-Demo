@@ -726,6 +726,12 @@ test, always last).
     - 16 new frontend tests (**334** pass), **389** backend tests pass; production build clean (initial +0.6 kB, Leaflet still lazy).
     - Chrome, local app: split 946/630 px at 2560 px, tags + bubbles over Greece, pop-up (Rhodes €66), card hover → right bubble, bubble zoom-in split, Kalamata search → 2 tags; 390 px frame: Show map → `?view=map`, 343×520 map, Show list, no sideways scroll; no console errors.
     - README: new "Listings map (Angular, TICKET-034)"; "Shared map component" (base map decision), "Map pins API" (`is_favorite`), layout, status and next steps updated.
+  - Step 6 done (property page map):
+    - Decisions: "Where you'll be" between Availability and Reviews, note "Shown within about 500 m to protect the host's privacy"; compact map; an **Open in Google Maps** link. (Owner also asked to make sure CARTO is gone: no CARTO tile URL/config/package remains - the last code-comment mention was removed; the README keeps the history.)
+    - `pages/property-detail/location/`: guests get a 500 m circle (no pin) and a Google Maps link to the *area* (`map_action=map`, zoom 15, no pin); admins get the exact pin and a Google Maps pin link; no position → location text + a Google Maps search. 320 px map, scroll-wheel zoom off, cluster off; link opens in a new tab with "(opens in a new tab)" for screen readers.
+    - 4 new tests; **338 frontend tests** pass; production build clean (initial bundle unchanged).
+    - Chrome, local app (logged out): section order Availability → Where you'll be → Reviews, 320 px map with one 500 m circle over Thessaloniki, area link (zoom 15, no pin). Admin view covered by tests.
+    - README: new "Property detail page → Where you'll be"; layout, status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

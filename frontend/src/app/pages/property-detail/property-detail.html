@@ -87,6 +87,12 @@
             />
           </section>
 
+          <!-- TICKET-034: the area on a map (exact pin for admins) + Open in Google Maps. -->
+          <section class="location" aria-labelledby="location-heading">
+            <h2 id="location-heading">Where you'll be</h2>
+            <app-property-location [property]="p" />
+          </section>
+
           <section #reviews id="reviews" class="reviews" aria-labelledby="reviews-heading" tabindex="-1">
             <div class="reviews-head">
               <h2 id="reviews-heading">Reviews</h2>

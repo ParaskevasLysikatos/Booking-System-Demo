@@ -27,10 +27,8 @@ export interface LatLng {
 }
 
 /**
- * OpenStreetMap's standard tiles (TICKET-034). No account or key. map.scss
- * softens them (lighter, less colour) so the price tags stand out - the
- * light look first planned with CARTO Voyager, whose tiles turned out to
- * need an API key ("API KEY REQUIRED" placeholders) by the time of step 5.
+ * OpenStreetMap's standard tiles (TICKET-034) - no account or API key.
+ * map.scss softens them (lighter, less colour) so the price tags stand out.
  * OSM's tile usage policy asks for the attribution below and light use,
  * which a demo is: https://operations.osmfoundation.org/policies/tiles/
  */

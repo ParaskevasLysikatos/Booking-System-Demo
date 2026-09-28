@@ -53,7 +53,10 @@ numbered bubbles for nearby stays, approximate-area circles, pop-ups),
 loaded only when a page shows a map; see "Shared map component"; step 5 is
 done - `/listings` shows the list and a map side by side on wide screens
 (a Show map / Show list button on phones), with a pop-up card per price
-tag; see "Listings map". See "Next steps" at the bottom for
+tag; see "Listings map"; step 6 is done - the property page has a
+"Where you'll be" map (a ~500 m circle for guests, the exact pin for
+admins) and an Open in Google Maps link; see "Property detail page → Where
+you'll be". See "Next steps" at the bottom for
 what's next.
 
 ## Prerequisites
@@ -255,7 +258,8 @@ frontend/
                                         map split view / ?view=map + map-popup-card/ (TICKET-034)
     pages/property-detail/              Detail page: gallery (+ full-screen lightbox), amenities, availability
                                         calendar, sticky booking panel with live availability + Book now,
-                                        reviews/ (star summary + reviews, Show more - TICKET-032)
+                                        reviews/ (star summary + reviews, Show more - TICKET-032),
+                                        location/ ("Where you'll be" map + Open in Google Maps - TICKET-034)
     pages/booking/                      Booking form: 2-step stepper (trip -> review & confirm), live price,
                                         409/400 handling, confirmation screen
     pages/favorites/                    Saved page (/favorites): the guest's saved places, Undo, deactivated places greyed out - TICKET-033
@@ -1972,7 +1976,47 @@ the searched dates and guests
     or **Not available for these dates**
   - price breakdown: "€182 × 2 nights = €364", marked as an estimate
   - **Book now**
+- **Where you'll be** (`location/property-location.ts`, TICKET-034) - see
+  below.
 - **Reviews** (`reviews/property-reviews.ts`, TICKET-032) - see below.
+
+### Where you'll be (TICKET-034)
+
+This section comes between **Availability** and **Reviews** and uses the
+shared `<app-map>` (see "Shared map component").
+
+**Decisions (agreed before building):**
+
+- The placement and wording above (the recommended ones).
+- A compact map.
+- An **Open in Google Maps** link.
+
+| Who | Map | Text under it | Open in Google Maps |
+| --- | --- | --- | --- |
+| Guests / logged out | A shaded **~500 m circle** around the approximate point the API sends (`location_radius_m`). There's no pin: the real place is somewhere inside the circle, never at its centre (backend `listings/geo.py`) | "Thessaloniki, Greece" + "Shown within about 500 m to protect the host's privacy." | The **area**, with no pin (`/maps/@?api=1&map_action=map&center=…&zoom=15`), so Google Maps doesn't suggest an exact spot either |
+| Admins | The **exact point** as a round pin | "Exact location - only admins see this. Guests see a 500 m area." | A **pin** at the exact point (`/maps/search/?api=1&query=lat,lng`) |
+| A place without a position | No map | The location text | A Google Maps **search** for the location text |
+
+- **Size:** the map is **320 px** high, the width of the text column.
+- **Scrolling:** scroll-wheel zoom is **off**, so scrolling down the page
+  never gets stuck zooming the map. The +/- buttons, double-click and pinch
+  still zoom.
+- **Zoom:** it opens zoomed so the whole circle, or the pin at street
+  level, is in view.
+- **The link** opens in a new tab (`rel="noopener noreferrer"`), and screen
+  readers hear "(opens in a new tab)". The URLs follow Google's [Maps
+  URLs](https://developers.google.com/maps/documentation/urls/get-started)
+  format, which needs no API key.
+- **Checked in Chrome** on the local app, logged out, on "Modern Room in
+  Thessaloniki": the section sits between Availability and Reviews, the map
+  is 320 px with one 500 m circle and no pin, and the link is the area
+  version (zoom 15, no pin, centred on the approximate point). The admin
+  view is covered by the tests, since the check didn't sign in.
+- **Tests:** `location/property-location.spec.ts` has 4 tests:
+  - guests (circle, no scroll zoom, note, area link)
+  - admins (pin, note, pin link)
+  - no position
+  - the URL builders
 
 ### Reviews section (TICKET-032)
 
@@ -5662,5 +5706,9 @@ from 1100 px with a sticky map, Show map / Show list with `?view=map` on
 phones, pins for every matching stay, card hover lifts its tag, pop-up card
 with photo, rating, price, stay total and heart; the base map switched to
 softened OpenStreetMap because CARTO now needs a key) is done; see
-"Listings map (Angular, TICKET-034)". Next: step 6, the map on the
-property page.
+"Listings map (Angular, TICKET-034)"; step 6 (the property page's "Where
+you'll be": a compact map with the 500 m circle for guests / the exact pin
+for admins, the privacy note, and Open in Google Maps - the area for
+guests, a pin for admins) is done; see "Property detail page → Where
+you'll be". Next: step 7, the map in the admin property form (click/drag to
+place, Find on map).
