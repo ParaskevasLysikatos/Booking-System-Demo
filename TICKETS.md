@@ -684,7 +684,7 @@ test, always last).
     - Render: **Hosted demo check green** on `d841349`; live API `/api/favorites/` → 401 anonymous, `is_favorite` on cards; as the demo admin: no hearts/Saved link, "Saved by" column fits; as a demo guest (owner logged in): save from the cards (kept after reload), "♥ Saved" on the property page, the Saved page (count, newest first, remove → gone after reload, Undo → back after reload), empty state; test saves removed afterwards.
   - **Done.** Guests save places with a heart on every card and the property page (logged out: login first, then it's saved), see them on a Saved page (`/favorites`) with Undo and deactivated places greyed out with Remove; admins see "Saved by N" per property. Backend 334 tests, frontend 298 tests. Follow-up: the live database gets seeded favorites with TICKET-041's one-off re-seed.
 
-- [ ] **TICKET-034** — Map view for listings
+- [x] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018
   - Decisions (agreed before building):
     - **latitude/longitude fields** on `Property` (optional, both or neither) + a **Find on map** button in the admin form that geocodes the location text with OpenStreetMap Nominatim, via the backend
@@ -739,6 +739,15 @@ test, always last).
     - Bug caught by the tests before shipping: the "nothing found" message cleared itself (the reset effect also tracked the search state) - fixed with `untracked`.
     - 15 new frontend tests (**353** pass), **392** backend tests pass; production build clean. Browser check of the form moves to step 8 (behind the admin login - with the owner signed in), with the live Find on map.
     - README: new "Admin properties → Map position"; "Map positions API → Setting a position" (required rules), status and next steps updated.
+  - Step 8 done (final check, on `6b9fe45`):
+    - **392 backend** + **353 frontend** tests pass, `makemigrations --check` clean, production build clean (Leaflet lazy).
+    - Fresh DB (`migrate` from zero + seed): 14/14 places positioned; `/map/` 9 approximate pins logged out / 9 exact for the admin; detail offset 347 m with radius 500; create without / clear position → 400; PATCH `is_active` without → 200; geocode logged out → 401.
+    - Local app as admin (Chrome): edit form exact draggable pin + address pre-filled; **live Find on map** "Tsimiski 45, Thessaloniki" → best match placed "(street)"; map click moves the pin without re-zoom; Cancel → "Discard unsaved changes?" → stored position unchanged; New form → position required, nothing sent; property page exact pin + Google Maps pin link; listings 13 exact pins, no hearts for admin, no console errors.
+    - Render as admin: all steps deployed (split view; anonymous pins approximate with `is_favorite`; a PATCH both versions refuse returned step 7's message, no data change); 21/21 OSM tiles loaded; edit form **live Find on map from Render's server**: two English tourist names → "No place in Greece matched…" (Nominatim has no entry), "Mykonos" + Enter → placed "(neighbourhood / village)", API "Tsimiski 45, Thessaloniki" identical to local; Cancel → Discard, position unchanged; property page exact pin; no console errors.
+    - Nothing was saved to either database during the checks.
+    - README: new "Map view: final check"; status and next steps updated.
+  - **Done.** Stays have a map position (exact for admins, a ~500 m area for everyone else); `/listings` shows every matching stay on a map (60/40 split on wide screens, Show map on phones, clusters, pop-up card with heart and stay total); the property page has "Where you'll be" + Open in Google Maps; the admin form requires a position (Find on map with Nominatim, click/drag). Base map: softened OpenStreetMap (CARTO now needs a key). Backend 392 tests, frontend 353 tests.
+  - Possible follow-ups (not needed for the demo): shorten the Find on map label to the first few address parts; English→Greek name hints for tourist spots Nominatim doesn't know.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

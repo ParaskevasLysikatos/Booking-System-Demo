@@ -58,8 +58,9 @@ tag; see "Listings map"; step 6 is done - the property page has a
 admins) and an Open in Google Maps link; see "Property detail page → Where
 you'll be"; step 7 is done - the admin property form has a **required**
 Map position: Find on map (best match) plus click/drag the pin; see "Admin
-properties → Map position". See "Next steps" at the bottom for
-what's next.
+properties → Map position". **TICKET-034 (map view) is done**, after a
+final check locally and on Render as admin; see "Map view: final check".
+See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
 
@@ -1689,10 +1690,87 @@ curl -H "Authorization: Bearer $ADMIN_ACCESS" \
     `/api/properties/map/` → 13 pins, `missing_position: 0`, approximate
     points with `location_radius_m: 500` for a guest.
   - `/api/admin/geocode/` → `401` logged out, and `403` for a demo guest.
-- **Still to check live:** the lookup against the real Nominatim needs an
-  admin session on the live site. This sandbox can't reach Nominatim
-  (outbound traffic is blocked here), so it's done with the owner in the
-  step 8 Render check.
+- **Checked live in step 8:** from the local backend and from Render,
+  with the owner signed in as admin. See "Map view: final check".
+
+## Map view: final check (TICKET-034)
+
+Step 8, on the final `master` (`6b9fe45`). Nothing was saved to any
+database during the browser checks; every form was left with **Cancel →
+Discard changes**, and the stored positions were read back afterwards.
+
+**Tests**
+
+| Check | Result |
+| --- | --- |
+| Backend tests (Postgres) | **392** pass |
+| Frontend tests (Vitest) | **353** pass |
+| `makemigrations --check` | clean |
+| Production build | clean, no warnings. Initial bundle 146.7 kB transferred; Leaflet (37.6 kB) and clusters (8.0 kB) are lazy chunks |
+
+**Fresh database** (`migrate` from zero + `seed_demo_data --seed 11`, then
+the API):
+
+| Check | Result |
+| --- | --- |
+| Places with a position | 14 / 14 |
+| `/map/` logged out | 9 pins, all approximate, `missing_position: 0` |
+| `/map/` as admin (`is_active=true`) | the same 9, all exact |
+| Property page, logged out | the approximate point, 347 m from the real one, with `location_radius_m: 500`; the admin gets the exact value |
+| Create without a position / clear it | `400` / `400` |
+| `PATCH {is_active}` without a position | `200` |
+| Geocode logged out | `401` |
+| Geocode as admin (Nominatim mocked) | best result shaped right |
+
+**Local app** (Chrome, signed in as `admin_demo`, backend in Docker):
+
+- **Edit form (#42):**
+  - The exact pin is draggable at 40.637614, 22.954794, and the address box
+    is pre-filled with "Thessaloniki, Greece".
+  - A **live Find on map** for "Tsimiski 45, Thessaloniki" put the pin at
+    the best match (40.632723, 22.943047) with "Placed at … (street)".
+  - A **map click** moved the pin to the clicked spot without re-zooming.
+  - Cancel asked **"Discard unsaved changes?"** → Discard, and the stored
+    position was unchanged.
+- **New property form:** Create with nothing filled in → "Set the map
+  position: find the address or click the map.", and nothing was sent.
+- **Property page:** the exact pin, "Exact location - only admins see
+  this…", and Google Maps with a pin at the exact point.
+- **Listings:** the split view with 13 exact pins, no hearts for the admin,
+  and no console errors.
+
+**Render** (Chrome, signed in as `admin_demo`):
+
+- **Steps 1-7 are deployed:**
+  - The listings split view is live.
+  - Logged-out `/map/` returns 13 approximate pins with `is_favorite`, none
+    missing.
+  - A `PATCH {"latitude": null}` got step 7's answer, "A map position can't
+    be removed…". Both the old and the new code refuse that request, so no
+    data could change.
+- **Map tiles:** 21/21 OpenStreetMap tiles loaded (34 kB images, not
+  placeholders), with tags and bubbles over Greece.
+- **Edit form (#14, Mykonos), with live Find on map from Render's server:**
+  - "Matoyianni, Mykonos" and "Little Venice, Mykonos" → "No place in
+    Greece matched…". Nominatim has no entry for those English tourist
+    names, and the pin didn't move.
+  - "Mykonos" + Enter → the best match placed, "(neighbourhood /
+    village)".
+  - Directly from the API: "Tsimiski 45, Thessaloniki" gave 5 results, the
+    first identical to the local one; "Volos" → the town.
+  - Cancel → Discard, and the exact position was unchanged.
+- **Property page (#14):** the exact pin for the admin. Logged-out visitors
+  still get the approximate point with the 500 m radius. No console
+  errors.
+
+**Worth knowing for the demo:**
+
+- **Nominatim works best with street + town.** Well-known English tourist
+  names sometimes find nothing. Also, "Mykonos" alone lands on the island's
+  centre, not the town. Clicking or dragging the pin is the quick fix.
+- **Search labels:** these are Nominatim's full address lines. They can be
+  long, and part of them may stay in Greek when OSM has no English name,
+  e.g. "Ιωάννη Τσιμισκή, Ladadika, …".
 
 ## Frontend auth (Angular)
 
@@ -5809,5 +5887,7 @@ you'll be"; step 7 (the admin form's required Map position: a Find address
 box pre-filled from Location → the best match is placed at once, click
 the map / drag the pin, and the API now requires a position on
 create/replace and refuses to clear it) is done; see "Admin properties →
-Map position". Next: step 8, the final check (tests, a fresh database,
-Chrome as admin - including a live Find on map - and Render).
+Map position"; **TICKET-034 is done** (step 8: all tests on the final
+`master`, a fresh-database regression, and Chrome checks as admin on the
+local app and on Render, including a live Find on map; see "Map view:
+final check").
