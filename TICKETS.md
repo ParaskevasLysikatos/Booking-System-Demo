@@ -644,7 +644,7 @@ test, always last).
     - Render as admin (owner logged in, then tested in that tab): list of the 5 live reviews, Visible/Hidden toggle + Clear filters, search, rating and property filters (combined), browser Back; **Hide** on one review → live summary, listing card and public page dropped it ("New", "No reviews yet") → **Show** → restored (all 5 visible again, as before).
   - **Done.** Guests with an ended, confirmed stay rate a place 1-5 stars with an optional comment (final, one per place) from the property page or My bookings; everyone sees the reviews with a star summary and per-star bars; admins filter all reviews and Hide / Show them again, and hidden reviews leave the public list and every rating. Backend 297 tests, frontend 257 tests. Follow-up: more seeded reviews in TICKET-037.
 
-- [ ] **TICKET-033** — Favorites
+- [x] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018
   - Decisions (agreed before building):
     - **stored on the server, per account** (a `Favorite` row per user + property); a logged-out tap on the heart goes to login, comes back, and the save completes
@@ -677,6 +677,12 @@ test, always last).
     - Admin Properties table: a **Saved by** column (♥ N, grey ♡ 0 when nobody saved it; screen readers: "Saved by 3 guests") from the admin-only `favorite_count`; tablets/phones: "· Saved by N guests" in the card line.
     - 1 new test (298 frontend tests pass); production build clean. Browser check as the demo admin against the real API: every row matches the API at 1280/768/390/320 px, the table still fits at 1280 (no sideways scroll), no page scroll on phones: 14/14.
     - README: "Admin properties" columns, status and next steps updated.
+  - Step 5 done (seeder + final check):
+    - `seed_demo_data`: every demo guest saves 2-5 active places (~40 in total); the first guest also keeps one retired place saved (the greyed "No longer available" card, listed first) - if the random mix retired nothing, the last property is retired for that; the admin saves nothing; `--clear` removes favorites. 4 new tests.
+    - On the final `master` (`d841349`): **334 backend tests** (Postgres) and **298 frontend tests** pass, `makemigrations --check` clean, production build clean.
+    - Fresh database: `migrate` from zero + `seed_demo_data` → browser regression against the real API: **68/68** (steps 2-4 re-run + the seeded data). Table in README "Favorites: final check".
+    - Render: **Hosted demo check green** on `d841349`; live API `/api/favorites/` → 401 anonymous, `is_favorite` on cards; as the demo admin: no hearts/Saved link, "Saved by" column fits; as a demo guest (owner logged in): save from the cards (kept after reload), "♥ Saved" on the property page, the Saved page (count, newest first, remove → gone after reload, Undo → back after reload), empty state; test saves removed afterwards.
+  - **Done.** Guests save places with a heart on every card and the property page (logged out: login first, then it's saved), see them on a Saved page (`/favorites`) with Undo and deactivated places greyed out with Remove; admins see "Saved by N" per property. Backend 334 tests, frontend 298 tests. Follow-up: the live database gets seeded favorites with TICKET-041's one-off re-seed.
 
 - [ ] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018

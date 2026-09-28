@@ -31,8 +31,8 @@ webhook confirming bookings, Pay now, refunds flagged for the host
 as an app (TICKET-031, see "Mobile & PWA"). Guests who have stayed can
 **rate and review** a place, everyone sees the reviews with a star
 summary, and admins can hide a review (TICKET-032, see "Reviews API",
-"Property detail page → Reviews section" and "Admin reviews"). Favorites
-(TICKET-033) are in progress: the API is done - logged-in guests save and
+"Property detail page → Reviews section" and "Admin reviews"). Guests can
+**save places** with a heart (TICKET-033, done): the API is done - logged-in guests save and
 remove places, every card knows whether the caller saved it, and admins
 see how many accounts saved each place (see "Favorites API") - and every
 listing card and the property page have a **heart** to save a place
@@ -2695,6 +2695,57 @@ the public page showed "New" + "No reviews yet". **Show** (via the Hidden
 filter) → back to 5.0 / 1 review; all 5 live reviews visible again, as
 before the test.
 
+## Favorites: final check (TICKET-033)
+
+Run on 28 Sep 2026 on the final `master` (`d841349` for the code; this
+section is the only change after it).
+
+**Automated:** all **334 backend tests** pass on Postgres (33 in
+`favorites`, 4 seeder tests in `core`), `makemigrations --check` is
+clean; all **298 frontend tests** pass; the production build is clean (no
+budget warnings).
+
+**Fresh database:** `migrate` from zero (favorites `0001`) and
+`seed_demo_data` → ~40 saved places, every guest with 2-5 active ones, the
+first guest also with one retired place, the admin with none.
+
+**Browser regression** (headless Chrome against the real API on that
+fresh database, 1280 / 768 / 390 / 320 px) - **68/68 passed**:
+
+| Part | Checks | Result |
+| --- | --- | --- |
+| The heart (step 2) | a heart on every card (44×44, outside the link); visitor → login with the message → back, saved + snackbar; save/remove on cards and the property page stay in sync; reload keeps the server's state; keyboard Space; a tap never opens the stay; place deactivated meanwhile → switches back with the message; phones: no sideways scroll; admin: no hearts - **27** | ✅ |
+| Saved page (step 3) | visitor → login → back; tab title + toolbar link current; count, 12 per page + paginator, server order; deactivated place greyed with Remove (no Undo); un-heart → gone at once → Undo → same spot; left alone → still gone after reload; page 2; phones: menu link, Undo bar fits; empty state; admin: no Saved link - **24** | ✅ |
+| Admin "Saved by" (step 4) | counts rise with new saves; every row matches the API at 4 widths; column fits at 1280; card line on tablets/phones - **14** | ✅ |
+| Seeded data (step 5) | the first guest's Saved page shows the retired place greyed out and first; the admin table shows the seeded counts - **3** | ✅ |
+
+(The step 3 and step 4 scripts first failed on the fresh data because of
+the tests themselves - they assumed no other favorites and 14 active
+places; after adjusting the scripts, all passed.)
+
+**Render** (auto-deployed from the pushes): the **Hosted demo check**
+workflow run on `d841349` passed. The live API answers `/api/favorites/`
+and `PUT /api/favorites/1/` with 401 when logged out, and the cards carry
+`is_favorite` (no `favorite_count` for guests) - so the migration ran.
+The live database isn't re-seeded (`--if-empty`), so it has no seeded
+favorites until TICKET-041's one-off re-seed.
+
+**Render in Chrome** (the owner logged in, the checks ran in that tab):
+
+- As the **demo admin:** no hearts on the 12 listing cards, no Saved
+  link; admin Properties shows the **Saved by** column (all 0 on the live
+  data) and fits without sideways scrolling.
+- As a **demo guest** (`guest_0_…`, logged in by the owner): 12 hearts,
+  none inside a link, **Saved** in the toolbar; two hearts tapped → filled,
+  the page stayed on the listings, still filled after a reload (saved on
+  the server); the property page header said **♥ Saved**; the toolbar link
+  opened **Saved** ("Saved · Booking System Demo", link marked current):
+  "2 saved places", newest first; un-hearting one → gone at once +
+  "Removed "…" from saved. Undo" → left alone → still gone after a reload;
+  un-hearting the other → the empty state → **Undo** → back, and still
+  there after a reload. Finally the test save was removed again, leaving
+  the guest with no saved places, as before.
+
 ## Payments (Stripe, TICKET-029)
 
 Guests pay for a booking with **Stripe Checkout in test mode** (no real
@@ -4928,4 +4979,7 @@ heart"; step 3 (the `/favorites` Saved page: Saved in the toolbar and the
 account menu, Undo, deactivated places greyed out with Remove) is done;
 see "Saved page"; step 4 (a "Saved by" column in admin Properties, and
 "Saved by N guests" on the tablet/phone cards) is done; see "Admin
-properties". Next: step 5 (seed some favorites, final check, Render).
+properties"; **TICKET-033 is done** (step 5: the seeder saves places for
+the demo guests, full test runs, a 68-check browser regression on a fresh
+database and the live Render check as admin and as a guest; see
+"Favorites: final check").
