@@ -28,8 +28,11 @@ with Stripe (test mode)** - Confirm and pay, a 30-minute date hold, the
 webhook confirming bookings, Pay now, refunds flagged for the host
 (TICKET-029, tested end to end locally and on Render); see "Payments
 (Stripe)". The site works on phones and tablets and can be installed
-as an app (TICKET-031, see "Mobile & PWA"). See "Next steps" at the
-bottom for what's next.
+as an app (TICKET-031, see "Mobile & PWA"). Guests who have stayed can
+**rate and review** a place, everyone sees the reviews with a star
+summary, and admins can hide a review (TICKET-032, see "Reviews API",
+"Property detail page → Reviews section" and "Admin reviews"). See "Next
+steps" at the bottom for what's next.
 
 ## Prerequisites
 
@@ -2322,6 +2325,47 @@ red button) → PATCH → snackbar → refresh; Keep hidden sends nothing, Show
 → PATCH; a refused change; error + Try again → empty state. The admin
 layout test now expects the Reviews item.
 
+## Reviews: final check (TICKET-032)
+
+Run on 28 Sep 2026 on the final `master` (`cc63916`).
+
+**Automated:** all **297 backend tests** pass on Postgres (37 in
+`reviews`), `makemigrations --check` is clean; all **257 frontend
+tests** pass; the production build is clean (no budget warnings).
+
+**Fresh database:** `migrate` from zero (reviews `0001` + `0002`) and
+`seed_demo_data` → every seeded review is backed by an ended, confirmed
+stay of that guest.
+
+**Browser regression** (headless Chrome against the real API on that
+fresh database; a seeded guest given one ended *confirmed* stay at
+property Y and one ended *pending* stay at property X) - **27/27 passed**:
+
+| # | Check | Result |
+| --- | --- | --- |
+| A1-A3 | Visitor: reviews + summary shown, no Write a review, header rating = card rating | ✅ |
+| A4-A5 | No reviews → "No reviews yet" + header "New"; anonymous `POST` → 401 | ✅ |
+| B1-B3 | Pending (unpaid) past stay: no button, `POST` → 400 with the rule; guest → admin API 403 | ✅ |
+| C1-C2 | Confirmed ended stay: Write a review; rating chosen with the **keyboard** (Space, →) | ✅ |
+| C3-C5 | Posted: "You rated this place" replaces the button, new review first (comment trimmed, name not email), header "2.0 · 1 review" | ✅ |
+| C6-C9 | After reload still "You rated"; listing card count updated; second review → 400; no edit route | ✅ |
+| D1-D3 | My bookings: "You rated" on the stay, nothing on the pending one; guest → `/admin/reviews` → 403 page | ✅ |
+| E1-E4 | Admin hides it: public summary + card back to 0; the guest still sees "You rated" and can't post again | ✅ |
+| E5-E7 | Hidden filter lists it; Show → back in the summary; admin properties table shows ★ 2.0 (1) | ✅ |
+
+(E7 first failed because of the test itself - the property was on page 2
+of the admin table; re-checked with the table's search: passed.)
+
+**Render** (auto-deployed from the pushes): the **Hosted demo check**
+workflow run on `cc63916` passed. In Chrome on the live site: the API
+answers `/api/properties/{id}/reviews/` with the summary (matching the
+card), anonymous `POST /api/reviews/` → 401 and `/api/admin/reviews/` →
+401; property 2's page shows the Reviews section (4.0, 2 reviews, per-star
+bars) and the header link scrolls to it; `/admin/reviews` exists and
+sends a non-admin to "Admins only". The admin Reviews page itself on
+Render needs an admin login, which I don't type on the hosted site - see
+the note in TICKETS.
+
 ## Payments (Stripe, TICKET-029)
 
 Guests pay for a booking with **Stripe Checkout in test mode** (no real
@@ -4536,4 +4580,6 @@ section"; step 3 (writing a review: the shared review dialog with a star
 picker, "Write a review" on the property page and "Leave a review" on past
 stays in My bookings) is done; see "The review dialog"; step 4 (the admin
 Reviews page with filters and Hide / Show again) is done; see "Admin
-reviews". Next: step 5, the final check and wrap-up.
+reviews"; **TICKET-032 is done** (step 5: full test runs, a 27-check
+browser regression on a fresh database and the live Render check; see
+"Reviews: final check"). Next: TICKET-033 (favorites).

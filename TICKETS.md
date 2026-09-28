@@ -601,7 +601,7 @@ test, always last).
 
 ## Epic 7 — Nice-to-have
 
-- [ ] **TICKET-032** — Reviews/ratings UI
+- [x] **TICKET-032** — Reviews/ratings UI
   - Priority: P2 · Depends on: TICKET-009, TICKET-019
   - Decisions (agreed before building):
     - **who can review:** only a guest with a **confirmed** booking at that property whose check-out date has arrived
@@ -636,6 +636,13 @@ test, always last).
     - Laptops drop "Posted" so the table fits at 1280; cards on tablets/phones.
     - 10 new tests (257 frontend tests pass); production build clean. Checked as the demo admin against the real API: Hide took the property's public rating from 3.9 / 9 reviews to 4.1 / 8, Show put it back; no sideways scroll at 1280/768/390/320 px.
     - README: new "Admin reviews (Angular, TICKET-032)" section; admin routes, admin layout, project layout and next steps updated.
+  - Step 5 done (final check):
+    - On the final `master` (`cc63916`): **297 backend tests** (Postgres) and **257 frontend tests** pass, `makemigrations --check` clean, production build clean.
+    - Fresh database: `migrate` from zero + `seed_demo_data` → every seeded review backed by an ended, confirmed stay.
+    - Browser regression against the real API: **27/27 checks** (visitor, unpaid past stay, eligible guest posting with the keyboard, reload, duplicate/edit refused, My bookings, guest blocked from admin, admin hide → public rating/card/guest view, Hidden filter, show again, admin properties rating). Table in README "Reviews: final check".
+    - Render: auto-deployed; **Hosted demo check green** on `cc63916`; live API reviews endpoints + summary, 401s for anonymous writes/admin list, live property page Reviews section + header link, `/admin/reviews` route guarded.
+    - Not checked on Render: the admin Reviews page while logged in as admin (I don't type passwords on the hosted site) - a quick look as `admin_demo` is worth doing before the meetup.
+  - **Done.** Guests with an ended, confirmed stay rate a place 1-5 stars with an optional comment (final, one per place) from the property page or My bookings; everyone sees the reviews with a star summary and per-star bars; admins filter all reviews and Hide / Show them again, and hidden reviews leave the public list and every rating. Backend 297 tests, frontend 257 tests. Follow-up: more seeded reviews in TICKET-037.
 
 - [ ] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018
