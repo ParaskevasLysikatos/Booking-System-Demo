@@ -169,6 +169,37 @@ class PropertyListSerializer(RatingFieldsMixin, FavoriteFieldsMixin, Coordinates
         return _cover_url(obj)
 
 
+class PropertyPinSerializer(RatingFieldsMixin, CoordinatesMixin, serializers.ModelSerializer):
+    """One pin on the listings map (TICKET-034, GET /api/properties/map/):
+    what the price tag and its pop-up card need, nothing more - the map
+    gets every matching stay at once, so each item is kept small.
+    Coordinates follow the same exact/approximate rule as the cards."""
+
+    cover_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Property
+        fields = [
+            "id",
+            "title",
+            "location",
+            "latitude",
+            "longitude",
+            "location_is_approximate",
+            "location_radius_m",
+            "price_per_night",
+            "capacity",
+            "is_active",
+            "cover_image",
+            "rating_avg",
+            "review_count",
+        ]
+        read_only_fields = fields
+
+    def get_cover_image(self, obj):
+        return _cover_url(obj)
+
+
 class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, CoordinatesMixin, serializers.ModelSerializer):
     """Full shape for the detail page - and the write serializer for admin
     POST/PUT/PATCH.

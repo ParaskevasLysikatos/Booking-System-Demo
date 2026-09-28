@@ -43,7 +43,9 @@ how many guests saved each place ("Saved by" in admin Properties).
 **TICKET-034 (map view) is in progress:** step 1 is done - every property
 can have a map position (exact for admins; everyone else only gets a
 ~500 m area), existing and seeded places get one near their city; see
-"Map positions API (TICKET-034)". See "Next steps" at the bottom for
+"Map positions API (TICKET-034)"; step 2 is done - `GET
+/api/properties/map/` returns every matching stay as a map pin; see "Map
+pins API (TICKET-034)". See "Next steps" at the bottom for
 what's next.
 
 ## Prerequisites
@@ -132,7 +134,7 @@ backend/
     geo.py             Map helpers: the approximate point guests see, the demo city centres (TICKET-034)
     serializers.py     List (card) + detail (images, availability; also the admin write serializer, nested images)
     filters.py         Query-param validation + filtering (location, guests, price, dates, ordering)
-    views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete)
+    views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete) + /map/ pins (TICKET-034)
     queries.py         property_cards() - the annotated queryset (rating, is_favorite, admin favorite_count)
                        shared by the properties API and the Saved list (TICKET-033)
     urls.py            Router for /api/properties/
@@ -606,6 +608,7 @@ routed in `listings/urls.py`.
 | `POST /api/properties/` | admin | Create (optionally with images) |
 | `PUT` / `PATCH /api/properties/{id}/` | admin | Full / partial update |
 | `DELETE /api/properties/{id}/` | admin | **Soft** delete: sets `is_active=false`, returns 204 |
+| `GET /api/properties/map/` | anyone | Every matching stay as a map pin, not paginated (TICKET-034, see "Map pins API") |
 
 ### Filtering the list
 
@@ -1453,6 +1456,98 @@ Property page.
   `seed_demo_data` gave all 14 places a position, and the API showed each
   place exactly for the admin and 230-360 m off, with the 500 m radius,
   for a logged-out visitor.
+
+## Map pins API (TICKET-034)
+
+Step 2 of the map view: `GET /api/properties/map/` gives the listings map
+**every stay that matches the search**, not only the 12 cards on the
+current page. Code: `listings/views.py:PropertyViewSet.map` and
+`listings/serializers.py:PropertyPinSerializer`.
+
+### Request
+
+- **Same query parameters as `GET /api/properties/`:** `check_in` +
+  `check_out`, `location`, `guests`, `min_price`, `max_price`, `ordering`,
+  and `is_active` (admins only).
+- **Same `400`s:** it goes through the same `apply_property_filters()`, so
+  the map and the list can never disagree about which stays match.
+- **The frontend sends exactly what it sends for the list,** including
+  `is_active=true` for an admin browsing the site.
+- **No pagination:** `page` and `page_size` are ignored.
+- **Read-only:** anything other than `GET` returns `405`.
+
+### Response
+
+```json
+{
+  "count": 13,
+  "missing_position": 1,
+  "truncated": false,
+  "results": [
+    { "id": 13, "title": "Cozy Loft in Chania", "location": "Chania, Greece",
+      "latitude": 35.511902, "longitude": 24.021105,
+      "location_is_approximate": true, "location_radius_m": 500,
+      "price_per_night": "126.00", "capacity": 6, "is_active": true,
+      "cover_image": "https://picsum.photos/seed/13-0/800/600",
+      "rating_avg": 4.5, "review_count": 2 }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `count` | Matching stays **with** a map position (the pins) |
+| `missing_position` | Matching stays **without** one. They're in the list but not on the map, so the page can say "N stays not shown on the map". |
+| `truncated` | `true` only if there are more than 500 pins (`MAP_PIN_LIMIT` in `views.py`); `results` then holds the first 500 in the requested order. The demo never gets near this; it's only a safety limit. |
+| `results` | One small item per pin: what the price tag and its pop-up card need. There's no description, amenities or favorite state; the pop-up links to the property page for those. |
+
+- **Location precision:** same rule as the cards. Admins get the exact
+  point; everyone else gets the approximate one with
+  `location_radius_m: 500`. It's the same approximate point the card and
+  the property page get, so the pin, the pop-up and the property page's
+  circle always agree.
+- **Pin order:** follows `ordering` (default newest first), so if the
+  limit ever kicks in, it keeps the same stays the list shows first.
+- **Size:** 14 seeded stays are about 4 kB.
+
+### Queries
+
+Four, however many pins there are:
+
+- the pin count
+- the `missing_position` count
+- the pins with their ratings (one aggregated query)
+- the cover images (one prefetch)
+
+A test compares 2 pins with 22 pins.
+
+### Try it with curl
+
+```bash
+# Stays in Chania free for these dates, 2+ guests, as pins
+curl "http://localhost:8000/api/properties/map/?location=chania&guests=2&check_in=2027-03-10&check_out=2027-03-14"
+```
+
+### Tests
+
+- `listings/tests.py:MapPinTests` has 13 tests:
+  - only active stays with a position, plus the `missing_position` count
+  - the pin shape and cover
+  - guests get the approximate point (the same one as the detail page, with
+    the exact value not in the body)
+  - admins get exact points and inactive stays unless `is_active=true` is
+    sent
+  - location, price, guests and date filters, and `missing_position`
+    following the filters
+  - the same `400`s as the list
+  - not paginated, the limit → `truncated`, ordering
+  - constant query count
+  - `405` on `POST`
+  - `/map/` isn't read as a property id
+- **Results:** **372** backend tests pass on Postgres. Against seeded data,
+  the endpoint returned 13 approximate pins to a logged-out visitor, 14
+  pins to the admin (13 with `is_active=true`), 1 pin for Athens + 2
+  guests, and a `400` for min > max price.
 
 ## Frontend auth (Angular)
 
@@ -5114,5 +5209,8 @@ database and the live Render check as admin and as a guest; see
 "Favorites: final check"). **TICKET-034 (map view) is in progress:** step 1
 (map positions on properties: `latitude`/`longitude`, exact for admins and
 a ~500 m area for everyone else, the backfill migration and seeded
-positions) is done; see "Map positions API (TICKET-034)". Next: step 2,
-the `/api/properties/map/` pins endpoint.
+positions) is done; see "Map positions API (TICKET-034)"; step 2 (`GET
+/api/properties/map/`: every stay matching the listings filters as a map
+pin, with `missing_position` and a 500-pin safety limit) is done; see "Map
+pins API (TICKET-034)". Next: step 3, the admin geocode endpoint (Find on
+map).

@@ -1,4 +1,5 @@
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from accounts.permissions import IsAdminOrReadOnly, is_app_admin
@@ -6,7 +7,12 @@ from core.pagination import StandardPagination
 
 from .filters import DateRangeQuerySerializer, apply_property_filters
 from .queries import property_cards
-from .serializers import PropertyDetailSerializer, PropertyListSerializer
+from .serializers import PropertyDetailSerializer, PropertyListSerializer, PropertyPinSerializer
+
+# The most pins GET /api/properties/map/ returns in one response. Far above
+# the demo's data; it only stops a huge result from being sent in one go
+# (the response says `truncated: true` if it ever kicks in).
+MAP_PIN_LIMIT = 500
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
@@ -17,6 +23,8 @@ class PropertyViewSet(viewsets.ModelViewSet):
     - POST/PUT/PATCH - admin only (Profile.role == 'admin')
     - DELETE        - admin only; *soft* delete (is_active=False), since
                       bookings reference properties with on_delete=PROTECT
+    - GET map       - anyone; /api/properties/map/ - every stay matching the
+                      same filters as the list, as map pins (TICKET-034)
 
     Guests/anonymous only ever see active properties (an inactive one is a
     404 for them); admins see everything and can filter with ?is_active=.
@@ -26,7 +34,11 @@ class PropertyViewSet(viewsets.ModelViewSet):
     pagination_class = StandardPagination
 
     def get_serializer_class(self):
-        return PropertyListSerializer if self.action == "list" else PropertyDetailSerializer
+        if self.action == "list":
+            return PropertyListSerializer
+        if self.action == "map":
+            return PropertyPinSerializer
+        return PropertyDetailSerializer
 
     def _is_admin(self):
         # Cached per request so the Profile lookup happens once.
@@ -38,7 +50,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         # Ratings, the caller's is_favorite and (admins) favorite_count -
         # see listings/queries.py.
         qs = property_cards(self.request.user, with_favorite_count=self._is_admin()).order_by("-created_at", "-id")
-        if self.action == "list":
+        if self.action in ("list", "map"):
             return apply_property_filters(qs, self.request.query_params, is_admin=self._is_admin())
         if not self._is_admin():
             qs = qs.filter(is_active=True)
@@ -56,6 +68,24 @@ class PropertyViewSet(viewsets.ModelViewSet):
             if dates.validated_data.get("check_in"):
                 context["requested_dates"] = dates.validated_data
         return context
+
+    @action(detail=False, methods=["get"], url_path="map")
+    def map(self, request):
+        """GET /api/properties/map/ (TICKET-034): the pins for the listings
+        map - *every* stay matching the filters (same params and 400s as the
+        list: dates, location, guests, prices, ordering, is_active for
+        admins), not one page of 12. Stays without a map position aren't
+        pins; `missing_position` counts them so the page can say so."""
+        qs = self.get_queryset()
+        with_position = qs.filter(latitude__isnull=False, longitude__isnull=False)
+        total = with_position.count()
+        pins = list(with_position[:MAP_PIN_LIMIT])
+        return Response({
+            "count": total,
+            "missing_position": qs.filter(latitude__isnull=True).count(),
+            "truncated": total > MAP_PIN_LIMIT,
+            "results": self.get_serializer(pins, many=True).data,
+        })
 
     def _respond_with_fresh(self, instance, status_code):
         # Re-read through get_queryset() so the response carries the same

@@ -584,3 +584,128 @@ class BackfillMigrationTests(TransactionTestCase):
         from django.core.management import call_command as _call
 
         _call("migrate", verbosity=0)
+
+
+class MapPinTests(PropertyAPITestBase):
+    """GET /api/properties/map/ (TICKET-034 step 2)."""
+
+    MAP_URL = reverse("property-map")
+    PIN_FIELDS = {
+        "id", "title", "location", "latitude", "longitude", "location_is_approximate",
+        "location_radius_m", "price_per_night", "capacity", "is_active", "cover_image",
+        "rating_avg", "review_count",
+    }
+
+    def setUp(self):
+        super().setUp()
+        # thess, athens and the hidden one have a position; the villa doesn't.
+        for prop, (lat, lng) in {
+            self.thess: ("40.632600", "22.941000"),
+            self.athens: ("37.975500", "23.734800"),
+            self.hidden: ("40.640000", "22.950000"),
+        }.items():
+            Property.objects.filter(pk=prop.pk).update(latitude=Decimal(lat), longitude=Decimal(lng))
+
+    def get(self, params=None, user=None):
+        self.client.force_authenticate(user)
+        return self.client.get(self.MAP_URL, params or {})
+
+    def test_anonymous_gets_active_pins_with_positions(self):
+        resp = self.get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.ids(resp), {self.thess.id, self.athens.id})
+        self.assertEqual(resp.data["count"], 2)
+        self.assertEqual(resp.data["missing_position"], 1)  # the villa
+        self.assertFalse(resp.data["truncated"])
+        self.assertEqual(set(resp.data), {"count", "missing_position", "truncated", "results"})
+
+    def test_pin_shape_and_cover(self):
+        pin = next(p for p in self.get().data["results"] if p["id"] == self.thess.id)
+        self.assertEqual(set(pin), self.PIN_FIELDS)
+        self.assertEqual(pin["cover_image"], "https://img.test/b.jpg")
+
+    def test_guest_pin_is_approximate_and_matches_detail(self):
+        pin = next(p for p in self.get(user=self.guest).data["results"] if p["id"] == self.thess.id)
+        self.assertTrue(pin["location_is_approximate"])
+        self.assertEqual(pin["location_radius_m"], geo.APPROX_RADIUS_METRES)
+        self.assertNotEqual(pin["latitude"], Decimal("40.632600"))
+        detail = self.client.get(detail_url(self.thess.pk)).data
+        self.assertEqual((pin["latitude"], pin["longitude"]), (detail["latitude"], detail["longitude"]))
+        self.assertNotIn("40.6326", self.get().content.decode())
+
+    def test_admin_gets_exact_and_inactive_unless_filtered(self):
+        resp = self.get(user=self.admin)
+        self.assertEqual(self.ids(resp), {self.thess.id, self.athens.id, self.hidden.id})
+        pin = next(p for p in resp.data["results"] if p["id"] == self.thess.id)
+        self.assertEqual((pin["latitude"], pin["longitude"]), (Decimal("40.632600"), Decimal("22.941000")))
+        self.assertFalse(pin["location_is_approximate"])
+        # the listings page sends is_active=true for admins too
+        self.assertEqual(self.ids(self.get({"is_active": "true"}, user=self.admin)), {self.thess.id, self.athens.id})
+
+    def test_same_filters_as_the_list(self):
+        self.assertEqual(self.ids(self.get({"location": "thess"})), {self.thess.id})
+        self.assertEqual(self.ids(self.get({"min_price": "100"})), {self.athens.id})
+        self.assertEqual(self.ids(self.get({"guests": 3})), {self.athens.id})
+        self.book(self.athens, 10, 14)
+        resp = self.get({"check_in": self.days(11), "check_out": self.days(13)})
+        self.assertEqual(self.ids(resp), {self.thess.id})
+        self.assertEqual(resp.data["missing_position"], 1)  # the villa is free too
+
+    def test_missing_position_follows_the_filters(self):
+        self.assertEqual(self.get({"location": "thess"}).data["missing_position"], 0)
+        self.assertEqual(self.get({"location": "chania"}).data["missing_position"], 1)
+        self.assertEqual(self.get({"location": "chania"}).data["count"], 0)
+
+    def test_bad_filters_are_400_like_the_list(self):
+        for params in (
+            {"min_price": "200", "max_price": "100"},
+            {"check_in": self.days(3)},
+            {"ordering": "nope"},
+            {"guests": 0},
+        ):
+            with self.subTest(params=params):
+                self.assertEqual(self.get(params).status_code, 400)
+
+    def test_not_paginated(self):
+        for i in range(15):
+            make_property(title=f"Pin {i}", latitude=Decimal("40.6"), longitude=Decimal("22.9"))
+        resp = self.get({"page_size": 5, "page": 2})
+        self.assertEqual(len(resp.data["results"]), 17)
+        self.assertEqual(resp.data["count"], 17)
+
+    def test_limit_sets_truncated(self):
+        from unittest import mock
+
+        with mock.patch("listings.views.MAP_PIN_LIMIT", 1):
+            resp = self.get()
+        self.assertEqual(len(resp.data["results"]), 1)
+        self.assertEqual(resp.data["count"], 2)
+        self.assertTrue(resp.data["truncated"])
+
+    def test_ordering_is_honoured(self):
+        resp = self.get({"ordering": "-price"})
+        self.assertEqual([p["id"] for p in resp.data["results"]], [self.athens.id, self.thess.id])
+
+    def test_query_count_does_not_grow_with_pins(self):
+        # self.client.get directly: self.get() logs out first, which adds
+        # session queries that have nothing to do with the endpoint.
+        with CaptureQueriesContext(connection) as small:
+            self.client.get(self.MAP_URL)
+        for i in range(20):
+            p = make_property(title=f"Pin {i}", latitude=Decimal("40.6"), longitude=Decimal("22.9"))
+            PropertyImage.objects.create(property=p, image=f"https://img.test/pin{i}.jpg")
+        with CaptureQueriesContext(connection) as big:
+            resp = self.client.get(self.MAP_URL)
+        self.assertEqual(len(resp.data["results"]), 22)
+        # count + missing_position + pins + images prefetch
+        self.assertEqual(len(big.captured_queries), len(small.captured_queries))
+        self.assertLessEqual(len(big.captured_queries), 4)
+
+    def test_read_only(self):
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.post(self.MAP_URL, {}, format="json").status_code, 405)
+
+    def test_map_is_not_a_property_id(self):
+        # the router must match /properties/map/ before /properties/{pk}/
+        self.assertEqual(self.MAP_URL, "/api/properties/map/")
+        self.assertIn("results", self.get().data)

@@ -700,6 +700,11 @@ test, always last).
     - `0004_backfill_coordinates` (data migration, frozen city table) gives existing places in the 12 seeder cities a point near the city, repeatable per id; others stay without one. Render gets positions on the next deploy, no re-seed. `seed_demo_data` places new properties near their city (points a little inland, small radii on islands).
     - 25 new tests (24 in `listings`, 1 in `core`); **359 backend tests** pass on Postgres, `makemigrations --check` clean. Fresh DB: `migrate` + `seed_demo_data` → 14/14 places have a position; the API gives the admin the exact point and a logged-out visitor one 230-360 m off with `location_radius_m: 500`.
     - README: new "Map positions API (TICKET-034)"; data model, migrations, layout, seeding, status and next steps updated.
+  - Step 2 done (map pins endpoint):
+    - `GET /api/properties/map/` (`PropertyViewSet.map` + a lean `PropertyPinSerializer`): every stay matching the **same filters and 400s as the list** (shared `apply_property_filters`, incl. `is_active` for admins), not paginated, in the requested order. Response: `count` (pins), `missing_position` (matching stays without a position, for "N stays not shown on the map"), `truncated` (only past a 500-pin safety limit), `results` (id, title, location, coordinates + approximate flag/radius, price, capacity, is_active, cover, rating).
+    - Same exact/approximate rule as the cards (pin = card = property page point). 4 queries however many pins; ~4 kB for the 14 seeded stays.
+    - 13 new tests; **372 backend tests** pass on Postgres. Checked against seeded data (13 approximate pins logged out, 14/13 for the admin, filters, 400).
+    - README: new "Map pins API (TICKET-034)"; Properties API table, layout, status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023
