@@ -3091,10 +3091,11 @@ refund." (#76), "You weren't charged." (#70).
 ## Emails (TICKET-030)
 
 The app emails guests about their booking, and the owner about new
-bookings. **Status: steps 1-3 of 5 done** - the outbox, the settings, the
-Brevo backend and Mailpit (step 1), the four emails with the hooks that
-send them at every booking change (step 2), and retrying failed emails from
-the command line or Django Admin (step 3).
+bookings. **Status: done** - the outbox, the settings, the Brevo backend
+and Mailpit (step 1), the four emails with the hooks that send them at every
+booking change (step 2), retrying failed emails from the command line or
+Django Admin (step 3), Render config + docs (step 4), and end-to-end runs
+locally in Mailpit and on Render with Brevo (step 5).
 
 ### Agreed design
 
@@ -3349,24 +3350,24 @@ step 5 (locally in Mailpit, then on Render with a real inbox).
 
 | # | Rule | How to check by hand | Expected | Automated | E2E |
 | --- | --- | --- | --- | --- | --- |
-| EM-01 | A new booking emails the guest "received" | Book a stay | Mailpit: `Booking #N received - …` (payments off) or `Complete your payment - booking #N, …` (on) | EMAIL-14, EMAIL-21 | Render ✅ |
-| EM-02 | With payments on, "received" has **Pay now** and the hold's end time | Open the email, click Pay now | Lands on `/bookings/N/payment` with the countdown; the time in the email = the hold's end | EMAIL-21 | |
-| EM-03 | Payment → guest "confirmed" + owner alert, **once** | Pay with 4242; resend the event (`stripe events resend evt_…`) | 2 emails (guest + `BOOKING_ALERT_EMAILS`), nothing more after the resend | EMAIL-23 | |
+| EM-01 | A new booking emails the guest "received" | Book a stay | Mailpit: `Booking #N received - …` (payments off) or `Complete your payment - booking #N, …` (on) | EMAIL-14, EMAIL-21 | local ✅, Render ✅ |
+| EM-02 | With payments on, "received" has **Pay now** and the hold's end time | Open the email, click Pay now | Lands on `/bookings/N/payment` with the countdown; the time in the email = the hold's end | EMAIL-21 | local ✅ |
+| EM-03 | Payment → guest "confirmed" + owner alert, **once** | Pay with 4242; resend the event (`stripe events resend evt_…`) | 2 emails (guest + `BOOKING_ALERT_EMAILS`), nothing more after the resend | EMAIL-23 | local ✅ |
 | EM-04 | Admin Confirm → "confirmed" + alert | Confirm a pending booking in /admin/bookings | 2 emails; alert says "Confirmed by hand - no online payment" when unpaid | EMAIL-15 | Render ✅ |
-| EM-05 | Guest cancel → "as you requested" | Cancel from My bookings | Cancelled email; "Nothing was charged." if unpaid | EMAIL-16 | |
+| EM-05 | Guest cancel → "as you requested" | Cancel from My bookings | Cancelled email; "Nothing was charged." if unpaid | EMAIL-16 | local ✅ |
 | EM-06 | Admin cancel → "the host has cancelled" | Cancel a guest's booking as admin | Cancelled email with the host wording | EMAIL-17 | Render ✅ |
-| EM-07 | Cancelling a paid booking mentions the refund | Pay, then cancel | "A full refund of €X is on its way - back on your card within 5-10 business days" | EMAIL-25 | |
+| EM-07 | Cancelling a paid booking mentions the refund | Pay, then cancel | "A full refund of €X is on its way - back on your card within 5-10 business days" | EMAIL-25 | local ✅ |
 | EM-08 | Hold ran out → "we didn't receive your payment", Book again | Back out of Stripe, expire the session (`stripe checkout sessions expire cs_…`) | Cancelled email with the payment-expired wording + Book again → the property | EMAIL-22, EMAIL-24 | |
 | EM-09 | A delayed payment that fails → "your payment didn't go through" | (auto only - needs a delayed payment method) | Cancelled email, payment-failed wording | EMAIL-32 | auto only |
 | EM-10 | Emails go out only **after** the booking change is saved; a refused or rolled-back change sends nothing | Try to cancel an already-cancelled booking | 400, no new email | EMAIL-07, EMAIL-08, EMAIL-18 | |
 | EM-11 | At most one email per booking + kind | (DB constraint) | - | EMAIL-09 | auto only |
-| EM-12 | A broken mail provider never breaks a booking | Stop Mailpit (`docker compose stop mailpit`), book | Booking works (201); Django Admin → Booking emails: `failed` "Couldn't reach …" | EMAIL-11, EMAIL-19 | |
-| EM-13 | Failed emails can be retried; a sent one is never re-sent | Start Mailpit again; Retry in Django Admin / `send_pending_emails` | Now `sent`, arrives once; retrying a sent row → "already sent" | EMAIL-11, EMAIL-27, EMAIL-30 | |
+| EM-12 | A broken mail provider never breaks a booking | Stop Mailpit (`docker compose stop mailpit`), book | Booking works (201); Django Admin → Booking emails: `failed` "Couldn't reach …" | EMAIL-11, EMAIL-19 | local ✅ |
+| EM-13 | Failed emails can be retried; a sent one is never re-sent | Start Mailpit again; Retry in Django Admin / `send_pending_emails` | Now `sent`, arrives once; retrying a sent row → "already sent" | EMAIL-11, EMAIL-27, EMAIL-30 | local ✅ |
 | EM-14 | An email that's out of date by the time it's retried is skipped | Failed "received", then the booking is paid, then retry | `skipped` - no "complete your payment" after paying | EMAIL-12, EMAIL-26 | |
 | EM-15 | A send stuck in `sending` is retried only after 10 minutes | (needs a crash mid-send) | - | EMAIL-13 | auto only |
 | EM-16 | No recipient → no email (account without email, empty alert list) | Empty `BOOKING_ALERT_EMAILS`, confirm | Only the guest's email | EMAIL-10 | |
 | EM-17 | Seeded / Django Admin bookings send nothing | `seed_demo_data` | No rows in Booking emails | EMAIL-20 | |
-| EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | Render ✅ |
+| EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | local ✅, Render ✅ |
 | EM-19 | Email settings can never stop a deploy (warnings only); Brevo without a key → console | Deploy before setting `BREVO_API_KEY` | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
 | EM-20 | User content is escaped in HTML | Property title with `<b>` | Shown as text | EMAIL-31 | auto only |
 
@@ -3390,6 +3391,23 @@ the real Gmail inbox):
 No errors in Render's application log. Not covered here (the demo admin's
 inbox can't receive mail): the guest-side emails *in an inbox*, and paying
 with a card on Render - both are covered by the local run in Mailpit.
+
+### Emails: end-to-end results - local (28 Sep 2026)
+
+`docker compose up -d` (Mailpit + the two migrations), then in Chrome as the
+seeded guest `guest_4_rick71@example.com`, reading every email in Mailpit
+(http://localhost:8025):
+
+| Round | What was done | Result | Rules |
+| --- | --- | --- | --- |
+| 1 | Book #78 (Ioannina, 22-24 Feb 2027) → Confirm and pay → Stripe page | Mailpit: **"Complete your payment - booking #78, Breezy Suite in Ioannina"** - "Almost there, Monica", held until 11:49, photo, stay summary, Pay now; Reply-To = the owner's Gmail. Pay now → `/bookings/78/payment` showing the same 11:49 hold with Pay now | EM-01, EM-02, EM-18 |
+| 2 | The owner pays with card 4242 | **"Booking #78 confirmed"** ("We've received your payment of €462") + **"New booking #78 … (€462)"** to the owner - one of each | EM-03 |
+| 3 | Guest cancels #78 from My bookings | **"Booking #78 cancelled"** - "as you requested", **"A full refund of €462 is on its way - it's back on your card within 5-10 business days"**, Browse stays | EM-05, EM-07 |
+| 4 | `docker compose stop mailpit`, book #79 (Thessaloniki, 8-10 Mar 2027) | Booking created normally and Stripe's page opened; Django Admin → Booking emails: #79 "received" **Failed**, `[Errno -2] Name or service not known` | EM-12 |
+| 5 | `docker compose start mailpit`, Django Admin → select the failed #79 email **and** the already-sent #78 one → "Retry sending" | "Emails: 1 already sent, 1 sent." - #79 now Sent (2 attempts) and in Mailpit; #78's not sent again (only one new email) | EM-13 |
+
+All emails rendered correctly (HTML and text); Mailpit's HTML check scored
+94-95%.
 
 ## Django Admin (dev-only)
 
@@ -3925,6 +3943,7 @@ cases". **TICKET-030 (booking emails) is in progress:** step 1 (the
 `BookingEmail` outbox, the email settings, the Brevo HTTP backend and the
 Mailpit service) and step 2 (the four emails - received, confirmed,
 cancelled, admin alert - sent at every booking change) and step 3
-(`send_pending_emails` + a Retry action in Django Admin) are done; see
-"Emails". Next: config/docs, then the end-to-end runs (Mailpit locally,
-Brevo on Render).
+(`send_pending_emails` + a Retry action in Django Admin) are done, and
+**TICKET-030 is done**: tested end to end locally (Mailpit) and on Render
+(Brevo, the owner alert in the real Gmail inbox); see "Emails". Next:
+TICKET-031 (responsive layout + PWA manifest).
