@@ -31,7 +31,10 @@ webhook confirming bookings, Pay now, refunds flagged for the host
 as an app (TICKET-031, see "Mobile & PWA"). Guests who have stayed can
 **rate and review** a place, everyone sees the reviews with a star
 summary, and admins can hide a review (TICKET-032, see "Reviews API",
-"Property detail page → Reviews section" and "Admin reviews"). See "Next
+"Property detail page → Reviews section" and "Admin reviews"). Favorites
+(TICKET-033) are in progress: the API is done - logged-in guests save and
+remove places, every card knows whether the caller saved it, and admins
+see how many accounts saved each place (see "Favorites API"). See "Next
 steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -120,6 +123,8 @@ backend/
     serializers.py     List (card) + detail (images, availability; also the admin write serializer, nested images)
     filters.py         Query-param validation + filtering (location, guests, price, dates, ordering)
     views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete)
+    queries.py         property_cards() - the annotated queryset (rating, is_favorite, admin favorite_count)
+                       shared by the properties API and the Saved list (TICKET-033)
     urls.py            Router for /api/properties/
     tests.py           API tests for the Properties endpoints
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
@@ -152,6 +157,14 @@ backend/
     admin.py           Filterable/searchable Review list (dev-only DB inspection)
     tests.py           Rule, public list, create, viewer/booking fields and admin tests
     migrations/        0001_initial.py creates the reviews table; 0002 adds is_hidden
+  favorites/           Places a user has saved ("hearted") - see "Favorites API (TICKET-033)"
+    models.py          Favorite model (user, property, created_at; one per user per property)
+    serializers.py     SavedPropertySerializer - a listings card + saved_at
+    views.py           GET /api/favorites/ (my saved places), PUT/DELETE /api/favorites/{property_id}/
+    urls.py            The two routes above
+    admin.py           Searchable Favorite list (dev-only DB inspection)
+    tests.py           Save/remove, the Saved list, is_favorite / favorite_count on properties
+    migrations/        0001_initial.py creates the favorites table
   payments/            Stripe test-mode Checkout for bookings (TICKET-029)
     models.py          Payment (one per booking: Checkout Session, amount, status, hold expiry) + StripeEvent (webhook de-dup)
     services.py        start_hold() at booking time; start_checkout() - idempotent Checkout Session creation
@@ -395,6 +408,21 @@ TICKET-032 added `is_hidden` (`BooleanField`, default `False`, migration
 it, and `Review.objects.visible()` for the public side. See "Reviews API
 (TICKET-032)".
 
+**`Favorite`** (new `favorites` app, `favorites/models.py`, TICKET-033) - a
+property a user has saved:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `user` | `ForeignKey -> User` | `related_name="favorites"`, `on_delete=CASCADE` |
+| `property` | `ForeignKey -> Property` | `related_name="favorites"`, `on_delete=CASCADE` (safe: properties are only soft-deleted) |
+| `created_at` | `DateTimeField` | Auto-managed; shown as `saved_at` |
+
+One favorite per user per property (DB `UniqueConstraint`
+`unique_favorite_per_user_per_property`). Deactivating a property keeps
+its favorites. Registered in Django Admin (searchable by user and
+property). Migration: `favorites/migrations/0001_initial.py`. See
+"Favorites API (TICKET-033)".
+
 Domain models live in their own apps rather than in `core` (which stays
 infrastructure-only): `listings` holds `Property`/`PropertyImage`,
 `accounts` holds `Profile`, `bookings` holds `Booking`, `reviews` holds
@@ -595,8 +623,14 @@ Response (paginated, via `core/pagination.py:StandardPagination`):
  "results": [{"id": 13, "title": "Modern Cottage in Ioannina", "location": "Ioannina, Greece",
    "price_per_night": "91.00", "capacity": 2, "amenities": ["wifi", "kitchen"],
    "is_active": true, "cover_image": "https://picsum.photos/seed/13-0/800/600",
-   "rating_avg": 3.0, "review_count": 1}]}
+   "rating_avg": 3.0, "review_count": 1, "is_favorite": false}]}
 ```
+
+`is_favorite` (TICKET-033) says whether the **caller** has saved the
+property (always `false` when logged out). Admins also get
+`favorite_count` - how many accounts saved it - on the list and the
+detail; guests never see it. Both are part of the same SQL query (see
+"Favorites API").
 
 `rating_avg` (1 decimal, `null` with no reviews) and `review_count` are SQL
 annotations that skip reviews an admin has hidden (TICKET-032), and images are prefetched. The whole list page costs a fixed
@@ -626,7 +660,8 @@ so a calendar should treat each range as `[check_in, check_out)`. Add
 also answers `is_available` for that exact stay.
 
 It also has a `viewer_review` block, `{"can_review": ..., "my_review": ...}`,
-for the caller (TICKET-032, see "Reviews API").
+for the caller (TICKET-032, see "Reviews API"), and `is_favorite` (plus
+`favorite_count` for admins, TICKET-033).
 
 ### Writing (admin)
 
@@ -1183,6 +1218,107 @@ curl -X PATCH http://localhost:8000/api/admin/reviews/41/ \
 - admin: `401`/`403`, hidden included, every filter, bad filters `400`,
   hide → gone from the public list → unhide → back, only `is_hidden`
   writable, no `PUT`/`DELETE`
+
+## Favorites API (TICKET-033)
+
+Logged-in guests save ("heart") places and see them again on a Saved page;
+admins see how many accounts saved each place. Code: `backend/favorites/`
+(`models.py`, `serializers.py`, `views.py`, `urls.py`, `tests.py`) and
+`backend/listings/queries.py`.
+
+### Decisions (agreed before building)
+
+| Decision | What it means |
+| --- | --- |
+| **Stored on the server, per account** | A `Favorite` row per user + property, so saved places follow the guest to any device. Logged-out visitors can't save (the frontend sends them to log in first). |
+| **Saved page** | A new `/favorites` page (TICKET-033 step 3) uses `GET /api/favorites/`. |
+| **Deactivated places stay** | If an admin deactivates a saved place, it stays in the Saved list with `is_active: false` (shown greyed out, "No longer available", with Remove). It can't be *newly* saved, but it can always be removed. |
+| **Admins see a count** | `favorite_count` on the admin properties list/detail ("Saved by N", step 4). Guests never see it. |
+
+### Endpoints
+
+| Method | URL | Who | What |
+| --- | --- | --- | --- |
+| `GET` | `/api/favorites/` | logged in | My saved places, **most recently saved first**, 12 per page (`?page=`, `?page_size=` up to 50) |
+| `PUT` | `/api/favorites/{property_id}/` | logged in | Save it: `201` the first time, `200` if already saved (same `saved_at`). Inactive or unknown property → `404`. No body needed (any body is ignored). |
+| `DELETE` | `/api/favorites/{property_id}/` | logged in | Remove it: always `204` - also if it wasn't saved, or the property was deactivated since |
+
+Anonymous callers get `401`. `PUT` and `DELETE` are **safe to repeat**, so
+a double tap or a retry never errors or creates duplicates - and a race
+between two quick taps is settled by the unique constraint (the loser just
+reads the winner's row, `200`). There is no `POST` (`405`).
+
+`PUT` response:
+
+```json
+{"property": 14, "is_favorite": true, "saved_at": "2026-09-28T17:11:30.144687+03:00"}
+```
+
+`GET /api/favorites/` returns **the same card shape as `GET
+/api/properties/`** (so the frontend reuses the listing card) plus
+`saved_at`:
+
+```json
+{"count": 2, "next": null, "previous": null,
+ "results": [{"id": 14, "title": "Stylish Room in Corfu", "location": "Corfu, Greece",
+   "price_per_night": "74.00", "capacity": 2, "amenities": ["wifi"],
+   "is_active": true, "cover_image": "https://picsum.photos/seed/14-0/800/600",
+   "rating_avg": 4.5, "review_count": 2, "is_favorite": true,
+   "saved_at": "2026-09-28T17:11:30.144687+03:00"}]}
+```
+
+### `is_favorite` and `favorite_count` on properties
+
+- `GET /api/properties/` and `GET /api/properties/{id}/` now include
+  **`is_favorite`** for the caller (`false` when logged out), so the hearts
+  on the listings and the property page show the right state straight away.
+- Admins also get **`favorite_count`** on both (and in create/update
+  responses). The field is removed from the response for everyone else.
+
+How it stays one query: `listings/queries.py:property_cards()` builds the
+annotated queryset used by both `PropertyViewSet` and the Saved list -
+`is_favorite` is an `EXISTS` subquery for the caller, and `favorite_count`
+is a `COUNT` **subquery**, not another `JOIN`: a second joined table next
+to the reviews join would multiply rows and skew the rating aggregates (a
+test checks the rating stays right). Tests also check that the query count
+doesn't grow with the number of favorites or saved places.
+
+### Try it with curl
+
+```bash
+# Save property 14, save it again (200), list, remove
+curl -X PUT http://localhost:8000/api/favorites/14/ -H "Authorization: Bearer $ACCESS"
+curl -X PUT http://localhost:8000/api/favorites/14/ -H "Authorization: Bearer $ACCESS"
+curl http://localhost:8000/api/favorites/ -H "Authorization: Bearer $ACCESS"
+curl -X DELETE http://localhost:8000/api/favorites/14/ -H "Authorization: Bearer $ACCESS"
+
+# The heart state for the caller, and the admin-only count
+curl http://localhost:8000/api/properties/14/ -H "Authorization: Bearer $ACCESS"        # "is_favorite": ...
+curl http://localhost:8000/api/properties/14/ -H "Authorization: Bearer $ADMIN_ACCESS"  # + "favorite_count": ...
+```
+
+### Tests
+
+`docker compose exec backend python manage.py test favorites` - 33 tests:
+
+- model: one per user per property (DB constraint), other users can save
+  the same place, deleting a user removes their favorites, deactivating a
+  property keeps them
+- save/remove: `401` anonymous, `201` then `200` (one row, first date
+  kept), `saved_at` formatted like the list, `404` for inactive/unknown
+  properties, the body can't save for someone else, `204` for remove,
+  remove twice / never saved / deactivated since, only the caller's row
+  removed, `405` for other methods
+- Saved list: `401`, empty, only mine and newest first, the listing card
+  shape + `saved_at` (cover, rating, no `favorite_count`), deactivated
+  places kept with `is_active: false`, 12 per page, fixed query count
+- properties: `is_favorite` false when anonymous and per caller on the
+  list and detail, flips after save/remove; `favorite_count` hidden from
+  guests, right for admins (list, detail, inactive places, write
+  responses), doesn't skew the rating, fixed query count
+
+One existing test (`listings`: the list card's exact fields) now expects
+`is_favorite` too.
 
 ## Frontend auth (Angular)
 
@@ -4050,6 +4186,7 @@ written the code:
 | `Profile` | `accounts/admin.py` | Inline on the built-in `User` admin page |
 | `Booking` | `bookings/admin.py` | Filterable by status, date-hierarchy on `check_in` |
 | `Review` | `reviews/admin.py` | Filterable by rating and hidden |
+| `Favorite` | `favorites/admin.py` | Searchable by user and property |
 | `Payment` | `payments/admin.py` | Filterable by status; Stripe fields read-only (Stripe owns them) |
 | `StripeEvent` | `payments/admin.py` | Read-only log of handled webhook events |
 
@@ -4593,4 +4730,8 @@ stays in My bookings) is done; see "The review dialog"; step 4 (the admin
 Reviews page with filters and Hide / Show again) is done; see "Admin
 reviews"; **TICKET-032 is done** (step 5: full test runs, a 27-check
 browser regression on a fresh database and the live Render check; see
-"Reviews: final check"). Next: TICKET-033 (favorites).
+"Reviews: final check"). **TICKET-033 (favorites) is in progress:** step 1
+(the favorites API - save/remove, the Saved list, `is_favorite` on every
+card and `favorite_count` for admins) is done; see "Favorites API
+(TICKET-033)". Next: step 2 (the heart button on the cards and the
+property page).

@@ -646,6 +646,19 @@ test, always last).
 
 - [ ] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018
+  - Decisions (agreed before building):
+    - **stored on the server, per account** (a `Favorite` row per user + property); a logged-out tap on the heart goes to login, comes back, and the save completes
+    - **where to see them:** a new `/favorites` page ("Saved" in the toolbar and the account menu), the same property cards
+    - **deactivated places stay** on the Saved page, greyed out as "No longer available" with a Remove button (not bookable)
+    - **admins:** a "Saved by N" column in admin Properties; no hearts for admin accounts; newest saved first; Undo snackbar (~5 s) when un-hearting on the Saved page
+  - Plan: step 1 backend API · step 2 heart button (cards + property page) · step 3 `/favorites` page · step 4 admin "Saved by N" · step 5 seeder, README, final check.
+  - Step 1 done (backend API):
+    - New `favorites` app: `Favorite(user, property, created_at)`, one per user per property (DB constraint), CASCADE both ways (properties are only soft-deleted); migration `favorites/0001_initial`; Django Admin list.
+    - `GET /api/favorites/` - my saved places, newest first, 12 per page, the **same card shape as the listings** + `saved_at`; deactivated places stay with `is_active: false`.
+    - `PUT /api/favorites/{property_id}/` (`201` first time, `200` again, `404` inactive/unknown) and `DELETE` (always `204`) - both safe to repeat; a double-tap race is settled by the constraint.
+    - `is_favorite` for the caller on the property list and detail; `favorite_count` for admins only. New `listings/queries.py:property_cards()` shared by both APIs - `EXISTS`/`COUNT` subqueries, so still one query per page and the rating isn't skewed.
+    - 33 new tests (+1 existing listings test updated for the new field); all 330 backend tests pass on Postgres, `makemigrations --check` clean. Smoke-tested on seeded data with curl.
+    - README: new "Favorites API (TICKET-033)" section; status, project layout, data model, properties responses, Django Admin table and next steps updated.
 
 - [ ] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018

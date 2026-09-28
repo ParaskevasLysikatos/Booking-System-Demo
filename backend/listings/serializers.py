@@ -35,6 +35,28 @@ class RatingFieldsMixin(serializers.Serializer):
         return getattr(obj, "review_count", 0) or 0
 
 
+class FavoriteFieldsMixin(serializers.Serializer):
+    """TICKET-033. `is_favorite` - has the caller saved this property (False
+    when logged out). `favorite_count` - how many accounts saved it; only in
+    admin responses (the view sets context["show_favorite_count"]), guests
+    never see it. Both come from annotations (listings/queries.py)."""
+
+    is_favorite = serializers.SerializerMethodField()
+    favorite_count = serializers.SerializerMethodField()
+
+    def get_fields(self):
+        fields = super().get_fields()
+        if not self.context.get("show_favorite_count"):
+            fields.pop("favorite_count", None)
+        return fields
+
+    def get_is_favorite(self, obj):
+        return bool(getattr(obj, "is_favorite", False))
+
+    def get_favorite_count(self, obj):
+        return getattr(obj, "favorite_count", 0) or 0
+
+
 def _cover_url(obj):
     # Iterate the prefetched images (already ordered cover-first by
     # PropertyImage.Meta.ordering) instead of querying again.
@@ -42,7 +64,7 @@ def _cover_url(obj):
     return images[0].image if images else None
 
 
-class PropertyListSerializer(RatingFieldsMixin, serializers.ModelSerializer):
+class PropertyListSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serializers.ModelSerializer):
     """Compact shape for the listings grid (one card per property)."""
 
     cover_image = serializers.SerializerMethodField()
@@ -60,13 +82,15 @@ class PropertyListSerializer(RatingFieldsMixin, serializers.ModelSerializer):
             "cover_image",
             "rating_avg",
             "review_count",
+            "is_favorite",
+            "favorite_count",
         ]
 
     def get_cover_image(self, obj):
         return _cover_url(obj)
 
 
-class PropertyDetailSerializer(RatingFieldsMixin, serializers.ModelSerializer):
+class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serializers.ModelSerializer):
     """Full shape for the detail page - and the write serializer for admin
     POST/PUT/PATCH.
 
@@ -104,6 +128,8 @@ class PropertyDetailSerializer(RatingFieldsMixin, serializers.ModelSerializer):
             "review_count",
             "availability",
             "viewer_review",
+            "is_favorite",
+            "favorite_count",
             "created_at",
             "updated_at",
         ]

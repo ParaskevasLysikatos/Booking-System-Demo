@@ -83,7 +83,8 @@ class PropertyListTests(PropertyAPITestBase):
         self.assertEqual(
             set(item),
             {"id", "title", "location", "price_per_night", "capacity", "amenities",
-             "is_active", "cover_image", "rating_avg", "review_count"},
+             "is_active", "cover_image", "rating_avg", "review_count",
+             "is_favorite"},  # TICKET-033; favorite_count is admin-only
         )
         self.assertEqual(item["cover_image"], "https://img.test/b.jpg")
 

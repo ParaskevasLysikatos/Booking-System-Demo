@@ -1,4 +1,3 @@
-from django.db.models import Avg, Count, Prefetch, Q
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
@@ -6,7 +5,7 @@ from accounts.permissions import IsAdminOrReadOnly, is_app_admin
 from core.pagination import StandardPagination
 
 from .filters import DateRangeQuerySerializer, apply_property_filters
-from .models import Property, PropertyImage
+from .queries import property_cards
 from .serializers import PropertyDetailSerializer, PropertyListSerializer
 
 
@@ -36,15 +35,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
         return self._admin_flag
 
     def get_queryset(self):
-        qs = (
-            Property.objects.annotate(
-                # Hidden reviews (TICKET-032) don't count.
-                rating_avg=Avg("reviews__rating", filter=Q(reviews__is_hidden=False)),
-                review_count=Count("reviews", filter=Q(reviews__is_hidden=False), distinct=True),
-            )
-            .prefetch_related(Prefetch("images", queryset=PropertyImage.objects.all()))
-            .order_by("-created_at", "-id")
-        )
+        # Ratings, the caller's is_favorite and (admins) favorite_count -
+        # see listings/queries.py.
+        qs = property_cards(self.request.user, with_favorite_count=self._is_admin()).order_by("-created_at", "-id")
         if self.action == "list":
             return apply_property_filters(qs, self.request.query_params, is_admin=self._is_admin())
         if not self._is_admin():
@@ -53,6 +46,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
+        context["show_favorite_count"] = self._is_admin()
         if self.action == "retrieve":
             dates = DateRangeQuerySerializer(data=self.request.query_params)
             dates.is_valid(raise_exception=True)
