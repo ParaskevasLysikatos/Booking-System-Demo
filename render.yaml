@@ -47,19 +47,23 @@ services:
         sync: false             # whsec_... of the Stripe webhook endpoint for this API
       - key: FRONTEND_URL
         value: https://booking-demo-g4aw.onrender.com   # where Stripe sends guests back (+ the links in emails)
-      # Booking emails (TICKET-030) through Brevo's HTTP API - Render's free
-      # plan blocks SMTP ports. Until BREVO_API_KEY is set, emails are only
-      # printed to the log (the deploy works either way). The addresses are
-      # set in the dashboard too: the repo is public. See the README's
-      # "Emails on Render (Brevo)".
+      # Booking emails (TICKET-030) through the Gmail API, sent as the owner's
+      # Gmail - Render's free plan blocks SMTP ports. Until the three GMAIL_*
+      # values are set, emails are only printed to the log (the deploy works
+      # either way). The addresses are set in the dashboard too: the repo is
+      # public. See the README's "Emails on Render (Gmail API)".
       - key: EMAIL_PROVIDER
-        value: brevo
-      - key: BREVO_API_KEY
-        sync: false             # xkeysib-... (Brevo -> SMTP & API -> API keys)
+        value: gmail
+      - key: GMAIL_CLIENT_ID
+        sync: false             # Google Cloud OAuth client, type "Desktop app"
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false             # from `manage.py gmail_authorize` (scope gmail.send only)
       - key: DEFAULT_FROM_EMAIL
-        sync: false             # e.g. Booking System Demo <you@gmail.com> - a sender verified in Brevo
+        sync: false             # Booking System Demo <you@gmail.com> - the same Gmail that authorised the API
       - key: BOOKING_ALERT_EMAILS
-        sync: false             # who gets the "new booking" alert (comma-separated)
+        sync: false             # who gets the "new booking" alert + admin accounts' booking emails
 
   # The Angular app (TICKET-027): built once per push, served from Render's CDN.
   # Static sites are free and never sleep (only the API above does).

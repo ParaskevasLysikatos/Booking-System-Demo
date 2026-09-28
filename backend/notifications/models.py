@@ -58,7 +58,7 @@ class BookingEmail(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     attempts = models.PositiveSmallIntegerField(default=0)
     last_error = models.CharField(max_length=500, blank=True)
-    # Brevo's messageId (empty for console/SMTP) - to find it in Brevo's logs.
+    # Gmail's message id (empty for console/SMTP).
     provider_message_id = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     sending_started_at = models.DateTimeField(null=True, blank=True)

@@ -153,10 +153,9 @@ def build_message(row):
         body=_tidy(render_to_string(f"{template}.txt", ctx)),
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=row.recipient_list,
-        # Brevo replaces a free-mail sender (e.g. @gmail.com) with one of its
-        # own addresses; Reply-To keeps guests' replies going to the owner.
         reply_to=[settings.DEFAULT_FROM_EMAIL],
-        headers={"Idempotency-Key": f"booking-{row.booking_id}-{row.kind}"},
+        # Which outbox row this is - visible in "Show original" in Gmail.
+        headers={"X-Booking-Email": f"booking-{row.booking_id}-{row.kind}"},
     )
     message.attach_alternative(render_to_string(f"{template}.html", ctx), "text/html")
     message.tags = [row.kind]

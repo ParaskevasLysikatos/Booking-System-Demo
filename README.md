@@ -161,11 +161,13 @@ backend/
     outbox.py          enqueue() inside the booking's transaction; send_email() after commit (claim -> send -> record)
     messages.py        Builds each email (subject, text + HTML) for a row: email_context(), money/date formatting
     templates/notifications/emails/   <kind>.html (extends base.html) + <kind>.txt for the 4 emails, shared _pieces
-    backends.py        BrevoEmailBackend - Django email backend for Brevo's HTTP API (stdlib only)
+    backends.py        GmailApiEmailBackend - Django email backend for the Gmail API (OAuth refresh token, stdlib only)
     checks.py          Startup warnings for the email settings (never errors)
     admin.py           Read-only outbox list with a "Retry sending" action + an inline on the Booking admin page
     management/commands/send_pending_emails.py   Send pending / failed / stuck emails (--max-attempts, --dry-run)
-    tests.py           Brevo backend, settings checks, outbox, email flow and retry tests
+    management/commands/gmail_authorize.py       One-time: get GMAIL_REFRESH_TOKEN (sign in with Google, paste the address back)
+    management/commands/send_test_email.py       Send one test email through the configured provider
+    tests.py           Gmail API backend + commands, settings checks, outbox, email flow and retry tests
     migrations/        0001 creates the booking emails table; 0002 adds the cancel reason
 
 frontend/
@@ -3091,11 +3093,14 @@ refund." (#76), "You weren't charged." (#70).
 ## Emails (TICKET-030)
 
 The app emails guests about their booking, and the owner about new
-bookings. **Status: done** - the outbox, the settings, the Brevo backend
-and Mailpit (step 1), the four emails with the hooks that send them at every
-booking change (step 2), retrying failed emails from the command line or
-Django Admin (step 3), Render config + docs (step 4), and end-to-end runs
-locally in Mailpit and on Render with Brevo (step 5).
+bookings. Built in five steps - the outbox, the settings and Mailpit (1),
+the four emails with the hooks that send them at every booking change (2),
+retrying failed emails from the command line or Django Admin (3), Render
+config + docs (4), end-to-end runs locally and on Render (5) - then changed
+after review: admin accounts' mail goes to the owner's real inbox, and the
+emails are sent through the **Gmail API** as the owner's real Gmail
+(first built with Brevo, which had to show its own `…@brevosend.com` sender
+address instead - removed).
 
 ### Agreed design
 
@@ -3117,12 +3122,13 @@ an admin login such as `admin_demo@example.com` isn't a real inbox. With
 `BOOKING_ALERT_EMAILS` empty they fall back to the account's own email.
 Normal guests always get mail at their own address.
 
-**Provider: Brevo's HTTP API** (free: 300 emails/day, a single verified
-sender address is enough - no domain needed). Not SMTP, because Render's
-free web services block outbound SMTP ports; so the email goes out as one
-HTTPS request per email through `notifications/backends.py`, a small Django
-email backend using only the standard library. Locally, a **Mailpit**
-container catches every email instead of sending it.
+**Provider: the Gmail API**, sending as the owner's own Gmail - so the
+sender guests see is that real address, and every email is also in its
+"Sent" folder (about 500 emails/day on a personal Gmail). Not SMTP, because
+Render's free web services block outbound SMTP ports; the Gmail API is
+plain HTTPS, through `notifications/backends.py`, a small Django email
+backend using only the standard library. Locally, a **Mailpit** container
+catches every email instead of sending it.
 
 ### Where emails go (`EMAIL_PROVIDER`)
 
@@ -3130,11 +3136,11 @@ container catches every email instead of sending it.
 | --- | --- | --- |
 | `console` (default) | printed to the backend log | a plain `manage.py runserver` |
 | `smtp` | Django's SMTP backend → `EMAIL_HOST:EMAIL_PORT` | Docker: `docker-compose.yml` sets `smtp` + `mailpit:1025` |
-| `brevo` | `notifications.backends.BrevoEmailBackend` | Render. Without `BREVO_API_KEY` it falls back to `console` (and warns) |
+| `gmail` | `notifications.backends.GmailApiEmailBackend` | Render. Without all three `GMAIL_*` settings it falls back to `console` (and warns) |
 
 Tests always use Django's in-memory backend (`mail.outbox`), whatever is
-set. To send real emails from Docker, put `EMAIL_PROVIDER=brevo` and
-`BREVO_API_KEY` in `.env` (the compose file only defaults to `smtp`).
+set. To send real emails from Docker, put `EMAIL_PROVIDER=gmail` in `.env`
+next to the `GMAIL_*` values (the compose file only defaults to `smtp`).
 
 The sender is `DEFAULT_FROM_EMAIL` and the admin alert list is
 `BOOKING_ALERT_EMAILS`. Both are set in `.env` / the Render dashboard only,
@@ -3163,8 +3169,8 @@ pending/failed ──booking moved on──▶ skipped
   `BOOKING_ALERT_EMAILS`) → no row at all.
 - `send_email(id)`: locks the row just long enough to **claim** it
   (`sending`, attempts + 1), renders and sends it with no lock held, then
-  records `sent` (+ Brevo's `messageId`) or `failed` (+ the reason, never
-  the API key). It **never raises** - a failed email can't turn a booking,
+  records `sent` (+ Gmail's message id) or `failed` (+ the reason, never
+  a secret). It **never raises** - a failed email can't turn a booking,
   a cancel or a webhook into an error.
 - Content is rendered **at send time** from the booking as it is then. Right
   before sending, the booking must still be in the state the email is about
@@ -3176,9 +3182,8 @@ pending/failed ──booking moved on──▶ skipped
   send the same row at the same time.
 - The one possible duplicate: a timeout *after* the provider accepted the
   email - the outcome is unknown, so it's recorded as failed and a retry
-  sends it again. (Each email also carries an `Idempotency-Key:
-  booking-<id>-<kind>` header; Brevo doesn't document de-duplicating on it,
-  so the outbox is the real guard.)
+  sends it again. (Each email carries an `X-Booking-Email:
+  booking-<id>-<kind>` header, visible in Gmail's "Show original".)
 
 ### When each email is recorded (step 2)
 
@@ -3248,57 +3253,77 @@ Both go through the same `send_email()`: a `sent` email is never sent
 again, and one whose booking has moved on is `skipped` rather than sent out
 of date.
 
-### Emails on Render (Brevo) - one-time setup
+### Emails on Render (Gmail API) - one-time setup
 
-`render.yaml` sets `EMAIL_PROVIDER=brevo`; until the key is added, emails
-are only printed to Render's log (warning `notifications.W002` at deploy),
-so deploying first is safe.
+`render.yaml` sets `EMAIL_PROVIDER=gmail`; until the three `GMAIL_*` values
+are added, emails are only printed to Render's log (warning
+`notifications.W002` at deploy), so deploying first is safe.
 
-1. **Brevo account:** sign up at brevo.com (free plan: 300 emails/day).
-   Transactional emails need the account to be activated - Brevo may ask
-   for a few profile details first.
-2. **Sender:** Brevo → *Senders, Domains & Dedicated IPs* → *Senders* → add
-   your address (e.g. your Gmail) and click the confirmation link Brevo
-   emails you.
-3. **API key:** Brevo → *SMTP & API* → *API keys* → *Generate a new API
-   key* (starts with `xkeysib-`). Copy it once - Brevo doesn't show it again.
-4. **Render:** `booking-demo-api` → *Environment* → set
-   - `BREVO_API_KEY` = the key,
-   - `DEFAULT_FROM_EMAIL` = `Booking System Demo <you@gmail.com>` (the
-     verified sender),
-   - `BOOKING_ALERT_EMAILS` = `you@gmail.com`,
+**In Google Cloud** (signed in as the Gmail that will send):
 
-   and *Save, rebuild and deploy*.
-5. **Check:** book something on the hosted site → the guest's inbox gets
-   "Complete your payment" / "received", and Django Admin (`/admin/` on the
-   API) → *Booking emails* shows it as `sent` with Brevo's message id.
-   Brevo → *Transactional* → *Logs* shows every email and whether it was
-   delivered.
+1. Create a project (e.g. `booking-demo-email`):
+   https://console.cloud.google.com/projectcreate
+2. Enable the **Gmail API**:
+   https://console.cloud.google.com/apis/library/gmail.googleapis.com
+3. **Google Auth Platform** (https://console.cloud.google.com/auth/overview)
+   → *Get started*: app name `Booking System Demo`, support email = your
+   Gmail, audience **External**, contact email = your Gmail.
+4. *Data Access* → *Add or remove scopes* → add
+   `https://www.googleapis.com/auth/gmail.send` (send only - it can't read
+   the mailbox) → *Update* → *Save*.
+5. *Audience* → **Publish app** → status **In production**. Important: in
+   "Testing" Google expires refresh tokens after 7 days. A personal app
+   like this doesn't need Google's review; you'll just see an "unverified
+   app" warning once when signing in.
+6. *Clients* → *Create client* → type **Desktop app** → copy the **Client
+   ID** and **Client secret** into `.env` as `GMAIL_CLIENT_ID` /
+   `GMAIL_CLIENT_SECRET`.
 
-**A Gmail sender and deliverability:** Gmail, Yahoo and Microsoft now
-expect senders to authenticate their own domain (SPF/DKIM/DMARC), which a
-`@gmail.com` address can't do through Brevo. Brevo therefore **replaces a
-free-mail sender** with one of its own addresses (like
-`…@….t-sender-sib.com`), keeping your name. Our emails set **Reply-To** to
-`DEFAULT_FROM_EMAIL`, so replies still reach you. Emails may land in
-**spam** at first; for the demo that's fine (mark them "not spam" once). For
-real use, add a domain you own in Brevo and authenticate it.
+**Get the refresh token** (once, locally):
 
-To send real emails from local Docker too, put `EMAIL_PROVIDER=brevo` and
-`BREVO_API_KEY` in `.env` and `docker compose up -d backend` (without them,
-emails go to Mailpit).
+7. `docker compose up -d backend`, then
+   `docker compose exec backend python manage.py gmail_authorize`
+8. Open the printed link, sign in with the Gmail, *Advanced* → *Go to
+   Booking System Demo (unsafe)* → *Continue*.
+9. The browser ends on `http://127.0.0.1:8765/?state=…&code=…` (a page that
+   doesn't load - expected). Paste that whole address into the terminal;
+   it prints `GMAIL_REFRESH_TOKEN=…`. (It uses PKCE and checks `state`, so
+   an address from another sign-in is refused.) Put it in `.env`.
+10. Check: `docker compose exec backend python manage.py send_test_email
+    you@gmail.com` (uses the configured provider - with Docker's default
+    that's Mailpit; add `EMAIL_PROVIDER=gmail` to `.env` to send for real).
 
-### Brevo backend (`notifications/backends.py`)
+**On Render:** `booking-demo-api` → *Environment* → set `GMAIL_CLIENT_ID`,
+`GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `DEFAULT_FROM_EMAIL` =
+`Booking System Demo <you@gmail.com>` (it **must** be that same Gmail -
+Gmail won't send from another address) and `BOOKING_ALERT_EMAILS` =
+`you@gmail.com` → *Save, rebuild and deploy*. Then book something on the
+hosted site and look at Django Admin (`/admin/` on the API) → *Booking
+emails*: `sent` with Gmail's message id; the email is in the Gmail's
+"Sent" folder.
 
-`POST https://api.brevo.com/v3/smtp/email` with the `api-key` header and
-`sender`, `to` (+ `cc`/`bcc`/`replyTo`), `subject`, `textContent` (the plain
-body) and `htmlContent` (the HTML alternative), custom headers and a tag per
-email kind (so Brevo's logs can be filtered by kind). A 2xx = sent, and its
-`messageId` is stored on the row. Errors raise `BrevoError` with a readable
-reason (`Brevo answered 401: Key not found`); `refused` is true for a 4xx
-(wrong key, unverified sender - retrying won't help until that's fixed) and
-false for unknown outcomes (network error, timeout, 5xx, 429).
-`EMAIL_TIMEOUT` (10 s) bounds every call.
+If the token stops working (you removed the app's access at
+https://myaccount.google.com/permissions, changed the password, or the app
+was still in "Testing"), sends fail with `invalid_grant … run manage.py
+gmail_authorize again` - get a new token, update it in `.env` / Render, then
+*Retry sending* the failed emails in Django Admin.
+
+### Gmail API backend (`notifications/backends.py`)
+
+1. `POST https://oauth2.googleapis.com/token` with the client id/secret and
+   the refresh token → an access token (~1 hour), cached per process until
+   a minute before it expires.
+2. `POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send` with
+   `{"raw": <Django's own MIME message, base64url>}` - so text + HTML,
+   Reply-To and headers are exactly what Django builds. A 401 (stale
+   access token) → a fresh token and one retry.
+3. `200 {"id": …}` = sent; the id is stored on the row.
+
+Errors raise `EmailSendError` with a readable reason (`Google answered 400:
+invalid_grant - …`), never a secret; `refused` is true for a 4xx (e.g. a
+revoked token - retrying won't help until it's replaced) and false for
+unknown outcomes (network error, timeout, 5xx, 429). `EMAIL_TIMEOUT` (10 s)
+bounds every call.
 
 ### Startup checks (`notifications/checks.py`)
 
@@ -3309,8 +3334,8 @@ outbox.
 | Id | When |
 | --- | --- |
 | `notifications.W001` | unknown `EMAIL_PROVIDER` (falls back to console) |
-| `notifications.W002` | `brevo` without `BREVO_API_KEY` (falls back to console) |
-| `notifications.W003` | `brevo` with a placeholder `DEFAULT_FROM_EMAIL` |
+| `notifications.W002` | `gmail` without all of `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` (falls back to console) |
+| `notifications.W003` | `gmail` with a placeholder `DEFAULT_FROM_EMAIL` |
 | `notifications.W004` | an entry in `BOOKING_ALERT_EMAILS` that isn't an email address |
 
 ### Mailpit (local)
@@ -3324,10 +3349,10 @@ To apply locally: `docker compose up -d` (pulls Mailpit, recreates the
 backend with the email settings; the backend runs the new migrations
 `notifications/0001_initial.py` and `0002_cancel_reason.py` on start).
 
-### Tests (`notifications/tests.py`, 39)
+### Tests (`notifications/tests.py`, 45)
 
-- **Step 1 (18):** Brevo payload mapping, a real request shape (`urlopen`
-  mocked), 4xx vs unknown-outcome errors, no API key in error texts; the
+- **Step 1 (18, the backend part replaced by the Gmail API tests below):**
+  the
   settings checks; and the outbox: sent only after commit, nothing on
   rollback, one per (booking, kind) incl. the DB constraint, no recipient →
   no row, the admin list, a failure recorded then retried, an out-of-date
@@ -3346,8 +3371,16 @@ backend with the email settings; the backend runs the new migrations
   leaves sent alone and reports; failures on stderr and `--max-attempts`;
   `--dry-run`; the admin list + Booking inline are read-only and show the
   error; the Retry action sends a failed one and not a sent one.
+- **Changes after review (+6):** admin accounts' mail → `BOOKING_ALERT_EMAILS`
+  (and the fallback); the Gmail API backend replacing Brevo's tests - token
+  refresh then one send with the whole MIME message (sender, Reply-To, text
+  + HTML), the access token reused, a stale token replaced once, a revoked
+  refresh token = refusal with advice and no secrets, network/5xx/429 =
+  unknown outcome, missing settings; `gmail_authorize` (PKCE + state, code
+  exchanged, token printed; another sign-in's address refused; needs the
+  client settings); `send_test_email`.
 
-All **253 backend tests pass** on Postgres.
+All **259 backend tests pass** on Postgres.
 
 ## Emails: business rules & test cases (TICKET-030)
 
@@ -3375,12 +3408,16 @@ step 5 (locally in Mailpit, then on Render with a real inbox).
 | EM-15 | A send stuck in `sending` is retried only after 10 minutes | (needs a crash mid-send) | - | EMAIL-13 | auto only |
 | EM-16 | No recipient → no email (account without email, empty alert list) | Empty `BOOKING_ALERT_EMAILS`, confirm | Only the guest's email | EMAIL-10 | |
 | EM-17 | Seeded / Django Admin bookings send nothing | `seed_demo_data` | No rows in Booking emails | EMAIL-20 | |
-| EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | local ✅, Render ✅ |
-| EM-19 | Email settings can never stop a deploy (warnings only); Brevo without a key → console | Deploy before setting `BREVO_API_KEY` | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
+| EM-18 | Gmail API: sent as the owner's real Gmail (text + HTML, Reply-To, header); errors readable, never a secret | Book on Render; look at the email in Gmail and in its *Sent* folder | Sender = the owner's Gmail address, not a service address | EMAIL-01…04 | Render (Brevo, replaced) ✅ |
+| EM-19 | Email settings can never stop a deploy (warnings only); `gmail` without its settings → console | Deploy before setting the `GMAIL_*` values | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
 | EM-21 | An admin account's guest emails go to `BOOKING_ALERT_EMAILS`, not its login email (fallback: its own email when the list is empty) | Book as `admin_demo` | The received / confirmed / cancelled emails arrive at the owner's Gmail | EMAIL-33 | |
+| EM-22 | `gmail_authorize` gives a working refresh token; a revoked token fails with advice | Run it, then `send_test_email` | `GMAIL_REFRESH_TOKEN=…` printed; the test email arrives from the Gmail | EMAIL-03, EMAIL-34 | |
 | EM-20 | User content is escaped in HTML | Property title with `<b>` | Shown as text | EMAIL-31 | auto only |
 
-### Emails: end-to-end results - Render (28 Sep 2026)
+### Emails: end-to-end results - Render (28 Sep 2026, with Brevo - replaced afterwards)
+
+This run was with the first version (Brevo). It's what showed Brevo's
+`…@brevosend.com` sender and led to the Gmail API change after review.
 
 Brevo set up (the Gmail sender was already verified; a new API key), and
 `BREVO_API_KEY` / `DEFAULT_FROM_EMAIL` / `BOOKING_ALERT_EMAILS` added in
@@ -3551,9 +3588,9 @@ Per deploy (every push to `master`, `autoDeployTrigger: commit`):
 | `STRIPE_SECRET_KEY` | Set by hand in the Render dashboard (`sync: false`): a restricted `rk_test_…` key with Checkout Sessions: Write and Charges and Refunds: Write. Empty = payments off (TICKET-029/040, see "Payments on Render") |
 | `STRIPE_WEBHOOK_SECRET` | Set by hand (`sync: false`): the `whsec_…` of the Stripe webhook endpoint pointing at this API |
 | `FRONTEND_URL` | `https://booking-demo-g4aw.onrender.com` - where Stripe sends guests back after paying, and the links in emails |
-| `EMAIL_PROVIDER` | `brevo` (TICKET-030) - booking emails through Brevo's HTTP API |
-| `BREVO_API_KEY` | Set by hand (`sync: false`): the Brevo API key `xkeysib-…`. Empty = emails only printed to the log (see "Emails on Render (Brevo)") |
-| `DEFAULT_FROM_EMAIL` / `BOOKING_ALERT_EMAILS` | Set by hand (`sync: false`): the sender verified in Brevo, e.g. `Booking System Demo <you@gmail.com>`, and who gets the new-booking alert. Kept out of the public repo |
+| `EMAIL_PROVIDER` | `gmail` (TICKET-030) - booking emails through the Gmail API, sent as the owner's Gmail |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | Set by hand (`sync: false`): the Google OAuth "Desktop app" client and the refresh token from `manage.py gmail_authorize`. Missing = emails only printed to the log (see "Emails on Render (Gmail API)") |
+| `DEFAULT_FROM_EMAIL` / `BOOKING_ALERT_EMAILS` | Set by hand (`sync: false`): the sender - **the same Gmail** that authorised the API, e.g. `Booking System Demo <you@gmail.com>` - and who gets the new-booking alert (and admin accounts' booking emails). Kept out of the public repo |
 
 ### What changes when `DJANGO_DEBUG=False`
 
@@ -3820,10 +3857,10 @@ you ever need to regenerate it.
 | `STRIPE_CLI_API_KEY` | stripe-cli (local only) | Full `sk_test_...` key for the local webhook forwarder (`docker-compose.yml`). Unset = forwarding off. Never on Render |
 | `STRIPE_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET_FILE` | backend | Webhook signing secret (Render), or the file the local stripe-cli service writes it to (`/stripe/webhook_secret`, set in `docker-compose.yml` - leave `STRIPE_WEBHOOK_SECRET` unset locally) |
 | `STRIPE_CHECKOUT_HOLD_MINUTES` / `FRONTEND_URL` / `STRIPE_API_VERSION` / `STRIPE_ALLOW_LIVE_KEYS` | backend | Optional: date-hold length (default 30), where Stripe returns the guest (default `http://localhost:4200`), pinned API version, live-key override (default off) |
-| `EMAIL_PROVIDER` | backend | Where emails go: `console` (log, default), `smtp` (Docker sets this → Mailpit), `brevo` (Render). See "Emails" |
-| `BREVO_API_KEY` | backend | Brevo API key (`xkeysib-...`), needed for `EMAIL_PROVIDER=brevo`; without it emails are printed to the log |
-| `DEFAULT_FROM_EMAIL` | backend | The sender, e.g. `Booking Demo <you@gmail.com>` - with Brevo, an address verified in Brevo |
-| `BOOKING_ALERT_EMAILS` | backend | Comma-separated list that gets the "new booking" alert. Empty = no alert |
+| `EMAIL_PROVIDER` | backend | Where emails go: `console` (log, default), `smtp` (Docker sets this → Mailpit), `gmail` (Render). See "Emails" |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | backend | Gmail API credentials for `EMAIL_PROVIDER=gmail` (the refresh token from `manage.py gmail_authorize`); without all three, emails are printed to the log |
+| `DEFAULT_FROM_EMAIL` | backend | The sender, e.g. `Booking Demo <you@gmail.com>` - with the Gmail API, the authorised Gmail itself |
+| `BOOKING_ALERT_EMAILS` | backend | Comma-separated list that gets the "new booking" alert and admin accounts' booking emails. Empty = no alert |
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` / `EMAIL_USE_TLS` / `EMAIL_TIMEOUT` / `EMAIL_SENDING_STALE_MINUTES` | backend | SMTP details (Docker: `mailpit:1025`), timeout in seconds (default 10), minutes before a stuck send is retried (default 10) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
@@ -3889,15 +3926,16 @@ down` / `up` - only `docker compose down -v` wipes them.
   settle any booking whose webhook was missed (it asks Stripe first).
 - **No email arrived** (TICKET-030): locally, open Mailpit at
   http://localhost:8025 - emails never reach a real inbox from Docker unless
-  `EMAIL_PROVIDER=brevo` is set. Otherwise look at Django Admin → *Booking
-  emails*: `failed` shows the reason (`Brevo answered 401` → wrong
-  `BREVO_API_KEY`; `400 … sender` → `DEFAULT_FROM_EMAIL` isn't a verified
-  Brevo sender; `Couldn't reach …` → provider/Mailpit down) - fix it, then
-  select the row → *Retry sending* (or `manage.py send_pending_emails`).
-  `skipped` means the booking changed before the email could go out. No row
-  at all: the account has no email, or `BOOKING_ALERT_EMAILS` is empty for
-  the admin alert. Sent but not in the inbox: check spam, and Brevo's
-  *Transactional → Logs*.
+  `EMAIL_PROVIDER=gmail` is set. Otherwise look at Django Admin → *Booking
+  emails*: `failed` shows the reason (`invalid_grant` → the refresh token was
+  revoked/expired, run `gmail_authorize` again; `invalid_client` → wrong
+  `GMAIL_CLIENT_ID` / `SECRET`; `403 … Delegation denied` or similar →
+  `DEFAULT_FROM_EMAIL` isn't the authorised Gmail; `Couldn't reach …` →
+  Google/Mailpit down) - fix it, then select the row → *Retry sending* (or
+  `manage.py send_pending_emails`). `skipped` means the booking changed
+  before the email could go out. No row at all: the account has no email,
+  or `BOOKING_ALERT_EMAILS` is empty for the admin alert. Sent but not in
+  the inbox: check spam; the Gmail's *Sent* folder shows what went out.
 - **Ports already in use**: something else on your machine is using 4200,
   8000, 5432, 5050 or 8025. Either stop it or change the left-hand side of the
   port mapping in `docker-compose.yml` (e.g. `"4300:4200"`).
@@ -3949,10 +3987,12 @@ anything that failed or was missed, and every screen shows where the money
 is - tested end to end locally and on Render; 214 backend and 213 frontend
 tests pass. See "Refunds (TICKET-040)" and "Refunds: business rules & test
 cases". **TICKET-030 (booking emails) is in progress:** step 1 (the
-`BookingEmail` outbox, the email settings, the Brevo HTTP backend and the
+`BookingEmail` outbox, the email settings, the email backend and the
 Mailpit service) and step 2 (the four emails - received, confirmed,
 cancelled, admin alert - sent at every booking change) and step 3
 (`send_pending_emails` + a Retry action in Django Admin) are done, and
 **TICKET-030 is done**: tested end to end locally (Mailpit) and on Render
-(Brevo, the owner alert in the real Gmail inbox); see "Emails". Next:
+(the owner alert in the real Gmail inbox); changes after review: admin
+accounts' mail goes to the owner's inbox, and emails are sent through the
+**Gmail API** as the owner's real Gmail (Brevo removed); see "Emails". Next:
 TICKET-031 (responsive layout + PWA manifest).

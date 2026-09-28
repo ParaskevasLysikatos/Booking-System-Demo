@@ -1,13 +1,17 @@
+import base64
 import json
 import urllib.error
+import urllib.parse
+from email import message_from_bytes
 from datetime import timedelta
 from decimal import Decimal
-from io import BytesIO
+from io import BytesIO, StringIO
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.mail import EmailMultiAlternatives
+from django.core.management import CommandError, call_command
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -15,7 +19,7 @@ from django.utils import timezone
 from bookings.models import Booking
 from listings.models import Property
 
-from .backends import BrevoEmailBackend, BrevoError
+from .backends import EmailSendError, GmailApiEmailBackend
 from .checks import email_settings_check
 from .messages import money, short_range
 from .models import BookingEmail
@@ -52,80 +56,145 @@ class FakeResponse:
         return False
 
 
-def http_error(code, body=b'{"code": "unauthorized", "message": "Key not found"}'):
-    return urllib.error.HTTPError("https://api.brevo.com/v3/smtp/email", code, "Error", {}, BytesIO(body))
+def http_error(code, body=b'{"error": "invalid_client", "error_description": "Unauthorized"}'):
+    return urllib.error.HTTPError("https://oauth2.googleapis.com/token", code, "Error", {}, BytesIO(body))
 
 
-# --- Brevo backend ------------------------------------------------------------
+# --- Gmail API backend --------------------------------------------------------
 
-@override_settings(BREVO_API_KEY="xkeysib-test", DEFAULT_FROM_EMAIL="Booking Demo <owner@example.com>")
-class BrevoBackendTests(SimpleTestCase):
+GMAIL = dict(GMAIL_CLIENT_ID="cid.apps.googleusercontent.com", GMAIL_CLIENT_SECRET="csecret",
+             GMAIL_REFRESH_TOKEN="1//refresh", DEFAULT_FROM_EMAIL="Booking Demo <owner@gmail.com>")
+
+
+def token_answer(token="ya29.token", expires_in=3599):
+    return FakeResponse(json.dumps({"access_token": token, "expires_in": expires_in}).encode())
+
+
+def sent_answer(msg_id="18f0abc"):
+    return FakeResponse(json.dumps({"id": msg_id, "threadId": msg_id}).encode())
+
+
+@override_settings(**GMAIL)
+class GmailBackendTests(SimpleTestCase):
+    def setUp(self):
+        GmailApiEmailBackend.forget_token()
+        self.addCleanup(GmailApiEmailBackend.forget_token)
+
     def message(self, **extra):
         msg = EmailMultiAlternatives(
-            subject="Booking confirmed", body="Plain text", to=["Guest One <guest@example.com>"],
-            headers={"Idempotency-Key": "booking-1-booking_confirmed"}, **extra,
+            subject="Booking confirmed", body="Plain text", from_email="Booking Demo <owner@gmail.com>",
+            to=["Guest One <guest@example.com>"], reply_to=["Booking Demo <owner@gmail.com>"],
+            headers={"X-Booking-Email": "booking-1-booking_confirmed"}, **extra,
         )
         msg.attach_alternative("<p>HTML</p>", "text/html")
-        msg.tags = ["booking_confirmed"]
         return msg
 
-    def test_payload_maps_the_message(self):
-        """EMAIL-01: sender with name, recipients, subject, text + HTML, custom header, tag."""
-        payload = BrevoEmailBackend().payload(self.message(reply_to=["help@example.com"]))
-        self.assertEqual(payload["sender"], {"email": "owner@example.com", "name": "Booking Demo"})
-        self.assertEqual(payload["to"], [{"email": "guest@example.com", "name": "Guest One"}])
-        self.assertEqual(payload["subject"], "Booking confirmed")
-        self.assertEqual(payload["textContent"], "Plain text")
-        self.assertEqual(payload["htmlContent"], "<p>HTML</p>")
-        self.assertEqual(payload["replyTo"], {"email": "help@example.com"})
-        self.assertEqual(payload["headers"], {"Idempotency-Key": "booking-1-booking_confirmed"})
-        self.assertEqual(payload["tags"], ["booking_confirmed"])
-
-    def test_sends_one_post_and_keeps_the_message_id(self):
-        """EMAIL-02: a 201 from Brevo = sent; its messageId is kept on the message."""
+    def test_refreshes_the_token_then_sends_the_mime_message(self):
+        """EMAIL-01/02: refresh token -> access token, then one send with the whole MIME message
+        (sender, recipient, Reply-To, text + HTML); Gmail's message id is kept."""
         msg = self.message()
-        with mock.patch("urllib.request.urlopen", return_value=FakeResponse(b'{"messageId": "<abc@brevo>"}')) as post:
-            sent = BrevoEmailBackend().send_messages([msg])
-        self.assertEqual(sent, 1)
-        self.assertEqual(msg.provider_message_id, "<abc@brevo>")
-        request = post.call_args.args[0]
-        self.assertEqual(request.full_url, "https://api.brevo.com/v3/smtp/email")
-        self.assertEqual(request.get_header("Api-key"), "xkeysib-test")
-        self.assertEqual(json.loads(request.data)["subject"], "Booking confirmed")
-        self.assertEqual(post.call_args.kwargs["timeout"], 10)
+        with mock.patch("urllib.request.urlopen", side_effect=[token_answer(), sent_answer()]) as post:
+            self.assertEqual(GmailApiEmailBackend().send_messages([msg]), 1)
+        self.assertEqual(msg.provider_message_id, "18f0abc")
+        token_req, send_req = (c.args[0] for c in post.call_args_list)
+        self.assertEqual(token_req.full_url, "https://oauth2.googleapis.com/token")
+        form = urllib.parse.parse_qs(token_req.data.decode())
+        self.assertEqual((form["grant_type"], form["refresh_token"], form["client_id"]),
+                         (["refresh_token"], ["1//refresh"], ["cid.apps.googleusercontent.com"]))
+        self.assertEqual(send_req.full_url, "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
+        self.assertEqual(send_req.get_header("Authorization"), "Bearer ya29.token")
+        mime = message_from_bytes(base64.urlsafe_b64decode(json.loads(send_req.data)["raw"]))
+        self.assertEqual(mime["From"], "Booking Demo <owner@gmail.com>")
+        self.assertEqual(mime["To"], "Guest One <guest@example.com>")
+        self.assertEqual(mime["Reply-To"], "Booking Demo <owner@gmail.com>")
+        self.assertEqual(mime["X-Booking-Email"], "booking-1-booking_confirmed")
+        types = [part.get_content_type() for part in mime.walk()]
+        self.assertIn("text/plain", types)
+        self.assertIn("text/html", types)
 
-    def test_a_4xx_is_a_refusal_without_the_key_in_the_error(self):
-        """EMAIL-03: Brevo said no (bad key, unverified sender) -> refused, readable reason."""
-        with mock.patch("urllib.request.urlopen", side_effect=http_error(401)):
-            with self.assertRaises(BrevoError) as ctx:
-                BrevoEmailBackend().send_messages([self.message()])
+    def test_access_token_is_reused_until_it_expires(self):
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=[token_answer(), sent_answer("a"), sent_answer("b")]) as post:
+            GmailApiEmailBackend().send_messages([self.message()])
+            GmailApiEmailBackend().send_messages([self.message()])
+        self.assertEqual(post.call_count, 3)  # one token call for two emails
+
+    def test_a_stale_access_token_is_replaced_once(self):
+        """A 401 from Gmail -> a fresh access token and one retry."""
+        with mock.patch("urllib.request.urlopen", side_effect=[
+            token_answer("old"), http_error(401, b'{"error": {"code": 401, "message": "Invalid Credentials"}}'),
+            token_answer("new"), sent_answer(),
+        ]) as post:
+            self.assertEqual(GmailApiEmailBackend().send_messages([self.message()]), 1)
+        self.assertEqual(post.call_args_list[3].args[0].get_header("Authorization"), "Bearer new")
+
+    def test_revoked_refresh_token_is_a_refusal_with_advice(self):
+        """EMAIL-03: Google refuses the refresh token -> refused, says to run gmail_authorize, no secrets."""
+        body = b'{"error": "invalid_grant", "error_description": "Token has been expired or revoked."}'
+        with mock.patch("urllib.request.urlopen", side_effect=http_error(400, body)):
+            with self.assertRaises(EmailSendError) as ctx:
+                GmailApiEmailBackend().send_messages([self.message()])
         self.assertTrue(ctx.exception.refused)
-        self.assertIn("401", str(ctx.exception))
-        self.assertIn("Key not found", str(ctx.exception))
-        self.assertNotIn("xkeysib-test", str(ctx.exception))
+        text = str(ctx.exception)
+        self.assertIn("invalid_grant", text)
+        self.assertIn("gmail_authorize", text)
+        for secret in ("csecret", "1//refresh"):
+            self.assertNotIn(secret, text)
 
     def test_network_errors_and_5xx_are_unknown_outcomes(self):
-        """EMAIL-04: couldn't reach Brevo / a 5xx / a 429 -> not a refusal (worth retrying)."""
+        """EMAIL-04: couldn't reach Google / a 5xx / a 429 -> not a refusal (worth retrying)."""
         for error in (urllib.error.URLError("timed out"), http_error(503, b""), http_error(429, b"")):
-            with self.subTest(error=error), mock.patch("urllib.request.urlopen", side_effect=error):
-                with self.assertRaises(BrevoError) as ctx:
-                    BrevoEmailBackend().send_messages([self.message()])
+            GmailApiEmailBackend.forget_token()
+            with self.subTest(error=error), mock.patch("urllib.request.urlopen", side_effect=[token_answer(), error]):
+                with self.assertRaises(EmailSendError) as ctx:
+                    GmailApiEmailBackend().send_messages([self.message()])
                 self.assertFalse(ctx.exception.refused)
 
-    def test_fail_silently_and_missing_key(self):
-        with mock.patch("urllib.request.urlopen", side_effect=http_error(401)):
-            self.assertEqual(BrevoEmailBackend(fail_silently=True).send_messages([self.message()]), 0)
-        with self.assertRaises(BrevoError):
-            BrevoEmailBackend(api_key="").send_messages([self.message()])
+    def test_fail_silently_and_missing_settings(self):
+        with mock.patch("urllib.request.urlopen", side_effect=http_error(400)):
+            self.assertEqual(GmailApiEmailBackend(fail_silently=True).send_messages([self.message()]), 0)
+        with override_settings(GMAIL_REFRESH_TOKEN=""), self.assertRaises(EmailSendError) as ctx:
+            GmailApiEmailBackend().send_messages([self.message()])
+        self.assertIn("isn't configured", str(ctx.exception))
 
-    def test_html_only_and_empty_messages(self):
-        html = EmailMultiAlternatives(subject="S", body="<b>hi</b>", to=["a@example.com"])
-        html.content_subtype = "html"
-        payload = BrevoEmailBackend().payload(html)
-        self.assertEqual(payload["htmlContent"], "<b>hi</b>")
-        self.assertNotIn("textContent", payload)
-        empty = EmailMultiAlternatives(subject="S", body="", to=["a@example.com"])
-        self.assertEqual(BrevoEmailBackend().payload(empty)["textContent"], " ")
+
+class GmailAuthorizeCommandTests(SimpleTestCase):
+    @override_settings(**GMAIL)
+    def test_exchanges_the_pasted_address_for_a_refresh_token(self):
+        """EMAIL-34: gmail_authorize - PKCE + state checked, code exchanged, refresh token printed."""
+        out = StringIO()
+
+        def fake_urlopen(request, timeout):
+            form = urllib.parse.parse_qs(request.data.decode())
+            self.assertEqual(form["grant_type"], ["authorization_code"])
+            self.assertEqual(form["code"], ["4/abc"])
+            self.assertTrue(form["code_verifier"][0])
+            return FakeResponse(json.dumps({"refresh_token": "1//new", "access_token": "x",
+                                            "scope": "https://www.googleapis.com/auth/gmail.send"}).encode())
+
+        def answer(prompt):
+            printed = out.getvalue()
+            url = next(line for line in printed.splitlines() if line.startswith("https://accounts.google.com"))
+            state = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["state"][0]
+            return f"http://127.0.0.1:8765/?state={state}&code=4/abc&scope=gmail.send"
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+                mock.patch("builtins.input", side_effect=answer):
+            call_command("gmail_authorize", stdout=out)
+        self.assertIn("GMAIL_REFRESH_TOKEN=1//new", out.getvalue())
+        self.assertIn("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.send", out.getvalue())
+
+    @override_settings(**GMAIL)
+    def test_refuses_an_address_from_another_sign_in(self):
+        with self.assertRaises(CommandError) as ctx:
+            call_command("gmail_authorize", redirected_url="http://127.0.0.1:8765/?state=other&code=4/abc",
+                         stdout=StringIO())
+        self.assertIn("state mismatch", str(ctx.exception))
+
+    @override_settings(GMAIL_CLIENT_ID="", GMAIL_CLIENT_SECRET="")
+    def test_needs_the_client_settings(self):
+        with self.assertRaises(CommandError):
+            call_command("gmail_authorize", stdout=StringIO())
 
 
 # --- Settings checks ----------------------------------------------------------
@@ -135,18 +204,18 @@ class EmailSettingsCheckTests(SimpleTestCase):
         with override_settings(**settings):
             return [p.id for p in email_settings_check()]
 
-    def test_console_and_a_complete_brevo_setup_are_fine(self):
+    def test_console_and_a_complete_gmail_setup_are_fine(self):
         """EMAIL-05"""
         self.assertEqual(self.ids(EMAIL_PROVIDER="console"), [])
-        self.assertEqual(self.ids(EMAIL_PROVIDER="brevo", BREVO_API_KEY="xkeysib-x",
-                                  DEFAULT_FROM_EMAIL="Demo <owner@gmail.com>",
+        self.assertEqual(self.ids(EMAIL_PROVIDER="gmail", GMAIL_CLIENT_ID="c", GMAIL_CLIENT_SECRET="s",
+                                  GMAIL_REFRESH_TOKEN="r", DEFAULT_FROM_EMAIL="Demo <owner@gmail.com>",
                                   BOOKING_ALERT_EMAILS=["owner@gmail.com"]), [])
 
     def test_warnings_never_errors(self):
         """EMAIL-06: a mis-set email setting warns but never stops a deploy."""
         self.assertEqual(self.ids(EMAIL_PROVIDER="carrier-pigeon"), ["notifications.W001"])
-        self.assertEqual(self.ids(EMAIL_PROVIDER="brevo", BREVO_API_KEY="",
-                                  DEFAULT_FROM_EMAIL="Demo <bookings@example.com>"),
+        self.assertEqual(self.ids(EMAIL_PROVIDER="gmail", GMAIL_CLIENT_ID="c", GMAIL_CLIENT_SECRET="",
+                                  GMAIL_REFRESH_TOKEN="", DEFAULT_FROM_EMAIL="Demo <bookings@example.com>"),
                          ["notifications.W002", "notifications.W003"])
         self.assertEqual(self.ids(BOOKING_ALERT_EMAILS=["not-an-email"]), ["notifications.W004"])
         with override_settings(EMAIL_PROVIDER="carrier-pigeon"):
@@ -180,7 +249,7 @@ class OutboxTests(TestCase):
         self.assertIsNotNone(row.sent_at)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["guest@example.com"])
-        self.assertEqual(mail.outbox[0].extra_headers["Idempotency-Key"], f"booking-{self.booking.pk}-booking_received")
+        self.assertEqual(mail.outbox[0].extra_headers["X-Booking-Email"], f"booking-{self.booking.pk}-booking_received")
 
     def test_admin_accounts_mail_goes_to_the_alert_list(self):
         """EMAIL-33: a booking by an admin account -> its guest emails go to BOOKING_ALERT_EMAILS
@@ -242,11 +311,11 @@ class OutboxTests(TestCase):
 
     def test_a_failed_send_is_recorded_not_raised_and_can_be_retried(self):
         """EMAIL-11: the provider fails -> `failed` + reason, the booking is untouched; a retry sends it."""
-        with mock.patch("django.core.mail.message.EmailMessage.send", side_effect=BrevoError("Brevo answered 401: Key not found", 401)):
+        with mock.patch("django.core.mail.message.EmailMessage.send", side_effect=EmailSendError("Google answered 400: invalid_grant", 400)):
             row = self.enqueue()
         row.refresh_from_db()
         self.assertEqual(row.status, Status.FAILED)
-        self.assertEqual(row.last_error, "Brevo answered 401: Key not found")
+        self.assertEqual(row.last_error, "Google answered 400: invalid_grant")
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.PENDING)
         self.assertEqual(due_for_retry(), [row.pk])
@@ -415,11 +484,11 @@ class EmailsWithoutPaymentsTests(EmailFlowMixin, CheckoutFixtures, APITestCase):
 
     def test_a_broken_mail_provider_never_breaks_booking(self):
         """EMAIL-19: the provider is down -> the booking is still created (201), the email is `failed`."""
-        with mock.patch("django.core.mail.message.EmailMessage.send", side_effect=BrevoError("Couldn't reach Brevo")):
+        with mock.patch("django.core.mail.message.EmailMessage.send", side_effect=EmailSendError("Couldn't reach Google")):
             booking, res = self.book()
         self.assertEqual(res.status_code, 201)
         row = BookingEmail.objects.get(booking=booking)
-        self.assertEqual((row.status, row.last_error), ("failed", "Couldn't reach Brevo"))
+        self.assertEqual((row.status, row.last_error), ("failed", "Couldn't reach Google"))
 
     def test_seeded_bookings_send_nothing(self):
         """EMAIL-20: bookings created outside the API (seed script, Django Admin) don't email anyone."""
@@ -543,9 +612,6 @@ class FormattingTests(SimpleTestCase):
 
 # --- Step 3: retrying (command + Django Admin) --------------------------------
 
-from io import StringIO  # noqa: E402
-
-from django.core.management import call_command  # noqa: E402
 
 
 @override_settings(**EMAILS)
@@ -582,10 +648,10 @@ class RetryTests(TestCase):
         """EMAIL-28: still failing -> listed on stderr with the reason; after 5 attempts left for an admin."""
         row = self.row(attempts=4)
         with mock.patch("django.core.mail.message.EmailMessage.send",
-                        side_effect=BrevoError("Brevo answered 400: sender not verified", 400)):
+                        side_effect=EmailSendError("Google answered 403: Delegation denied", 403)):
             out, err = self.run_command()
         self.assertIn("failed 1", out)
-        self.assertIn("sender not verified", err)
+        self.assertIn("Delegation denied", err)
         row.refresh_from_db()
         self.assertEqual(row.attempts, 5)
         self.assertIn("0 email(s) would be tried.", self.run_command("--dry-run")[0])
@@ -612,11 +678,11 @@ class OutboxAdminTests(TestCase):
         """EMAIL-29: the outbox list and the Booking page's inline show the emails; nothing is editable."""
         row = BookingEmail.objects.create(booking=self.booking, kind=Kind.BOOKING_RECEIVED,
                                           recipients="guest@example.com", status=Status.FAILED,
-                                          last_error="Brevo answered 401: Key not found")
+                                          last_error="Google answered 400: invalid_grant")
         res = self.client.get(self.url)
-        self.assertContains(res, "Key not found")
+        self.assertContains(res, "invalid_grant")
         res = self.client.get(reverse("admin:bookings_booking_change", args=[self.booking.pk]))
-        self.assertContains(res, "Key not found")
+        self.assertContains(res, "invalid_grant")
         res = self.client.post(reverse("admin:notifications_bookingemail_change", args=[row.pk]),
                                {"status": "sent"})
         self.assertEqual(res.status_code, 403)
@@ -634,3 +700,12 @@ class OutboxAdminTests(TestCase):
         failed.refresh_from_db()
         self.assertEqual((failed.status, failed.attempts), ("sent", 7))
         self.assertEqual(len(mail.outbox), 1)
+
+
+class SendTestEmailCommandTests(SimpleTestCase):
+    @override_settings(DEFAULT_FROM_EMAIL="Demo <owner@gmail.com>")
+    def test_sends_one_email(self):
+        out = StringIO()
+        call_command("send_test_email", "someone@example.com", stdout=out)
+        self.assertEqual(mail.outbox[0].to, ["someone@example.com"])
+        self.assertIn("Sent to someone@example.com", out.getvalue())

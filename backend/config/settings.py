@@ -192,21 +192,25 @@ FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:4200').rstrip('/')
 #   console - printed in the backend's log (default: nothing to set up)
 #   smtp    - an SMTP server: locally the Mailpit Docker service (see
 #             docker-compose.yml, UI at http://localhost:8025)
-#   brevo   - Brevo's HTTP API (Render: its free plan blocks SMTP ports),
-#             needs BREVO_API_KEY and a sender address verified in Brevo
+#   gmail   - the Gmail API over HTTPS (Render: its free plan blocks SMTP
+#             ports), sent as the owner's real Gmail; needs GMAIL_CLIENT_ID,
+#             GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN (manage.py
+#             gmail_authorize)
 # Tests always use Django's in-memory backend, whatever is set here.
 # Every email is recorded in the notifications.BookingEmail outbox first, so
 # it is sent at most once and a failed one can be retried.
 EMAIL_PROVIDER = env('EMAIL_PROVIDER', default='console').strip().lower()
-BREVO_API_KEY = env('BREVO_API_KEY', default='')
-BREVO_API_URL = env('BREVO_API_URL', default='https://api.brevo.com/v3/smtp/email')
+GMAIL_CLIENT_ID = env('GMAIL_CLIENT_ID', default='')
+GMAIL_CLIENT_SECRET = env('GMAIL_CLIENT_SECRET', default='')
+GMAIL_REFRESH_TOKEN = env('GMAIL_REFRESH_TOKEN', default='')
+GMAIL_CONFIGURED = bool(GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN)
 EMAIL_BACKENDS = {
     'console': 'django.core.mail.backends.console.EmailBackend',
     'smtp': 'django.core.mail.backends.smtp.EmailBackend',
-    'brevo': 'notifications.backends.BrevoEmailBackend',
+    'gmail': 'notifications.backends.GmailApiEmailBackend',
 }
-if EMAIL_PROVIDER == 'brevo' and not BREVO_API_KEY:
-    # Brevo chosen but not set up yet (e.g. the first Render deploy): print
+if EMAIL_PROVIDER == 'gmail' and not GMAIL_CONFIGURED:
+    # Gmail chosen but not set up yet (e.g. the first Render deploy): print
     # the emails instead of failing them. notifications/checks.py warns.
     EMAIL_BACKEND = EMAIL_BACKENDS['console']
 else:
@@ -216,11 +220,12 @@ EMAIL_PORT = env.int('EMAIL_PORT', default=1025)
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=False)
-# Seconds to wait for the mail server / Brevo before giving up (the email is
+# Seconds to wait for the mail server / Google before giving up (the email is
 # then recorded as failed and can be retried).
 EMAIL_TIMEOUT = env.int('EMAIL_TIMEOUT', default=10)
-# The sender. With Brevo it must be an address verified in Brevo (Senders).
-# Set the real one in .env / the Render dashboard - the repo is public.
+# The sender. With the Gmail API it must be the authorised Gmail address
+# (Gmail won't send "from" anyone else). Set the real one in .env / the
+# Render dashboard - the repo is public.
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='Booking System Demo <bookings@example.com>')
 # Who gets the "new booking" alert: a comma-separated list. Empty = no alert.
 BOOKING_ALERT_EMAILS = [e for e in env.list('BOOKING_ALERT_EMAILS', default=[]) if e]

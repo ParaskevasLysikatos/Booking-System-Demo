@@ -24,8 +24,8 @@ services:
       # stripe-cli service below (so it never has to be copied into .env).
       STRIPE_WEBHOOK_SECRET_FILE: /stripe/webhook_secret
       # TICKET-030: emails go to the Mailpit service below (open
-      # http://localhost:8025 to read them). Set EMAIL_PROVIDER=brevo in .env
-      # (plus BREVO_API_KEY) to send real emails from Docker instead.
+      # http://localhost:8025 to read them). Set EMAIL_PROVIDER=gmail in .env
+      # (plus the GMAIL_* values) to send real emails from Docker instead.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
       EMAIL_HOST: mailpit
       EMAIL_PORT: 1025
