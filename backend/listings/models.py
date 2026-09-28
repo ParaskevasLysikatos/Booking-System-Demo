@@ -1,3 +1,5 @@
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
 
@@ -24,6 +26,26 @@ class Property(models.Model):
     capacity = models.PositiveIntegerField(
         help_text="Maximum number of guests the property sleeps.",
     )
+    # TICKET-034: map position. Optional (a property without one simply isn't
+    # on the map); both or neither - enforced in clean() and by a DB
+    # constraint. 6 decimals ~ 11 cm. Guests only ever get an approximate
+    # point (see listings/geo.py); these exact values are admin-only.
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-90), MaxValueValidator(90)],
+        help_text="Exact map position (admins only; guests see a ~500 m area). Set together with longitude.",
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-180), MaxValueValidator(180)],
+        help_text="Exact map position. Set together with latitude.",
+    )
     amenities = models.JSONField(
         default=list,
         blank=True,
@@ -39,9 +61,36 @@ class Property(models.Model):
     class Meta:
         verbose_name_plural = "properties"
         ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(latitude__isnull=True, longitude__isnull=True)
+                    | models.Q(latitude__isnull=False, longitude__isnull=False)
+                ),
+                name="property_lat_lng_both_or_neither",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(latitude__isnull=True) | models.Q(latitude__gte=-90, latitude__lte=90),
+                name="property_latitude_in_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(longitude__isnull=True) | models.Q(longitude__gte=-180, longitude__lte=180),
+                name="property_longitude_in_range",
+            ),
+        ]
 
     def __str__(self):
         return self.title
+
+    @property
+    def has_coordinates(self):
+        return self.latitude is not None and self.longitude is not None
+
+    def clean(self):
+        # Mirrors property_lat_lng_both_or_neither with a friendly message.
+        super().clean()
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValidationError("Set both latitude and longitude, or neither.")
 
     @property
     def cover_image(self):

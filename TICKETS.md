@@ -686,6 +686,20 @@ test, always last).
 
 - [ ] **TICKET-034** — Map view for listings
   - Priority: P2 · Depends on: TICKET-018
+  - Decisions (agreed before building):
+    - **latitude/longitude fields** on `Property` (optional, both or neither) + a **Find on map** button in the admin form that geocodes the location text with OpenStreetMap Nominatim, via the backend
+    - **Leaflet + OpenStreetMap** tiles (no API key), lazy-loaded
+    - **split view on desktop** (list left, sticky map right), a List / Map button on phones; the map shows **every matching stay**, not just the current page
+    - **approximate location**: only admins see the exact point; everyone else (even after booking) gets a ~500 m circle
+    - also: a **map on the property page** and **click/drag to place** the pin in the admin form
+  - Plan: 1 coordinates (model, API, backfill, seeder) · 2 `/api/properties/map/` pins endpoint · 3 admin geocode endpoint · 4 shared Leaflet map component · 5 `/listings` split view · 6 property page map · 7 admin form map · 8 final check (tests, fresh DB, Chrome, Render)
+  - Step 1 done (map positions):
+    - `Property.latitude` / `longitude` (`DecimalField(9, 6)`, nullable): both or neither + ranges, checked in `clean()` and by 3 DB `CheckConstraint`s (`0003_property_coordinates`).
+    - API (`listings/geo.py`, `CoordinatesMixin`): list, detail and the Saved list return `latitude`, `longitude`, `location_is_approximate`, `location_radius_m`. Admins get the exact point; everyone else a point moved 100-400 m (direction/distance fixed per property from an HMAC of `SECRET_KEY` + id), so the real place is always inside the 500 m circle but never at its centre, and never reaches a guest's browser.
+    - Admin writes: numbers or numeric strings, rounded to 6 decimals; a `PATCH` with one coordinate is checked against the stored other one; `null`/`""` for both clears; out of range / `NaN` / `Infinity` / `true` → 400. Django Admin: a "Map position" section.
+    - `0004_backfill_coordinates` (data migration, frozen city table) gives existing places in the 12 seeder cities a point near the city, repeatable per id; others stay without one. Render gets positions on the next deploy, no re-seed. `seed_demo_data` places new properties near their city (points a little inland, small radii on islands).
+    - 25 new tests (24 in `listings`, 1 in `core`); **359 backend tests** pass on Postgres, `makemigrations --check` clean. Fresh DB: `migrate` + `seed_demo_data` → 14/14 places have a position; the API gives the admin the exact point and a logged-out visitor one 230-360 m off with `location_radius_m: 500`.
+    - README: new "Map positions API (TICKET-034)"; data model, migrations, layout, seeding, status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

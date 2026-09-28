@@ -39,8 +39,12 @@ listing card and the property page have a **heart** to save a place
 (logged out, it goes through login and saves afterwards; see "Favorites:
 the heart") - and a **Saved** page (`/favorites`) lists them, with Undo,
 and places that were deactivated greyed out (see "Saved page"). Admins see
-how many guests saved each place ("Saved by" in admin Properties). See "Next
-steps" at the bottom for what's next.
+how many guests saved each place ("Saved by" in admin Properties).
+**TICKET-034 (map view) is in progress:** step 1 is done - every property
+can have a map position (exact for admins; everyone else only gets a
+~500 m area), existing and seeded places get one near their city; see
+"Map positions API (TICKET-034)". See "Next steps" at the bottom for
+what's next.
 
 ## Prerequisites
 
@@ -124,7 +128,8 @@ backend/
     admin.py           No models of its own - just the admin site's global branding (dev-DB-inspection labeling)
     management/commands/seed_demo_data.py   Faker-based demo data generator (see "Seeding demo data" below)
   listings/            Data layer for bookable properties
-    models.py          Property + PropertyImage models
+    models.py          Property + PropertyImage models (Property has optional latitude/longitude, TICKET-034)
+    geo.py             Map helpers: the approximate point guests see, the demo city centres (TICKET-034)
     serializers.py     List (card) + detail (images, availability; also the admin write serializer, nested images)
     filters.py         Query-param validation + filtering (location, guests, price, dates, ordering)
     views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete)
@@ -133,7 +138,8 @@ backend/
     urls.py            Router for /api/properties/
     tests.py           API tests for the Properties endpoints
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
-    migrations/        0001_initial.py (Property), 0002_propertyimage.py (PropertyImage)
+    migrations/        0001_initial.py (Property), 0002_propertyimage.py (PropertyImage),
+                       0003_property_coordinates.py + 0004_backfill_coordinates.py (map positions, TICKET-034)
   accounts/            Adds a role/phone Profile on top of Django's built-in User
     models.py          Profile model (role: guest/admin, phone)
     signals.py         post_save on User auto-creates a Profile (any creation path)
@@ -276,6 +282,7 @@ listing (apartment or room):
 | `title` | `CharField` | Guest-facing name |
 | `description` | `TextField` | Optional, longer free text |
 | `location` | `CharField` | Free-text location (e.g. "Thessaloniki, Greece"), used for search/filtering later |
+| `latitude` / `longitude` | `DecimalField(9, 6)`, nullable | Map position (TICKET-034). Optional; **both or neither**, latitude -90..90, longitude -180..180 - checked in `clean()` and by three DB `CheckConstraint`s. Exact values are admin-only, see "Map positions API (TICKET-034)" |
 | `price_per_night` | `DecimalField` | Decimal, not float - money should never lose precision |
 | `capacity` | `PositiveIntegerField` | Max guests |
 | `amenities` | `JSONField` | List of amenity strings, e.g. `["wifi", "parking"]` - stored as native Postgres `jsonb`, no extra package needed |
@@ -438,6 +445,8 @@ infrastructure-only): `listings` holds `Property`/`PropertyImage`,
 
 Migrations: `listings/migrations/0001_initial.py` creates `Property`,
 `0002_propertyimage.py` creates `PropertyImage`,
+`0003_property_coordinates.py` adds `latitude`/`longitude` and
+`0004_backfill_coordinates.py` gives existing places a position (TICKET-034),
 `accounts/migrations/0001_initial.py` creates `Profile`,
 `bookings/migrations/0001_initial.py` creates `Booking`,
 `bookings/migrations/0002_booking_guests_no_overlap.py` adds `guests`, the
@@ -1327,6 +1336,123 @@ curl http://localhost:8000/api/properties/14/ -H "Authorization: Bearer $ADMIN_A
 
 One existing test (`listings`: the list card's exact fields) now expects
 `is_favorite` too.
+
+## Map positions API (TICKET-034)
+
+Step 1 of the map view: every property can have a map position. Code:
+`backend/listings/geo.py`, `models.py`, `serializers.py`
+(`CoordinateField`, `CoordinatesMixin`), `views.py` and the migrations
+`0003_property_coordinates.py` / `0004_backfill_coordinates.py`.
+
+### Decisions (agreed before building)
+
+| Decision | What it means |
+| --- | --- |
+| **Latitude/longitude on `Property`** | Two optional fields, both or neither. A place without them simply isn't on the map. |
+| **Find on map (step 3)** | The admin form will look the `location` text up with OpenStreetMap Nominatim, through the backend. |
+| **Leaflet + OpenStreetMap** | Free tiles, no API key. The public tile server is fine for a low-traffic demo (with its attribution). |
+| **Split view on desktop** | Listings on the left and a sticky map on the right; a List / Map button on phones (step 5). |
+| **The map shows every matching stay** | Not only the 12 on the current page (step 2's pins endpoint). |
+| **Approximate location** | Only admins see the exact point. Everyone else (logged out, guests, even after booking) gets a ~500 m area. |
+| **Also** | A map on the property page (step 6) and click/drag to place the pin in the admin form (step 7). |
+
+### What the API returns
+
+`GET /api/properties/`, `GET /api/properties/{id}/` and the Saved list
+(`GET /api/favorites/`) now include four fields:
+
+| Field | Admin | Everyone else |
+| --- | --- | --- |
+| `latitude`, `longitude` | The exact point (JSON numbers, 6 decimals) | An **approximate point**: 100-400 m away from the real one |
+| `location_is_approximate` | `false` | `true` |
+| `location_radius_m` | `null` | `500` - the circle the map draws around the approximate point |
+
+Both coordinates are `null` when the place has no position.
+
+```json
+// guest / logged out
+{ "id": 7, "location": "Chania, Greece",
+  "latitude": 35.511902, "longitude": 24.021105,
+  "location_is_approximate": true, "location_radius_m": 500, ... }
+// admin, same place
+{ "id": 7, "latitude": 35.510484, "longitude": 24.017487,
+  "location_is_approximate": false, "location_radius_m": null, ... }
+```
+
+### How the approximate point works (`listings/geo.py:approximate_point`)
+
+- The real point is moved **100-400 m** in a direction and by a distance
+  that come from an HMAC of `SECRET_KEY` + the property id. Because the
+  offset is at most 400 m and the circle is 500 m, **the real place is
+  always inside the circle, but never at its centre**.
+- The offset is **fixed per property**, so the circle doesn't move between
+  page loads. A random offset per request could be averaged away by
+  reloading the page many times.
+- Without `SECRET_KEY`, the offset can't be worked out from public data.
+  Changing `SECRET_KEY` moves every circle once, which is harmless.
+- The exact coordinates **never reach a guest's browser**. The serializer
+  swaps them before the response is built (a test checks the raw response
+  body).
+- Which one a caller gets is decided in `PropertyViewSet`
+  (`context["exact_location"] = is admin`). Any other serializer that
+  reuses the property card (like the Saved list) gets the approximate
+  point by default.
+
+### Setting a position (admin)
+
+`POST` / `PUT` / `PATCH /api/properties/{id}/` accept `latitude` and
+`longitude`:
+
+- **Numbers or numeric strings.** Any number of decimals is accepted and
+  rounded to 6 (about 11 cm), because a map click gives about 15.
+- **Both or neither.** A `PATCH` with just one is checked against the
+  stored other value: sending only `latitude` to a place that has no
+  position → `400 {"longitude": ["Set a longitude too, or clear the
+  latitude."]}`; sending only `latitude` to a place that has one just
+  moves it.
+- **Clearing.** Send `null` (or `""`) for both.
+- **Rejected with `400`:** latitude outside -90..90, longitude outside
+  -180..180, `"abc"`, `NaN`, `Infinity`, `true`.
+- Guests can't write (`403`, like every other property field).
+
+Django Admin shows the two fields in a "Map position" section of the
+Property page.
+
+### Existing and seeded places
+
+- **`0004_backfill_coordinates`** (a data migration) gives every place
+  whose `location` starts with one of the seeder's 12 cities
+  ("Chania, Greece" → Chania, case and spaces ignored) a random point
+  near that city. The point is seeded by the property id, so it's
+  repeatable. Other places are left without a position, and places that
+  already have one are left alone. The hosted copy on Render gets its
+  positions from this migration on the next deploy (`build.sh` runs
+  `migrate`), with no re-seed.
+- **`seed_demo_data`** gives each new place a point near its city (see
+  "Seeding demo data").
+- The migration keeps its **own frozen copy** of the city table, so a
+  later edit to `geo.py` can't change what an old migration does.
+
+### Tests
+
+- `listings/tests.py` has 24 new tests:
+  - `CoordinateModelTests`: `clean()` and the DB constraints.
+  - `ApproximatePointTests`: 300 ids all land 100-400 m away and inside the
+    circle; the point is the same on every call, differs per property and
+    depends on `SECRET_KEY`; demo points stay inside their city's radius.
+  - `CoordinateAPITests`: guests/anonymous/Saved list get the approximate
+    point (and the exact value isn't in the body), admins get the exact
+    one, rounding, both-or-neither on `PATCH`, clearing, bad values, and
+    guests can't write.
+  - `BackfillMigrationTests`: migrates to `0003`, creates places, then
+    runs `0004`.
+- `core/tests.py`: `SeedCoordinatesTests` (every seeded place is near its
+  city).
+- **Results:** all **359** backend tests pass on Postgres, and
+  `makemigrations --check` is clean. On a fresh database, `migrate` +
+  `seed_demo_data` gave all 14 places a position, and the API showed each
+  place exactly for the admin and 230-360 m off, with the 500 m radius,
+  for a logged-out visitor.
 
 ## Frontend auth (Angular)
 
@@ -4439,7 +4565,10 @@ the demo never starts out empty:
 - **Properties** - 14 by default, titled from curated adjective/noun/city
   combinations (e.g. "Cozy Studio in Thessaloniki") across a dozen Greek
   locations, with a realistic nightly price, capacity, and a random subset
-  of amenities.
+  of amenities. Each one also gets a **map position** near its city
+  (TICKET-034): a random point within 400 m-1.5 km of a spot a little
+  inland of the town centre (`listings/geo.py:CITY_CENTRES`), so pins
+  don't land in the sea.
 - **Images** - 2-5 per property, deterministic `picsum.photos` URLs (free,
   no API key), with the first one flagged as the cover image.
 - **Guest users** - 10 by default, usernames `guest_<n>_<fakename>`,
@@ -4982,4 +5111,8 @@ see "Saved page"; step 4 (a "Saved by" column in admin Properties, and
 properties"; **TICKET-033 is done** (step 5: the seeder saves places for
 the demo guests, full test runs, a 68-check browser regression on a fresh
 database and the live Render check as admin and as a guest; see
-"Favorites: final check").
+"Favorites: final check"). **TICKET-034 (map view) is in progress:** step 1
+(map positions on properties: `latitude`/`longitude`, exact for admins and
+a ~500 m area for everyone else, the backfill migration and seeded
+positions) is done; see "Map positions API (TICKET-034)". Next: step 2,
+the `/api/properties/map/` pins endpoint.

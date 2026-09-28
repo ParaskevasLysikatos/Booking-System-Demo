@@ -11,6 +11,7 @@ from faker import Faker
 
 from bookings.models import Booking
 from favorites.models import Favorite
+from listings.geo import demo_point
 from listings.models import Property, PropertyImage
 from reviews.models import Review
 
@@ -234,10 +235,14 @@ class Command(BaseCommand):
             amenities = random.sample(
                 AMENITIES_POOL, k=random.randint(3, len(AMENITIES_POOL))
             )
+            # A map position near the city centre (TICKET-034).
+            latitude, longitude = demo_point(location)
             prop = Property.objects.create(
                 title=title,
                 description=fake.paragraph(nb_sentences=5),
                 location=location,
+                latitude=latitude,
+                longitude=longitude,
                 price_per_night=Decimal(random.randint(25, 250)),
                 capacity=random.randint(1, 8),
                 amenities=amenities,

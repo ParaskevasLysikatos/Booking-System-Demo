@@ -47,6 +47,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context["show_favorite_count"] = self._is_admin()
+        # TICKET-034: admins get exact coordinates, everyone else an
+        # approximate point (listings/geo.py).
+        context["exact_location"] = self._is_admin()
         if self.action == "retrieve":
             dates = DateRangeQuerySerializer(data=self.request.query_params)
             dates.is_valid(raise_exception=True)

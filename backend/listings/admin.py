@@ -19,6 +19,10 @@ class PropertyAdmin(admin.ModelAdmin):
     search_fields = ("title", "location", "description")
     ordering = ("-created_at",)
     inlines = [PropertyImageInline]
+    fieldsets = (
+        (None, {"fields": ("title", "description", "location", "price_per_night", "capacity", "amenities", "is_active")}),
+        ("Map position (TICKET-034)", {"fields": ("latitude", "longitude")}),
+    )
 
 
 @admin.register(PropertyImage)

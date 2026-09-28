@@ -9,6 +9,7 @@ from bookings.models import Booking
 from reviews.models import Review, has_finished_stay
 from reviews.serializers import MyReviewSerializer
 
+from . import geo
 from .models import Property, PropertyImage
 
 
@@ -57,6 +58,80 @@ class FavoriteFieldsMixin(serializers.Serializer):
         return getattr(obj, "favorite_count", 0) or 0
 
 
+class CoordinateField(serializers.DecimalField):
+    """A latitude/longitude. Accepts any number of decimals (a map click
+    gives ~15) and rounds to the 6 the database keeps, instead of DRF's
+    default "no more than 6 decimal places" error. Rendered as a JSON
+    number, not a string. null or "" clears it."""
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            max_digits=9, decimal_places=6, coerce_to_string=False,
+            allow_null=True, required=False, **kwargs,
+        )
+
+    def validate_empty_values(self, data):
+        if data == "":
+            data = None
+        return super().validate_empty_values(data)
+
+    def to_internal_value(self, data):
+        if isinstance(data, bool):
+            self.fail("invalid")
+        try:
+            value = Decimal(str(data).strip())
+        except (ArithmeticError, ValueError, TypeError):
+            self.fail("invalid")
+        if not value.is_finite():
+            self.fail("invalid")
+        return super().to_internal_value(geo.quantize(value))
+
+
+class CoordinatesMixin(serializers.Serializer):
+    """TICKET-034. `latitude` / `longitude` - exact for admins (the view sets
+    context["exact_location"]); for everyone else an approximate point
+    100-400 m away (listings/geo.py), with `location_is_approximate: true`
+    and `location_radius_m: 500` - the circle the map draws, which always
+    contains the real point. null / null when the property has no position."""
+
+    latitude = CoordinateField(min_value=-90, max_value=90)
+    longitude = CoordinateField(min_value=-180, max_value=180)
+    location_is_approximate = serializers.SerializerMethodField()
+    location_radius_m = serializers.SerializerMethodField()
+
+    def _exact(self):
+        return bool(self.context.get("exact_location"))
+
+    def get_location_is_approximate(self, obj):
+        return not self._exact()
+
+    def get_location_radius_m(self, obj):
+        return None if self._exact() else geo.APPROX_RADIUS_METRES
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self._exact() and "latitude" in data:
+            data["latitude"], data["longitude"] = geo.approximate_point(
+                instance.pk, instance.latitude, instance.longitude
+            )
+        return data
+
+    def validate(self, attrs):
+        # Both or neither - taking the stored value for a field a PATCH
+        # leaves out.
+        attrs = super().validate(attrs)
+
+        def final(name):
+            return attrs[name] if name in attrs else getattr(self.instance, name, None)
+
+        lat, lng = final("latitude"), final("longitude")
+        if lat is None and lng is not None:
+            raise serializers.ValidationError({"latitude": ["Set a latitude too, or clear the longitude."]})
+        if lng is None and lat is not None:
+            raise serializers.ValidationError({"longitude": ["Set a longitude too, or clear the latitude."]})
+        return attrs
+
+
 def _cover_url(obj):
     # Iterate the prefetched images (already ordered cover-first by
     # PropertyImage.Meta.ordering) instead of querying again.
@@ -64,7 +139,7 @@ def _cover_url(obj):
     return images[0].image if images else None
 
 
-class PropertyListSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serializers.ModelSerializer):
+class PropertyListSerializer(RatingFieldsMixin, FavoriteFieldsMixin, CoordinatesMixin, serializers.ModelSerializer):
     """Compact shape for the listings grid (one card per property)."""
 
     cover_image = serializers.SerializerMethodField()
@@ -75,6 +150,10 @@ class PropertyListSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serializers
             "id",
             "title",
             "location",
+            "latitude",
+            "longitude",
+            "location_is_approximate",
+            "location_radius_m",
             "price_per_night",
             "capacity",
             "amenities",
@@ -90,7 +169,7 @@ class PropertyListSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serializers
         return _cover_url(obj)
 
 
-class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serializers.ModelSerializer):
+class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, CoordinatesMixin, serializers.ModelSerializer):
     """Full shape for the detail page - and the write serializer for admin
     POST/PUT/PATCH.
 
@@ -118,6 +197,10 @@ class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, serialize
             "title",
             "description",
             "location",
+            "latitude",
+            "longitude",
+            "location_is_approximate",
+            "location_radius_m",
             "price_per_night",
             "capacity",
             "amenities",

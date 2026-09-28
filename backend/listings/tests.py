@@ -7,6 +7,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
+from django.test import TransactionTestCase
 from rest_framework.test import APITestCase
 
 from accounts.models import Profile
@@ -84,7 +85,8 @@ class PropertyListTests(PropertyAPITestBase):
             set(item),
             {"id", "title", "location", "price_per_night", "capacity", "amenities",
              "is_active", "cover_image", "rating_avg", "review_count",
-             "is_favorite"},  # TICKET-033; favorite_count is admin-only
+             "is_favorite",  # TICKET-033; favorite_count is admin-only
+             "latitude", "longitude", "location_is_approximate", "location_radius_m"},  # TICKET-034
         )
         self.assertEqual(item["cover_image"], "https://img.test/b.jpg")
 
@@ -338,3 +340,247 @@ class PropertyWriteTests(PropertyAPITestBase):
         self.assertEqual(self.client.patch(url, {"title": "A"}, format="json").status_code, 200)
         Profile.objects.filter(user=self.guest).update(role=Profile.Role.GUEST)
         self.assertEqual(self.client.patch(url, {"title": "B"}, format="json").status_code, 403)
+
+
+# --------------------------------------------------------------------------
+# TICKET-034: map coordinates
+# --------------------------------------------------------------------------
+
+from django.core.exceptions import ValidationError as ModelValidationError  # noqa: E402
+from django.db import IntegrityError, transaction  # noqa: E402
+
+from favorites.models import Favorite  # noqa: E402
+
+from . import geo  # noqa: E402
+
+THESS_LAT, THESS_LNG = Decimal("40.632600"), Decimal("22.941000")
+
+
+class CoordinateModelTests(APITestCase):
+    @staticmethod
+    def unsaved(**coords):
+        return Property(title="T", location="Volos, Greece", price_per_night=Decimal("50"), capacity=2, **coords)
+
+    def test_both_or_neither_in_clean(self):
+        prop = self.unsaved(latitude=THESS_LAT)
+        with self.assertRaisesMessage(ModelValidationError, "both latitude and longitude"):
+            prop.full_clean()
+
+    def test_out_of_range_in_clean(self):
+        prop = self.unsaved(latitude=Decimal("91"), longitude=Decimal("0"))
+        with self.assertRaises(ModelValidationError) as ctx:
+            prop.full_clean()
+        self.assertIn("latitude", ctx.exception.message_dict)
+
+    def test_db_rejects_only_one_coordinate(self):
+        prop = make_property()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Property.objects.filter(pk=prop.pk).update(latitude=THESS_LAT)
+
+    def test_db_rejects_out_of_range(self):
+        prop = make_property()
+        for lat, lng in [(Decimal("95"), Decimal("0")), (Decimal("0"), Decimal("-181"))]:
+            with self.subTest(lat=lat, lng=lng), self.assertRaises(IntegrityError), transaction.atomic():
+                Property.objects.filter(pk=prop.pk).update(latitude=lat, longitude=lng)
+
+    def test_no_coordinates_is_fine(self):
+        make_property().full_clean()
+
+
+class ApproximatePointTests(APITestCase):
+    def test_offset_is_100_to_400_metres_and_stable(self):
+        for pk in range(1, 301):
+            lat, lng = geo.approximate_point(pk, THESS_LAT, THESS_LNG)
+            d = geo.distance_metres(THESS_LAT, THESS_LNG, lat, lng)
+            self.assertTrue(99 <= d <= 401, (pk, d))
+            # always inside the circle the map draws
+            self.assertLess(d, geo.APPROX_RADIUS_METRES)
+            self.assertEqual((lat, lng), geo.approximate_point(pk, THESS_LAT, THESS_LNG))
+
+    def test_direction_differs_per_property(self):
+        points = {geo.approximate_point(pk, THESS_LAT, THESS_LNG) for pk in range(1, 21)}
+        self.assertEqual(len(points), 20)
+
+    def test_depends_on_secret_key(self):
+        from django.test import override_settings
+
+        a = geo.approximate_point(1, THESS_LAT, THESS_LNG)
+        with override_settings(SECRET_KEY="another-secret"):
+            self.assertNotEqual(a, geo.approximate_point(1, THESS_LAT, THESS_LNG))
+
+    def test_missing_coordinates(self):
+        self.assertEqual(geo.approximate_point(1, None, None), (None, None))
+
+    def test_demo_point_near_known_city_only(self):
+        import random
+
+        rng = random.Random(3)
+        for city, (lat, lng, radius) in geo.CITY_CENTRES.items():
+            plat, plng = geo.demo_point(f"{city.title()}, Greece", rng)
+            self.assertLessEqual(geo.distance_metres(lat, lng, plat, plng), radius + 1, city)
+        self.assertEqual(geo.demo_point("Paris, France", rng), (None, None))
+        self.assertEqual(geo.demo_point("", rng), (None, None))
+
+
+class CoordinateAPITests(PropertyAPITestBase):
+    def setUp(self):
+        super().setUp()
+        Property.objects.filter(pk=self.thess.pk).update(latitude=THESS_LAT, longitude=THESS_LNG)
+
+    def assert_approximate(self, data):
+        self.assertTrue(data["location_is_approximate"])
+        self.assertEqual(data["location_radius_m"], geo.APPROX_RADIUS_METRES)
+        self.assertNotEqual((Decimal(str(data["latitude"])), Decimal(str(data["longitude"]))), (THESS_LAT, THESS_LNG))
+        d = geo.distance_metres(THESS_LAT, THESS_LNG, data["latitude"], data["longitude"])
+        self.assertTrue(99 <= d <= 401, d)
+
+    def test_anonymous_detail_is_approximate_and_json_numbers(self):
+        resp = self.client.get(detail_url(self.thess.pk))
+        self.assertEqual(resp.status_code, 200)
+        self.assert_approximate(resp.data)
+        body = resp.json()
+        self.assertIsInstance(body["latitude"], float)
+        self.assertIsInstance(body["longitude"], float)
+        # the exact value is nowhere in the response
+        self.assertNotIn("40.6326", resp.content.decode())
+        # same point on every load
+        self.assertEqual(body["latitude"], self.client.get(detail_url(self.thess.pk)).json()["latitude"])
+
+    def test_guest_list_matches_detail(self):
+        self.client.force_authenticate(self.guest)
+        card = next(p for p in self.client.get(LIST_URL).data["results"] if p["id"] == self.thess.pk)
+        self.assert_approximate(card)
+        detail = self.client.get(detail_url(self.thess.pk)).data
+        self.assertEqual((card["latitude"], card["longitude"]), (detail["latitude"], detail["longitude"]))
+
+    def test_saved_list_is_approximate(self):
+        Favorite.objects.create(user=self.guest, property=self.thess)
+        self.client.force_authenticate(self.guest)
+        saved = self.client.get(reverse("favorite-list")).data["results"][0]
+        self.assert_approximate(saved)
+
+    def test_admin_gets_exact(self):
+        self.client.force_authenticate(self.admin)
+        for data in (
+            self.client.get(detail_url(self.thess.pk)).data,
+            next(p for p in self.client.get(LIST_URL).data["results"] if p["id"] == self.thess.pk),
+        ):
+            self.assertEqual((data["latitude"], data["longitude"]), (THESS_LAT, THESS_LNG))
+            self.assertFalse(data["location_is_approximate"])
+            self.assertIsNone(data["location_radius_m"])
+
+    def test_no_coordinates_is_null(self):
+        for user in (None, self.admin):
+            self.client.force_authenticate(user)
+            data = self.client.get(detail_url(self.athens.pk)).data
+            self.assertIsNone(data["latitude"])
+            self.assertIsNone(data["longitude"])
+
+    # --- admin writes ---------------------------------------------------
+
+    def patch(self, prop, payload):
+        self.client.force_authenticate(self.admin)
+        return self.client.patch(detail_url(prop.pk), payload, format="json")
+
+    def test_admin_sets_coordinates_rounded_to_6_decimals(self):
+        resp = self.patch(self.athens, {"latitude": 37.97551234567891, "longitude": "23.734849999"})
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.athens.refresh_from_db()
+        self.assertEqual((self.athens.latitude, self.athens.longitude), (Decimal("37.975512"), Decimal("23.734850")))
+        self.assertEqual(resp.data["latitude"], Decimal("37.975512"))
+
+    def test_create_with_coordinates(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(LIST_URL, {
+            "title": "Map Loft", "location": "Volos, Greece", "price_per_night": "70.00",
+            "capacity": 2, "latitude": 39.366, "longitude": 22.942,
+        }, format="json")
+        self.assertEqual(resp.status_code, 201, resp.data)
+        prop = Property.objects.get(pk=resp.data["id"])
+        self.assertEqual((prop.latitude, prop.longitude), (Decimal("39.366000"), Decimal("22.942000")))
+
+    def test_only_one_coordinate_is_rejected(self):
+        resp = self.patch(self.athens, {"latitude": 37.9})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("longitude", resp.data)
+        resp = self.patch(self.athens, {"longitude": 23.7})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("latitude", resp.data)
+
+    def test_patch_one_keeps_the_other(self):
+        resp = self.patch(self.thess, {"latitude": 40.64})
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.thess.refresh_from_db()
+        self.assertEqual((self.thess.latitude, self.thess.longitude), (Decimal("40.640000"), THESS_LNG))
+
+    def test_clearing_one_of_two_is_rejected(self):
+        resp = self.patch(self.thess, {"longitude": None})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("longitude", resp.data)
+
+    def test_clear_both_with_null_or_blank(self):
+        for empty in (None, ""):
+            Property.objects.filter(pk=self.thess.pk).update(latitude=THESS_LAT, longitude=THESS_LNG)
+            resp = self.patch(self.thess, {"latitude": empty, "longitude": empty})
+            self.assertEqual(resp.status_code, 200, resp.data)
+            self.thess.refresh_from_db()
+            self.assertIsNone(self.thess.latitude)
+            self.assertIsNone(self.thess.longitude)
+
+    def test_bad_values_are_rejected(self):
+        for payload in (
+            {"latitude": 90.5, "longitude": 0},
+            {"latitude": 0, "longitude": 180.1},
+            {"latitude": "abc", "longitude": 0},
+            {"latitude": "NaN", "longitude": 0},
+            {"latitude": "Infinity", "longitude": 0},
+            {"latitude": True, "longitude": 0},
+        ):
+            with self.subTest(payload=payload):
+                resp = self.patch(self.athens, payload)
+                self.assertEqual(resp.status_code, 400, resp.data)
+        self.athens.refresh_from_db()
+        self.assertIsNone(self.athens.latitude)
+
+    def test_guest_cannot_set_coordinates(self):
+        self.client.force_authenticate(self.guest)
+        resp = self.client.patch(detail_url(self.thess.pk), {"latitude": 1, "longitude": 1}, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+
+class BackfillMigrationTests(TransactionTestCase):
+    """0004_backfill_coordinates: known cities get a point, others don't,
+    existing coordinates are kept."""
+
+    before = [("listings", "0003_property_coordinates")]
+    after = [("listings", "0004_backfill_coordinates")]
+
+    def test_backfill(self):
+        from django.db.migrations.executor import MigrationExecutor
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.before)
+        old_apps = executor.loader.project_state(self.before).apps
+        OldProperty = old_apps.get_model("listings", "Property")
+        common = {"price_per_night": Decimal("50"), "capacity": 2, "amenities": []}
+        chania = OldProperty.objects.create(title="A", location="Chania, Greece", **common)
+        lower = OldProperty.objects.create(title="B", location="  mykonos , greece", **common)
+        unknown = OldProperty.objects.create(title="C", location="Paris, France", **common)
+        placed = OldProperty.objects.create(title="D", location="Athens, Greece",
+                                            latitude=Decimal("1.5"), longitude=Decimal("2.5"), **common)
+
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(self.after)
+
+        rows = {p.pk: p for p in Property.objects.all()}
+        lat, lng, radius = geo.CITY_CENTRES["chania"]
+        self.assertLessEqual(geo.distance_metres(lat, lng, rows[chania.pk].latitude, rows[chania.pk].longitude), radius + 1)
+        self.assertIsNotNone(rows[lower.pk].latitude)
+        self.assertIsNone(rows[unknown.pk].latitude)
+        self.assertEqual((rows[placed.pk].latitude, rows[placed.pk].longitude), (Decimal("1.500000"), Decimal("2.500000")))
+
+    def tearDown(self):
+        from django.core.management import call_command as _call
+
+        _call("migrate", verbosity=0)

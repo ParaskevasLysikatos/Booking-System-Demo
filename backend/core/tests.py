@@ -85,3 +85,16 @@ class HealthCheckTests(TestCase):
             body = self.client.get(self.URL).json()
         self.assertEqual(body["database"], "error")
         self.assertIn("secret-db.internal", logs.output[0])  # still visible in the server logs
+
+
+class SeedCoordinatesTests(TestCase):
+    """TICKET-034: seeded places get a map position near their city."""
+
+    def test_every_seeded_property_is_near_its_city(self):
+        from listings import geo
+
+        call_command("seed_demo_data", "--properties", "12", "--guests", "1", "--seed", "5", stdout=StringIO())
+        for prop in Property.objects.all():
+            lat, lng, radius = geo.CITY_CENTRES[geo.city_for(prop.location)]
+            self.assertIsNotNone(prop.latitude, prop.location)
+            self.assertLessEqual(geo.distance_metres(lat, lng, prop.latitude, prop.longitude), radius + 1)
