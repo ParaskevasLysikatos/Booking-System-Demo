@@ -191,6 +191,12 @@ class GmailAuthorizeCommandTests(SimpleTestCase):
                          stdout=StringIO())
         self.assertIn("state mismatch", str(ctx.exception))
 
+    @override_settings(**GMAIL)
+    def test_explains_when_something_else_is_pasted(self):
+        with self.assertRaises(CommandError) as ctx:
+            call_command("gmail_authorize", redirected_url="lysikatosparaskevas@gmail.com", stdout=StringIO())
+        self.assertIn("isn't the browser's address", str(ctx.exception))
+
     @override_settings(GMAIL_CLIENT_ID="", GMAIL_CLIENT_SECRET="")
     def test_needs_the_client_settings(self):
         with self.assertRaises(CommandError):

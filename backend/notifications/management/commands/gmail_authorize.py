@@ -54,11 +54,16 @@ class Command(BaseCommand):
         })
         self.stdout.write("1) Open this link and sign in with the Gmail account that should send the emails:\n")
         self.stdout.write(url + "\n")
-        self.stdout.write("2) \"Google hasn't verified this app\" -> Advanced -> Go to ... (unsafe) -> Continue.")
-        self.stdout.write("3) The browser ends on a page that doesn't load (127.0.0.1:8765/?code=...).")
-        self.stdout.write("   Copy that whole address from the address bar and paste it here.\n")
+        self.stdout.write("2) \"Google hasn't verified this app\" -> Continue (or Advanced -> Go to ... (unsafe)),")
+        self.stdout.write("   then allow \"Send email on your behalf\".")
+        self.stdout.write("3) The browser ends on an error page (\"This site can't be reached\") - that's expected.")
+        self.stdout.write("   Copy the whole web address from the browser's address bar - it starts with")
+        self.stdout.write("   http://127.0.0.1:8765/?state=... - and paste it below (not your email address).\n")
 
-        redirected = options["redirected_url"] or input("Address: ")
+        redirected = options["redirected_url"] or input("Browser address (http://127.0.0.1:8765/...): ")
+        if not redirected.strip().startswith(("http://127.0.0.1:8765", "127.0.0.1:8765")):
+            raise CommandError("That isn't the browser's address. After signing in, copy the address that starts "
+                               "with http://127.0.0.1:8765/?state=... from the address bar - run the command again.")
         query = urllib.parse.parse_qs(urllib.parse.urlparse(redirected.strip()).query)
         if "error" in query:
             raise CommandError(f"Google said: {query['error'][0]}")
