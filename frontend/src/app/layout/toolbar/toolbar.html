@@ -34,9 +34,17 @@
       @if (auth.isAdmin()) {
         <a mat-menu-item routerLink="/admin" class="menu-link"><mat-icon>admin_panel_settings</mat-icon>Admin</a>
       }
+      @if (install.canInstall()) {
+        <button mat-menu-item type="button" class="install" (click)="installApp()"><mat-icon>install_mobile</mat-icon>Install app</button>
+      }
       <button mat-menu-item type="button" (click)="auth.logout()"><mat-icon>logout</mat-icon>Log out</button>
     </mat-menu>
   } @else {
+    @if (install.canInstall()) {
+      <button mat-icon-button type="button" class="install" (click)="installApp()" matTooltip="Install app" aria-label="Install app">
+        <mat-icon>install_mobile</mat-icon>
+      </button>
+    }
     <a mat-button routerLink="/login">Log in</a>
     <a mat-flat-button routerLink="/register">Sign up</a>
   }

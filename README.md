@@ -27,7 +27,9 @@ API", "Admin stats API" and "Admin bookings". Guests now **pay online
 with Stripe (test mode)** - Confirm and pay, a 30-minute date hold, the
 webhook confirming bookings, Pay now, refunds flagged for the host
 (TICKET-029, tested end to end locally and on Render); see "Payments
-(Stripe)". See "Next steps" at the bottom for what's next.
+(Stripe)". The site works on phones and tablets and can be installed
+as an app (TICKET-031, see "Mobile & PWA"). See "Next steps" at the
+bottom for what's next.
 
 ## Prerequisites
 
@@ -217,6 +219,8 @@ frontend/
     pages/login/, pages/register/       Auth forms (Angular Material)
     testing/fake-jwt.ts                 Test helper that builds JWT-shaped tokens
   src/styles/_responsive.scss         Shared breakpoints (phone ≤ 600, tablet ≤ 960) + table-cards mixin (TICKET-031)
+  src/app/core/pwa/                   InstallService ("Install app": browser prompt or iOS steps) + the iOS steps dialog (TICKET-031)
+  public/manifest.webmanifest         Web app manifest (installable app, no service worker) + public/icons/ (TICKET-031)
 
 docker-compose.yml   Wires the four services together
 scripts/hosted-check.sh           Wakes the hosted demo and smoke-checks it (TICKET-028)
@@ -3618,6 +3622,63 @@ confirmed; hidden while the panel is on screen, observer disconnected when
 leaving the page). The table cards are CSS only, so the existing admin
 table tests cover them unchanged.
 
+### Installing it as an app (PWA)
+
+**Manifest + icons only, no service worker** (agreed): the site is
+installable, but nothing is cached, so an installed app always runs the
+latest deploy and never shows stale bookings or payment states. (Chrome no
+longer needs a service worker to install a site; offline use is out of
+scope.)
+
+- `public/manifest.webmanifest`: name *Booking System Demo*, short name
+  *Bookings*, `start_url` `/listings`, `display: standalone` (own window,
+  no address bar), `theme_color` `#efedf0` (the toolbar's colour, so the
+  phone's status bar blends in), `background_color` `#faf9fd` (the splash
+  screen), two shortcuts (long-press the icon): *Find a stay*, *My bookings*.
+- Icons in `public/icons/`: `icon-192.png`, `icon-512.png`,
+  `icon-maskable-512.png` (full-bleed, the house inside Android's 80 % safe
+  zone, so circle/squircle masks never cut it), `apple-touch-icon.png`
+  (180 px, no transparency), `icon.svg` (favicon in modern browsers) +
+  `favicon.ico` (16/32/48). An original white house on the app's azure
+  (`#005cbb`).
+- `index.html`: `<link rel="manifest">`, `theme-color`, the icons, the iOS
+  home-screen title and status bar, `viewport-fit=cover`.
+- The manifest and icons are plain files in `public/`, so Render serves
+  them as they are (the `/*` → `index.html` rewrite only applies to paths
+  that aren't files).
+
+**Install button** (`core/pwa/install.service.ts` + the toolbar):
+
+| Browser | What the user sees |
+|---|---|
+| Chrome / Edge (desktop), Chrome / Samsung Internet (Android) | **Install app** in the account menu, or an install icon next to *Log in* when logged out. Only appears once the browser fires `beforeinstallprompt` (it's installable and not installed yet); tapping it shows the browser's own install prompt. |
+| Safari on iPhone / iPad | The same button, always (Safari has no install event); it opens **"Install the app"** with the steps *Share → Add to Home Screen → Add* (`core/pwa/install-ios-dialog.ts`). |
+| Already installed / running as the app | No button (`display-mode: standalone`, or iOS `navigator.standalone`, or the `appinstalled` event). |
+| Firefox, desktop Safari | No button (no install support to trigger); their own menus still work. |
+
+`InstallService` is created at start-up by `App`, so the browser's one-off
+event is caught even before the toolbar exists; each prompt event is used
+once (the browser sends a new one later if the user said no).
+
+### Checked
+
+- Chrome's own installability check (DevTools protocol
+  `Page.getInstallabilityErrors`) on the production build: **no errors**;
+  manifest parsed with no errors, app id `/`.
+- iPhone emulation: the install icon next to Log in, and the steps dialog
+  fits a 390 px screen.
+- `scripts/hosted-check.sh` (the "Hosted demo check" workflow) now also
+  checks that the site serves the manifest and the 512 px icon.
+- Production build: initial bundle 600 kB raw / 146 kB transferred, no
+  budget warnings.
+
+Tests: 9 new Vitest tests - `install.service.spec.ts` (7: nothing offered
+until the browser's event, the browser's mini-bar suppressed, the prompt
+replayed once and its answer returned, hidden after `appinstalled`, iPhone
+and iPad (Mac with touch) detection → the steps, never offered when already
+running as the app) and the toolbar (2: the logged-out icon and the menu
+item, the iPhone steps dialog). **225 frontend tests pass.**
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -4159,6 +4220,7 @@ cancelled, admin alert - sent at every booking change) and step 3
 accounts' mail goes to the owner's inbox, and emails are sent through the
 **Gmail API** as the owner's real Gmail (Brevo removed) - tested locally
 and on Render; see "Emails". **TICKET-031 (responsive layout + PWA) is
-in progress:** the responsive part is done (shared breakpoints, admin
-tables as cards, the detail page's bottom bar, safe areas); the PWA
-manifest, icons and Install button are next. See "Mobile & PWA".
+done:** shared breakpoints, admin tables as cards, the detail page's bottom
+bar, safe areas, and the app is installable (manifest + icons, no service
+worker) with an Install app button (iPhone: the Share → Add to Home Screen
+steps); see "Mobile & PWA". Next: TICKET-032 (reviews/ratings UI).

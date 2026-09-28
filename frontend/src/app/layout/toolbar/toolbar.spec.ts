@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
+import { InstallService } from '../../core/pwa/install.service';
 import { ToolbarComponent } from './toolbar';
 
 describe('ToolbarComponent', () => {
@@ -61,5 +62,45 @@ describe('ToolbarComponent', () => {
     expect(menu.textContent).toContain('admin@example.com');
     expect(menu.textContent).toContain('Admin');
     expect(menu.textContent).toContain('Log out');
+  });
+
+  describe('Install app (TICKET-031)', () => {
+    /** The browser saying "this site can be installed" (Chrome's beforeinstallprompt). */
+    function browserOffersInstall() {
+      const event = new Event('beforeinstallprompt', { cancelable: true });
+      Object.assign(event, { prompt: vi.fn(), userChoice: Promise.resolve({ outcome: 'accepted', platform: 'web' }) });
+      window.dispatchEvent(event);
+    }
+
+    it('logged out: an install icon next to Log in, only once the browser can install', async () => {
+      const { fixture, el } = render(null);
+      expect(el.querySelector('button.install')).toBeNull();
+
+      const install = vi.spyOn(TestBed.inject(InstallService), 'install').mockResolvedValue('accepted');
+      browserOffersInstall();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const button = el.querySelector<HTMLButtonElement>('button.install')!;
+      expect(button.getAttribute('aria-label')).toBe('Install app');
+      button.click();
+      expect(install).toHaveBeenCalled();
+    });
+
+    it('logged in: "Install app" in the account menu; on iPhone it opens the steps dialog', async () => {
+      const { fixture, el } = render('guest');
+      vi.spyOn(TestBed.inject(InstallService), 'install').mockResolvedValue('ios-instructions');
+      browserOffersInstall();
+      fixture.detectChanges();
+      (el.querySelector('.account') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const item = document.querySelector<HTMLButtonElement>('.mat-mdc-menu-panel button.install')!;
+      expect(item.textContent).toContain('Install app');
+
+      item.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(document.querySelector('app-install-ios-dialog')!.textContent).toContain('Add to Home Screen');
+    });
   });
 });

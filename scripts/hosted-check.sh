@@ -56,6 +56,15 @@ xfo=$(curl -sS --max-time 30 -o /dev/null -D - "$SITE/" | tr -d '\r' | awk -F': 
 [ "$xfo" = "DENY" ] || fail "Site is missing X-Frame-Options: DENY (got '${xfo:-nothing}')"
 ok "Security headers present"
 
+# 5b. Installable app (TICKET-031): the manifest is a real file (not the SPA's
+#     index.html) and its big icon is there.
+manifest=$(curl -sS --max-time 30 "$SITE/manifest.webmanifest")
+name=$(printf '%s' "$manifest" | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])' 2>/dev/null) \
+  || fail "Site's /manifest.webmanifest isn't the app manifest (the install button needs it)"
+icon=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code} %{content_type}' "$SITE/icons/icon-512.png")
+[ "$icon" = "200 image/png" ] || fail "App icon /icons/icon-512.png answered '$icon'"
+ok "Installable: manifest \"$name\" + icons served"
+
 # 6. Online payments (TICKET-029): report whether they're switched on.
 #    Informational - the demo works either way (off = the host confirms bookings).
 payments=$(curl -sS --max-time 30 -H 'Accept: application/json' "$API/api/payments/config/" | json "d['enabled']" 2>/dev/null || echo "unknown")
