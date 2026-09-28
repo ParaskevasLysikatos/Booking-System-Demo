@@ -747,7 +747,7 @@ test, always last).
     - Nothing was saved to either database during the checks.
     - README: new "Map view: final check"; status and next steps updated.
   - **Done.** Stays have a map position (exact for admins, a ~500 m area for everyone else); `/listings` shows every matching stay on a map (60/40 split on wide screens, Show map on phones, clusters, pop-up card with heart and stay total); the property page has "Where you'll be" + Open in Google Maps; the admin form requires a position (Find on map with Nominatim, click/drag). Base map: softened OpenStreetMap (CARTO now needs a key). Backend 392 tests, frontend 353 tests.
-  - Possible follow-ups (not needed for the demo): shorten the Find on map label to the first few address parts; English→Greek name hints for tourist spots Nominatim doesn't know.
+  - Follow-up: shorter Find on map labels → TICKET-042. (Not doing: hints for tourist names Nominatim doesn't know - owner's call: typing a real address is the admin's job, and the pin can always be clicked/dragged.)
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023
@@ -755,6 +755,13 @@ test, always last).
 - [ ] **TICKET-036** — Real photo uploads
   - Priority: P2 · Depends on: TICKET-006
   - Replaces the fallback of fixed stock photo URLs. ( i want to add my S3 aws bucket)
+
+- [ ] **TICKET-042** — Shorter "Placed at …" labels in the admin Find on map
+  - Priority: P2 · Depends on: TICKET-034 · Small; can be folded into TICKET-037 (UI polish pass)
+  - Requested after TICKET-034: the label is Nominatim's full address line, e.g. "Ιωάννη Τσιμισκή, Ladadika, 1st District of Thessaloniki, Thessaloniki Municipal Unit, Municipality of Thessaloniki, … , 546 23, Greece" - too long to read at a glance.
+  - Show a short form, e.g. the first 2-3 parts + the town ("Ιωάννη Τσιμισκή, Ladadika, Thessaloniki"), with the full line available (title/tooltip). Decide when the ticket starts: shorten on the backend (`listings/geocoding.py`, e.g. a `short_label` built from Nominatim's `addressdetails`) or in the frontend (`location-picker.ts`).
+  - Out of scope (owner's decision): matching English tourist names Nominatim doesn't know - typing a real address is the admin's job; click/drag the pin otherwise.
+  - Tests for the shortening (street / house number / town-only / no town) + update the README's "Admin properties → Map position".
 
 ---
 

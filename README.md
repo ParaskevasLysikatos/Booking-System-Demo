@@ -1770,7 +1770,11 @@ the API):
   centre, not the town. Clicking or dragging the pin is the quick fix.
 - **Search labels:** these are Nominatim's full address lines. They can be
   long, and part of them may stay in Greek when OSM has no English name,
-  e.g. "Ιωάννη Τσιμισκή, Ladadika, …".
+  e.g. "Ιωάννη Τσιμισκή, Ladadika, …". Shortening them is planned as
+  TICKET-042.
+- **Typing a real address is the admin's job** (the owner's decision).
+  There are no hints for tourist names Nominatim doesn't know; click or
+  drag the pin instead.
 
 ## Frontend auth (Angular)
 
