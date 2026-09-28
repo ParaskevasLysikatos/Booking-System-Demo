@@ -45,7 +45,9 @@ can have a map position (exact for admins; everyone else only gets a
 ~500 m area), existing and seeded places get one near their city; see
 "Map positions API (TICKET-034)"; step 2 is done - `GET
 /api/properties/map/` returns every matching stay as a map pin; see "Map
-pins API (TICKET-034)". See "Next steps" at the bottom for
+pins API (TICKET-034)"; step 3 is done - admins can look up an address in
+Greece (`GET /api/admin/geocode/`) to place a pin; see "Admin place search
+API (TICKET-034)". See "Next steps" at the bottom for
 what's next.
 
 ## Prerequisites
@@ -134,7 +136,9 @@ backend/
     geo.py             Map helpers: the approximate point guests see, the demo city centres (TICKET-034)
     serializers.py     List (card) + detail (images, availability; also the admin write serializer, nested images)
     filters.py         Query-param validation + filtering (location, guests, price, dates, ordering)
-    views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete) + /map/ pins (TICKET-034)
+    views.py           PropertyViewSet - /api/properties/ (public read, admin write, soft delete) + /map/ pins,
+                       GeocodeView - /api/admin/geocode/ (TICKET-034)
+    geocoding.py       "Find on map" place search: OpenStreetMap Nominatim, Greece only, cached, 1 request/s (TICKET-034)
     queries.py         property_cards() - the annotated queryset (rating, is_favorite, admin favorite_count)
                        shared by the properties API and the Saved list (TICKET-033)
     urls.py            Router for /api/properties/
@@ -1548,6 +1552,115 @@ curl "http://localhost:8000/api/properties/map/?location=chania&guests=2&check_i
   the endpoint returned 13 approximate pins to a logged-out visitor, 14
   pins to the admin (13 with `is_active=true`), 1 pin for Athens + 2
   guests, and a `400` for min > max price.
+
+## Admin place search API (TICKET-034)
+
+Step 3 of the map view: the admin property form's **Find on map** (built
+in step 7) needs to turn text like "Tsimiski 45, Thessaloniki" into a
+point. `GET /api/admin/geocode/?q=…` does that with OpenStreetMap
+**Nominatim**, which is free and needs no API key. Code:
+`listings/geocoding.py` and `listings/views.py:GeocodeView`.
+
+### Decisions (agreed before building)
+
+- **Greece only.** Nominatim is called with `countrycodes=gr`, so short
+  names like "Volos" match the Greek town, and places abroad can't be
+  found.
+- **Specific places, several to choose from.** It returns up to **5**
+  matches, most relevant first: addresses, streets, neighbourhoods,
+  villages, towns. Region- or country-level matches ("Crete", "Central
+  Macedonia") are dropped, because they would drop the pin in the middle
+  of nowhere. The admin picks the one they mean in step 7.
+
+### Request and response
+
+`GET /api/admin/geocode/?q=Tsimiski 45, Thessaloniki` (admin only):
+
+```json
+{
+  "query": "Tsimiski 45, Thessaloniki",
+  "results": [
+    { "label": "45, Tsimiski, Center, Thessaloniki, 546 23, Greece", "name": "45",
+      "latitude": 40.632711, "longitude": 22.943158, "precision": "address", "kind": "house" },
+    { "label": "Tsimiski, Thessaloniki, Greece", "name": "Tsimiski",
+      "latitude": 40.6311, "longitude": 22.9468, "precision": "street", "kind": "road" }
+  ],
+  "attribution": "Search by OpenStreetMap Nominatim · © OpenStreetMap contributors"
+}
+```
+
+**`precision`** comes from Nominatim's `place_rank` and tells the form
+how exact the point is:
+
+| `precision` | `place_rank` | Examples |
+| --- | --- | --- |
+| `address` | 28-30 | a house number, a building, a named place (hotel, square) |
+| `street` | 26-27 | a road |
+| `area` | 17-25 | a village, suburb, neighbourhood, island |
+| `city` | 13-16 | a city or town |
+| *(dropped)* | below 13 | country, region, county |
+
+`kind` is Nominatim's own label (`house`, `road`, `suburb`, `city`, ...).
+Duplicates (the same point twice) are removed, and items without a valid
+point are skipped.
+
+| Status | When |
+| --- | --- |
+| `200` | Found something, or `"results": []` for nothing found |
+| `400` | `q` missing, or shorter than 2 / longer than 200 characters (after trimming) |
+| `401` / `403` | Not logged in / not an admin |
+| `429` | More than 30 searches a minute by one admin (`GeocodeThrottle`) |
+| `503` `geocoding_unavailable` | Nominatim couldn't be reached, timed out (5 s), refused (e.g. its own 429) or sent something unusable. The admin can still click the map or type the numbers. |
+| `503` `geocoding_disabled` | `GEOCODING_URL` is empty (search switched off) |
+
+### Following Nominatim's usage policy
+
+The search runs on the server, not in the browser, so the rules of the
+[usage policy](https://operations.osmfoundation.org/policies/nominatim/)
+are kept in one place:
+
+- **An identifying User-Agent:**
+  `BookingSystemDemo/1.0 (+https://github.com/ParaskevasLysikatos/Booking-System-Demo)`
+  (`GEOCODING_USER_AGENT`).
+- **At most 1 request per second** per server process. A lock and a
+  timestamp make a second search wait for its turn.
+- **Caching:** results are kept for 24 hours, and "nothing found" for
+  1 hour, in Django's cache (the default in-memory cache). The key ignores
+  case and extra spaces, so searching the same text again never reaches
+  Nominatim. Errors are not cached.
+- **Attribution:** returned with every response, for the form to show.
+- **Settings:** see "Environment variables" (`GEOCODING_*`). The defaults
+  work, so nothing needs to be set locally or on Render.
+
+### Try it with curl
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_ACCESS" \
+  --get --data-urlencode "q=Tsimiski 45, Thessaloniki" http://localhost:8000/api/admin/geocode/
+```
+
+### Tests
+
+- `listings/tests.py:GeocodeAPITests` has 16 tests. Nominatim is mocked,
+  so the tests never touch the network. They cover:
+  - specific results in order, with region-level ones dropped
+  - the request asks for Greece only, in English
+  - at most 5 results and no duplicates
+  - the precision labels
+  - broken items skipped, and nothing found
+  - caching ignores case and spaces
+  - the 1-second spacing
+  - network, timeout and HTTP 429 errors, and an unexpected reply → `503`,
+    which isn't cached
+  - the User-Agent header and the URL
+  - switched off → `503`
+  - query validation
+  - admin only
+  - the per-admin limit
+- **Results:** **388** backend tests pass on Postgres.
+- **Not checked live:** this sandbox can't reach Nominatim (outbound
+  traffic is blocked here), so the lookup against the real service is
+  checked on Render.
 
 ## Frontend auth (Angular)
 
@@ -5047,6 +5160,7 @@ you ever need to regenerate it.
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` / `EMAIL_USE_TLS` / `EMAIL_TIMEOUT` / `EMAIL_SENDING_STALE_MINUTES` | backend | SMTP details (Docker: `mailpit:1025`), timeout in seconds (default 10), minutes before a stuck send is retried (default 10) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
+| `GEOCODING_URL` / `GEOCODING_USER_AGENT` / `GEOCODING_LANGUAGE` / `GEOCODING_TIMEOUT` | backend | Optional: the admin form's "Find on map" place search (TICKET-034). Defaults: OpenStreetMap Nominatim, an identifying User-Agent for this project, `en`, `5` seconds. An empty `GEOCODING_URL` switches the search off. See "Admin place search API" |
 
 ## Using pgAdmin
 
@@ -5212,5 +5326,8 @@ a ~500 m area for everyone else, the backfill migration and seeded
 positions) is done; see "Map positions API (TICKET-034)"; step 2 (`GET
 /api/properties/map/`: every stay matching the listings filters as a map
 pin, with `missing_position` and a 500-pin safety limit) is done; see "Map
-pins API (TICKET-034)". Next: step 3, the admin geocode endpoint (Find on
-map).
+pins API (TICKET-034)"; step 3 (`GET /api/admin/geocode/`: up to 5
+specific places in Greece from OpenStreetMap Nominatim for the admin
+form's Find on map - cached, 1 request/s, 503 when unavailable) is done;
+see "Admin place search API (TICKET-034)". Next: step 4, the shared
+Leaflet map component.

@@ -705,6 +705,12 @@ test, always last).
     - Same exact/approximate rule as the cards (pin = card = property page point). 4 queries however many pins; ~4 kB for the 14 seeded stays.
     - 13 new tests; **372 backend tests** pass on Postgres. Checked against seeded data (13 approximate pins logged out, 14/13 for the admin, filters, 400).
     - README: new "Map pins API (TICKET-034)"; Properties API table, layout, status and next steps updated.
+  - Step 3 done (admin place search):
+    - Decisions: **Greece only** (`countrycodes=gr`); up to **5 specific places** to pick from (address / street / area / city, from Nominatim's `place_rank`) - region/country-level matches dropped.
+    - `GET /api/admin/geocode/?q=` (`listings/geocoding.py` + `GeocodeView`, admin only): `{query, results: [{label, name, latitude, longitude, precision, kind}], attribution}`; 400 for a missing/too short/too long `q`, 429 past 30 searches/min per admin, **503** (`geocoding_unavailable` / `geocoding_disabled`) when Nominatim can't be used - the admin can still place the pin by hand.
+    - Nominatim usage policy kept on the server: identifying User-Agent, ≤ 1 request/s per process (lock + timestamp), results cached 24 h (1 h for nothing found; case/space-insensitive key), attribution returned. Settings `GEOCODING_URL` / `_USER_AGENT` / `_LANGUAGE` / `_TIMEOUT` (defaults work; empty URL = off), documented in `.env.example`. No new dependency (`urllib`).
+    - 16 new tests (Nominatim mocked); **388 backend tests** pass on Postgres. The live lookup can't be tried from this sandbox (Nominatim is blocked by the sandbox's outbound rules) - checked on Render instead.
+    - README: new "Admin place search API (TICKET-034)"; layout, environment variables, status and next steps updated.
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023

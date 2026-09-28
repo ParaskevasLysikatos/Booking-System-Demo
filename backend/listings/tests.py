@@ -709,3 +709,175 @@ class MapPinTests(PropertyAPITestBase):
         # the router must match /properties/map/ before /properties/{pk}/
         self.assertEqual(self.MAP_URL, "/api/properties/map/")
         self.assertIn("results", self.get().data)
+
+
+# --------------------------------------------------------------------------
+# TICKET-034 step 3: admin place search (Nominatim, mocked - tests never
+# touch the network)
+# --------------------------------------------------------------------------
+
+import urllib.error  # noqa: E402
+from unittest import mock  # noqa: E402
+
+from django.core.cache import cache  # noqa: E402
+from django.test import override_settings  # noqa: E402
+
+from . import geocoding  # noqa: E402
+
+GEOCODE_URL = reverse("admin-geocode")
+
+
+def nominatim_item(name, lat, lon, rank, addresstype="road", display=None):
+    return {
+        "place_id": hash(name) & 0xFFFF, "lat": str(lat), "lon": str(lon), "place_rank": rank,
+        "category": "place", "type": addresstype, "addresstype": addresstype, "name": name,
+        "display_name": display or f"{name}, Thessaloniki, Greece",
+    }
+
+
+TSIMISKI = [
+    nominatim_item("45", 40.6327112, 22.9431577, 30, "house",
+                   "45, Tsimiski, Center, Thessaloniki, 546 23, Greece"),
+    nominatim_item("Tsimiski", 40.6311, 22.9468, 26, "road"),
+    nominatim_item("Central Macedonia", 40.6, 23.0, 8, "state", "Central Macedonia, Greece"),
+    nominatim_item("Thessaloniki", 40.6403, 22.9439, 16, "city", "Thessaloniki, Greece"),
+]
+
+
+@mock.patch.object(geocoding, "MIN_INTERVAL_SECONDS", 0)
+class GeocodeAPITests(PropertyAPITestBase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()  # search results and the throttle live in the cache
+        self.client.force_authenticate(self.admin)
+
+    def tearDown(self):
+        cache.clear()
+
+    def get(self, q, fetch_return=TSIMISKI, **fetch_kwargs):
+        with mock.patch.object(geocoding, "_fetch", return_value=fetch_return, **fetch_kwargs) as fetch:
+            resp = self.client.get(GEOCODE_URL, {"q": q})
+        return resp, fetch
+
+    def test_specific_places_in_relevance_order_broad_ones_dropped(self):
+        resp, _ = self.get("Tsimiski 45, Thessaloniki")
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data["query"], "Tsimiski 45, Thessaloniki")
+        self.assertIn("OpenStreetMap", resp.data["attribution"])
+        results = resp.data["results"]
+        self.assertEqual([r["precision"] for r in results], ["address", "street", "city"])  # region dropped
+        self.assertEqual(results[0], {
+            "label": "45, Tsimiski, Center, Thessaloniki, 546 23, Greece", "name": "45",
+            "latitude": 40.632711, "longitude": 22.943158, "precision": "address", "kind": "house",
+        })
+
+    def test_asks_nominatim_for_greece_only_in_english(self):
+        _, fetch = self.get("Volos")
+        params = fetch.call_args.args[0]
+        self.assertEqual(params["countrycodes"], "gr")
+        self.assertEqual(params["q"], "Volos")
+        self.assertEqual(params["format"], "jsonv2")
+        self.assertEqual(params["accept-language"], "en")
+
+    def test_at_most_five_and_no_duplicates(self):
+        raw = [nominatim_item(f"Street {i}", 40.60 + i / 100, 22.90, 26) for i in range(8)]
+        raw.insert(1, nominatim_item("Street 0 again", 40.60, 22.90, 26))  # same point as Street 0
+        results = self.get("street", fetch_return=raw)[0].data["results"]
+        self.assertEqual(len(results), 5)
+        self.assertEqual([r["name"] for r in results], [f"Street {i}" for i in range(5)])
+
+    def test_precision_labels(self):
+        self.assertEqual(
+            [geocoding.precision_for(r) for r in (30, 28, 27, 26, 25, 17, 16, 13)],
+            ["address", "address", "street", "street", "area", "area", "city", "city"],
+        )
+
+    def test_bad_items_are_skipped(self):
+        raw = [{"lat": "x", "lon": "1", "place_rank": 30, "display_name": "Bad"}, "junk",
+               {"lon": "1", "place_rank": 30}, nominatim_item("Good", 40.6, 22.9, 30, "house")]
+        results = self.get("good", fetch_return=raw)[0].data["results"]
+        self.assertEqual([r["name"] for r in results], ["Good"])
+
+    def test_nothing_found(self):
+        resp, _ = self.get("zzzz", fetch_return=[])
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["results"], [])
+
+    def test_results_are_cached(self):
+        self.get("Tsimiski 45, Thessaloniki")
+        resp, fetch = self.get("  tsimiski 45,   THESSALONIKI ")  # same search, other spacing/case
+        fetch.assert_not_called()
+        self.assertEqual(len(resp.data["results"]), 3)
+
+    def test_requests_are_spaced_one_second_apart(self):
+        with mock.patch.object(geocoding, "MIN_INTERVAL_SECONDS", 1.0), \
+                mock.patch.object(geocoding, "_last_request_at", 100.0), \
+                mock.patch.object(geocoding.time, "monotonic", return_value=100.25), \
+                mock.patch.object(geocoding.time, "sleep") as sleep:
+            self.get("Chania")
+        sleep.assert_called_once()
+        self.assertAlmostEqual(sleep.call_args.args[0], 0.75)
+
+    def test_service_errors_are_503(self):
+        for error in (urllib.error.URLError("down"), geocoding.GeocodingError("bad json")):
+            with self.subTest(error=error):
+                cache.clear()
+                resp, _ = self.get("Chania", side_effect=error if isinstance(error, geocoding.GeocodingError)
+                                   else geocoding.GeocodingError(str(error)))
+                self.assertEqual(resp.status_code, 503)
+                self.assertEqual(resp.data["code"], "geocoding_unavailable")
+
+    def test_unexpected_shape_is_503_and_not_cached(self):
+        resp, _ = self.get("Chania", fetch_return={"error": "rate limited"})
+        self.assertEqual(resp.status_code, 503)
+        resp, fetch = self.get("Chania")
+        fetch.assert_called_once()
+        self.assertEqual(resp.status_code, 200)
+
+    def test_fetch_turns_network_failures_into_geocoding_error(self):
+        # the real _fetch, with urlopen failing - no network involved
+        for exc in (urllib.error.URLError("dns"), TimeoutError(), urllib.error.HTTPError(
+                "https://x", 429, "Too Many Requests", {}, None)):
+            with self.subTest(exc=type(exc).__name__), \
+                    mock.patch.object(geocoding.urllib.request, "urlopen", side_effect=exc), \
+                    self.assertRaises(geocoding.GeocodingError):
+                geocoding._fetch({"q": "x"})
+
+    def test_fetch_sends_the_user_agent(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"[]"
+        with mock.patch.object(geocoding.urllib.request, "urlopen", return_value=response) as urlopen:
+            self.assertEqual(geocoding._fetch({"q": "Volos", "countrycodes": "gr"}), [])
+        request = urlopen.call_args.args[0]
+        self.assertIn("BookingSystemDemo", request.get_header("User-agent"))
+        self.assertIn("countrycodes=gr", request.full_url)
+        self.assertTrue(request.full_url.startswith("https://nominatim.openstreetmap.org/search?"))
+
+    @override_settings(GEOCODING_URL="")
+    def test_switched_off_is_503(self):
+        resp, fetch = self.get("Chania")
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.data["code"], "geocoding_disabled")
+        fetch.assert_not_called()
+
+    def test_query_validation(self):
+        for q in ("", " ", "a", "x" * 201):
+            with self.subTest(q=q[:10]):
+                resp, fetch = self.get(q)
+                self.assertEqual(resp.status_code, 400)
+                fetch.assert_not_called()
+        with mock.patch.object(geocoding, "_fetch", return_value=[]):
+            self.assertEqual(self.client.get(GEOCODE_URL).status_code, 400)
+
+    def test_admin_only(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.get("Chania")[0].status_code, 401)
+        self.client.force_authenticate(self.guest)
+        resp, fetch = self.get("Chania")
+        self.assertEqual(resp.status_code, 403)
+        fetch.assert_not_called()
+
+    def test_throttled_per_admin(self):
+        with mock.patch("listings.views.GeocodeThrottle.rate", "2/min"):
+            codes = [self.get(f"place {i}")[0].status_code for i in range(3)]
+        self.assertEqual(codes, [200, 200, 429])

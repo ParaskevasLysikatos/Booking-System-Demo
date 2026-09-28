@@ -157,6 +157,19 @@ REST_FRAMEWORK = {
     ],
 }
 
+# Place search for the admin form's "Find on map" (TICKET-034,
+# listings/geocoding.py): OpenStreetMap Nominatim, Greece only. Its usage
+# policy asks for an identifying User-Agent and at most 1 request/second
+# (enforced in geocoding.py). An empty GEOCODING_URL switches the search off
+# (the endpoint answers 503 and admins place the pin by hand).
+GEOCODING_URL = env('GEOCODING_URL', default='https://nominatim.openstreetmap.org/search')
+GEOCODING_USER_AGENT = env(
+    'GEOCODING_USER_AGENT',
+    default='BookingSystemDemo/1.0 (+https://github.com/ParaskevasLysikatos/Booking-System-Demo)',
+)
+GEOCODING_LANGUAGE = env('GEOCODING_LANGUAGE', default='en')
+GEOCODING_TIMEOUT = env.int('GEOCODING_TIMEOUT', default=5)
+
 # Booking rules (TICKET-015). Bookings store only a check-in *date*; the
 # guest cancellation deadline is measured from this check-in time (local
 # time, TIME_ZONE) - e.g. check-in Friday 15:00 -> guests can cancel until

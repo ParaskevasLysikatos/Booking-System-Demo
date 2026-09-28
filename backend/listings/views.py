@@ -1,10 +1,13 @@
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
+from rest_framework.views import APIView
 
-from accounts.permissions import IsAdminOrReadOnly, is_app_admin
+from accounts.permissions import IsAdminOrReadOnly, IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
 
+from . import geocoding
 from .filters import DateRangeQuerySerializer, apply_property_filters
 from .queries import property_cards
 from .serializers import PropertyDetailSerializer, PropertyListSerializer, PropertyPinSerializer
@@ -112,3 +115,46 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if instance.is_active:
             instance.is_active = False
             instance.save(update_fields=["is_active", "updated_at"])
+
+
+class GeocodeQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(min_length=2, max_length=200, trim_whitespace=True)
+
+
+class GeocodeThrottle(UserRateThrottle):
+    """Per admin: plenty for typing searches by hand, but a runaway client
+    can't hammer Nominatim through us (it's also cached and spaced 1/s)."""
+
+    scope = "geocode"
+    rate = "30/min"
+
+
+class GeocodeView(APIView):
+    """GET /api/admin/geocode/?q=Tsimiski 45, Thessaloniki (TICKET-034) -
+    admin only. Up to 5 specific places in Greece for the property form's
+    "Find on map"; see listings/geocoding.py. 503 when the search service
+    can't be used (the admin can still place the pin by hand)."""
+
+    permission_classes = [IsAdminRole]
+    throttle_classes = [GeocodeThrottle]
+
+    def get(self, request):
+        params = GeocodeQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        query = params.validated_data["q"]
+        try:
+            results = geocoding.search(query)
+        except geocoding.GeocodingDisabled:
+            return Response(
+                {"detail": "Map search is switched off. Place the pin on the map instead.",
+                 "code": "geocoding_disabled"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except geocoding.GeocodingError:
+            return Response(
+                {"detail": "Map search isn't available right now. Try again in a moment, "
+                           "or place the pin on the map.",
+                 "code": "geocoding_unavailable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"query": query, "results": results, "attribution": geocoding.ATTRIBUTION})
