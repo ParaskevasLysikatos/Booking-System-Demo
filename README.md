@@ -1658,9 +1658,16 @@ curl -H "Authorization: Bearer $ADMIN_ACCESS" \
   - admin only
   - the per-admin limit
 - **Results:** **388** backend tests pass on Postgres.
-- **Not checked live:** this sandbox can't reach Nominatim (outbound
-  traffic is blocked here), so the lookup against the real service is
-  checked on Render.
+- **Checked on Render** (after deploying `5e4ad97`, from the live site in
+  Chrome):
+  - Steps 1-2 are live. The migration gave all 13 active stays a position:
+    `/api/properties/map/` → 13 pins, `missing_position: 0`, approximate
+    points with `location_radius_m: 500` for a guest.
+  - `/api/admin/geocode/` → `401` logged out, and `403` for a demo guest.
+- **Still to check live:** the lookup against the real Nominatim needs an
+  admin session on the live site. This sandbox can't reach Nominatim
+  (outbound traffic is blocked here), so it's done with the owner in the
+  step 8 Render check.
 
 ## Frontend auth (Angular)
 
