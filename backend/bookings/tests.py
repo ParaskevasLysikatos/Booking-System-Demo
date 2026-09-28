@@ -615,3 +615,115 @@ class AdminStatsTests(APITestCase):
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(STATS_URL, self.PERIOD)
         self.assertEqual(len(ctx.captured_queries), before)
+
+
+class AdminStatsSeriesTests(APITestCase):
+    """The `series` block (TICKET-035): revenue over time for the dashboard
+    chart. Same hand-built data as AdminStatsTests; numbers worked out by hand."""
+
+    # Reuse the data and helper without re-running AdminStatsTests' tests.
+    setUp = AdminStatsTests.setUp
+    get = AdminStatsTests.get
+    PERIOD = AdminStatsTests.PERIOD
+
+    @staticmethod
+    def rows(series, *keys):
+        return [tuple(b[k] for k in keys) for b in series["buckets"]]
+
+    def test_granularity_thresholds(self):
+        from bookings.stats import series_granularity
+        self.assertEqual(series_granularity(1), "day")
+        self.assertEqual(series_granularity(62), "day")     # two long months
+        self.assertEqual(series_granularity(63), "week")
+        self.assertEqual(series_granularity(190), "week")   # ~6 months
+        self.assertEqual(series_granularity(191), "month")
+        self.assertEqual(series_granularity(366), "month")
+
+    def test_daily_buckets_add_up_exactly_to_the_card(self):
+        data = self.get(self.PERIOD).data
+        series = data["series"]
+        self.assertEqual(series["granularity"], "day")
+        self.assertEqual(len(series["buckets"]), 10)
+        self.assertEqual(series["buckets"][0]["from"], date(2030, 1, 1))
+        self.assertEqual(series["buckets"][0]["to"], date(2030, 1, 1))  # inclusive
+        # Exact per night: 1st 100+80, 2nd 100+33.33..+80, 3rd/4th/9th 33.33..,
+        # 10th 100+33.33... Rounding each day alone would give 626.65; the
+        # running-total rounding gives 626.67, exactly the Revenue card.
+        self.assertEqual(
+            self.rows(series, "revenue"),
+            [("180.00",), ("213.33",), ("33.34",), ("33.33",), ("0.00",), ("0.00",), ("0.00",),
+             ("0.00",), ("33.33",), ("133.34",)],
+        )
+        self.assertEqual(sum(Decimal(b["revenue"]) for b in series["buckets"]),
+                         Decimal(data["revenue"]["confirmed"]))
+        # Pending 300 over the 5th-7th; cancelled booking (8th-9th) ignored.
+        self.assertEqual([b["pending_revenue"] for b in series["buckets"]],
+                         ["0.00"] * 4 + ["100.00"] * 3 + ["0.00"] * 3)
+        self.assertEqual([b["pending_nights"] for b in series["buckets"]], [0] * 4 + [1] * 3 + [0] * 3)
+        # Booked nights over all properties incl. retired Gamma (1st, 2nd).
+        self.assertEqual([b["booked_nights"] for b in series["buckets"]], [2, 3, 1, 1, 0, 0, 0, 0, 1, 2])
+        self.assertEqual(sum(b["booked_nights"] for b in series["buckets"]),
+                         data["occupancy"]["booked_nights"] + 2)
+
+    def test_weekly_buckets_start_on_monday_and_are_cut_to_the_period(self):
+        self.assertEqual(date(2030, 1, 1).weekday(), 1)  # a Tuesday
+        data = self.get({"from": "2030-01-01", "to": "2030-03-31"}).data  # 90 nights
+        series = data["series"]
+        self.assertEqual(series["granularity"], "week")
+        b = series["buckets"]
+        self.assertEqual(len(b), 13)
+        self.assertEqual((b[0]["from"], b[0]["to"], b[0]["nights"]), (date(2030, 1, 1), date(2030, 1, 6), 6))
+        self.assertEqual((b[1]["from"], b[1]["to"], b[1]["nights"]), (date(2030, 1, 7), date(2030, 1, 13), 7))
+        self.assertEqual((b[-1]["from"], b[-1]["to"], b[-1]["nights"]), (date(2030, 3, 25), date(2030, 3, 31), 7))
+        self.assertTrue(all(x["from"].weekday() == 0 for x in b[1:]))
+        self.assertEqual(sum(x["nights"] for x in b), 90)
+        # Week 1 (1st-6th): A 200 + B 100 + Gamma 160; A's pending 5th-6th = 200.
+        # Week 2 (7th-13th): A's 10th-15th stay has 4 nights here (400) and
+        # 1 in week 3 (100); B 9th-12th all here (100); B 12th-13th (999).
+        self.assertEqual(
+            self.rows(series, "revenue", "pending_revenue", "booked_nights", "pending_nights")[:4],
+            [("460.00", "200.00", 7, 2), ("1499.00", "100.00", 8, 1), ("100.00", "0.00", 1, 0),
+             ("0.00", "0.00", 0, 0)],
+        )
+        self.assertEqual(data["revenue"], {"confirmed": "2059.00", "pending": "300.00"})
+
+    def test_monthly_buckets_partial_first_and_last_month(self):
+        series = self.get({"from": "2030-01-15", "to": "2031-01-15"}).data["series"]  # 366 nights
+        self.assertEqual(series["granularity"], "month")
+        b = series["buckets"]
+        self.assertEqual(len(b), 13)
+        self.assertEqual((b[0]["from"], b[0]["to"], b[0]["nights"]), (date(2030, 1, 15), date(2030, 1, 31), 17))
+        self.assertEqual((b[1]["from"], b[1]["to"]), (date(2030, 2, 1), date(2030, 2, 28)))
+        self.assertEqual((b[-1]["from"], b[-1]["to"], b[-1]["nights"]), (date(2031, 1, 1), date(2031, 1, 15), 15))
+        # A's 10th-15th stay checks out on the 15th, so none of its nights is
+        # inside; every other booking is earlier -> nothing earned.
+        self.assertTrue(all(x["revenue"] == "0.00" for x in b))
+
+    def test_stay_crossing_the_period_edge_counts_only_inside_nights(self):
+        # Period 2nd-4th: A's 30 Dec-3 Jan stay has only the 2nd inside (100),
+        # its 1st is outside even though that night earned money too.
+        series = self.get({"from": "2030-01-02", "to": "2030-01-04"}).data["series"]
+        self.assertEqual(self.rows(series, "revenue"), [("213.33",), ("33.34",), ("33.33",)])
+
+    def test_full_year_is_twelve_months_and_matches_the_card(self):
+        data = self.get({"from": "2030-01-01", "to": "2030-12-31"}).data
+        b = data["series"]["buckets"]
+        self.assertEqual(len(b), 12)
+        self.assertEqual([x["nights"] for x in b], [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
+        self.assertEqual(b[0]["revenue"], data["revenue"]["confirmed"])  # all in January
+        self.assertEqual(b[0]["pending_revenue"], "300.00")
+
+    def test_empty_period_still_has_zero_buckets(self):
+        series = self.get({"from": "2035-06-01", "to": "2035-06-30"}).data["series"]
+        self.assertEqual(series["granularity"], "day")
+        self.assertEqual(len(series["buckets"]), 30)
+        self.assertTrue(all(x["revenue"] == "0.00" and x["pending_revenue"] == "0.00"
+                            and x["booked_nights"] == 0 for x in series["buckets"]))
+
+    def test_split_rounded_always_matches_the_total(self):
+        from bookings.stats import _split_rounded
+        thirds = [Decimal(100) / 3] * 7   # 233.333.. -> 233.33
+        out = _split_rounded(thirds, "233.33")
+        self.assertEqual(sum(Decimal(x) for x in out), Decimal("233.33"))
+        self.assertTrue(all(x in ("33.33", "33.34") for x in out))
+        self.assertEqual(_split_rounded([], "0.00"), [])

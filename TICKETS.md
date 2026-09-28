@@ -751,6 +751,18 @@ test, always last).
 
 - [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023
+  - Decisions (agreed before building):
+    - **what:** confirmed revenue as solid columns with the **expected (pending)** revenue stacked on top in a lighter shade - same per-night rules as the stat cards, so the bars add up to the Revenue card
+    - **buckets chosen automatically** from the period: by day up to 62 nights, by week (Monday start) up to 190, by month beyond; first/last bucket cut to the period's edges
+    - **hand-built SVG** chart (no new npm package): tooltip + keyboard focus per bar, a "Today" line, a hidden data table for screen readers
+    - data from **`GET /api/admin/stats/`** (a new `series` block, same query), not a new endpoint
+    - not now (easy later): click a bar to zoom in; the comparison period as a faint second series
+  - Plan: step 1 backend `series` · step 2 `<app-revenue-chart>` on the dashboard · step 3 README, Chrome check (local + Render), done.
+  - Step 1 done (backend `series`):
+    - `bookings/stats.py`: `series_granularity()` (62 / 190-night thresholds), `series_buckets()` (gap-free, Monday weeks, calendar months, edges cut), `revenue_series()` from the **same booking rows** as the totals (the query result is now a list, read twice - still 3 queries), `_split_rounded()`: rounds the running total so the buckets add up **exactly** to the Revenue card (per-bucket rounding would drift, e.g. 626.65 vs 626.67).
+    - Each bucket: `from`, `to` (inclusive), `nights`, `revenue`, `pending_revenue`, `booked_nights`, `pending_nights` (nights over all properties incl. retired - the ones that earned the revenue). An empty period still returns every bucket with zeros.
+    - 8 new tests (`AdminStatsSeriesTests`, hand-worked numbers: thresholds, daily sums = card, Monday weeks with a partial first week and a stay split over two weeks, partial months over 366 nights, a stay crossing the period's start, a full year = 12 months, empty period, the rounding helper); **400 backend tests** pass on Postgres, `makemigrations --check` clean. Seeded-data smoke test: bucket sums = card totals for this month / next 30 days / 13 months / 6 months, 3 queries each.
+    - README: new "Admin stats API → Revenue over time: `series` (TICKET-035)"; status and next steps updated.
 
 - [ ] **TICKET-036** — Real photo uploads
   - Priority: P2 · Depends on: TICKET-006

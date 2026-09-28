@@ -60,6 +60,11 @@ you'll be"; step 7 is done - the admin property form has a **required**
 Map position: Find on map (best match) plus click/drag the pin; see "Admin
 properties → Map position". **TICKET-034 (map view) is done**, after a
 final check locally and on Render as admin; see "Map view: final check".
+**TICKET-035 (revenue chart on the admin dashboard) is in progress:**
+step 1 is done - `GET /api/admin/stats/` also returns a `series` of
+revenue and expected revenue by day, week or month (picked from the
+period's length), adding up exactly to the Revenue card; see "Admin
+stats API → Revenue over time".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -1131,7 +1136,64 @@ properties, and one count. A test checks this.
 curl "http://localhost:8000/api/admin/stats/?from=2026-10-01&to=2026-10-31" -H "Authorization: Bearer $TOKEN"
 ```
 
+### Revenue over time: `series` (TICKET-035)
+
+The same response also has a `series` block, the data behind the
+dashboard's revenue chart. It is computed from the same booking rows
+in the same pass, so it adds no queries, and it follows the same rules
+as the cards: each night's share of a stay's price lands in the bucket
+that night belongs to, confirmed = `revenue`, pending =
+`pending_revenue`, cancelled bookings never count, and retired
+properties' revenue does.
+
+```json
+"series": {
+  "granularity": "week",
+  "buckets": [
+    {"from": "2030-01-01", "to": "2030-01-06", "nights": 6,
+     "revenue": "460.00", "pending_revenue": "200.00", "booked_nights": 7, "pending_nights": 2},
+    {"from": "2030-01-07", "to": "2030-01-13", "nights": 7,
+     "revenue": "1499.00", "pending_revenue": "100.00", "booked_nights": 8, "pending_nights": 1}
+  ]
+}
+```
+
+- **Bucket size is picked from the period length**
+  (`bookings/stats.py:series_granularity`):
+
+  | Period | `granularity` | Dashboard presets |
+  | --- | --- | --- |
+  | up to 62 nights | `day` | This / Last / Next month, Next 30 days |
+  | 63-190 nights | `week` (Monday to Sunday) | a custom range of ~2-6 months |
+  | 191-366 nights | `month` | Last 12 months (12-13 bars) |
+
+- **Buckets cover the period without gaps.** The first and last week or
+  month are cut to the period's edges, so they can be partial. `nights`
+  says how long each bucket really is (e.g. `6` for a week starting on a
+  Tuesday). `from`/`to` are both inclusive, like the period.
+- **The bars add up exactly to the Revenue card.** Rounding each bucket
+  to cents on its own could drift from the card by a cent or two (three
+  thirds of €100 → 33.33 × 3 = 99.99). Instead the *running total* is
+  rounded and each bucket is the difference
+  (`_split_rounded`), so a bucket can be `33.34` next to `33.33`, but
+  the sum is always the card's figure, for both `revenue` and
+  `pending_revenue`.
+- `booked_nights` / `pending_nights` count the nights over **all**
+  properties, retired ones included - the nights that earned the revenue
+  next to them. That's why their sum can be higher than the occupancy
+  card's `booked_nights`, which only counts active properties.
+- An empty period still returns every bucket, with zeros, so the chart
+  keeps its time axis.
+
 ### Tests
+
+`AdminStatsSeriesTests` (8 tests, TICKET-035) reuses the same data:
+the granularity thresholds (62/63, 190/191 nights); daily buckets whose
+naive per-day rounding would give 626.65 but add up to the card's
+626.67; weeks starting on Monday with a partial first week and a stay
+split over two weeks; partial first and last months over 366 nights; a
+stay crossing the period's start; a full year = 12 months; an empty
+period with zero buckets; and the rounding helper on seven thirds.
 
 `AdminStatsTests` in `backend/bookings/tests.py` has 10 tests. They use
 hand-built data with every number worked out by hand:
@@ -5894,4 +5956,9 @@ create/replace and refuses to clear it) is done; see "Admin properties →
 Map position"; **TICKET-034 is done** (step 8: all tests on the final
 `master`, a fresh-database regression, and Chrome checks as admin on the
 local app and on Render, including a live Find on map; see "Map view:
-final check").
+final check"). **TICKET-035 (revenue chart) is in progress:** step 1
+(the `series` block on `GET /api/admin/stats/`: revenue, expected revenue
+and nights per day / week / month bucket, cut to the period's edges, the
+bars adding up exactly to the Revenue card) is done; see "Admin stats
+API → Revenue over time"; next is step 2, the chart on the admin
+dashboard.
