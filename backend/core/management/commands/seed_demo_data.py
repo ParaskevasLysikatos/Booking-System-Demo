@@ -10,6 +10,7 @@ from django.utils import timezone
 from faker import Faker
 
 from bookings.models import Booking
+from favorites.models import Favorite
 from listings.models import Property, PropertyImage
 from reviews.models import Review
 
@@ -146,9 +147,11 @@ class Command(BaseCommand):
             self._create_images(properties)
             self._create_bookings(properties, guests)
             self._create_reviews(fake, properties)
+            favorites = self._create_favorites(properties, guests)
 
         self.stdout.write(self.style.SUCCESS(
-            f"\nSeeded {len(properties)} properties and {len(guests)} guests."
+            f"\nSeeded {len(properties)} properties, {len(guests)} guests "
+            f"and {favorites} saved places (favorites)."
         ))
         if admin_created:
             self.stdout.write(
@@ -172,6 +175,9 @@ class Command(BaseCommand):
         identified by the username/email pattern this command itself uses,
         so real/admin accounts are never touched."""
         self.stdout.write("Clearing previously seeded demo data...")
+        # Favorites would go with their properties/users anyway (CASCADE);
+        # deleted first so the order reads like the rest.
+        Favorite.objects.all().delete()
         Review.objects.all().delete()
         Booking.objects.all().delete()
         PropertyImage.objects.all().delete()
@@ -320,3 +326,33 @@ class Command(BaseCommand):
                 guest=booking.guest,
                 defaults={"rating": rating, "comment": comment},
             )
+
+    # -- favorites (TICKET-033) ---------------------------------------------
+
+    def _create_favorites(self, properties, guests):
+        """Each demo guest saves 2-5 active places, so the hearts, the Saved
+        page and the admin "Saved by" column have something to show. The
+        first guest also keeps one *retired* place saved - the Saved page's
+        greyed-out "No longer available" card. If the random mix retired no
+        property, the last one is retired for that (a retired place is also
+        what the admin "Retired" filter shows)."""
+        if not properties or not guests:
+            return 0
+        retired = [p for p in properties if not p.is_active]
+        if not retired and len(properties) > 1:
+            last = properties[-1]
+            last.is_active = False
+            last.save(update_fields=["is_active", "updated_at"])
+            retired = [last]
+        active = [p for p in properties if p.is_active]
+
+        count = 0
+        for guest in guests:
+            picks = random.sample(active, k=min(len(active), random.randint(2, 5)))
+            for prop in picks:
+                Favorite.objects.get_or_create(user=guest, property=prop)
+                count += 1
+        if retired:
+            _, created = Favorite.objects.get_or_create(user=guests[0], property=retired[0])
+            count += int(created)
+        return count

@@ -4415,6 +4415,13 @@ the demo never starts out empty:
   (mostly 4-5 stars) and realistic per-rating comment text rather than
   Faker's default lorem-ipsum, so it looks authentic in front of an
   audience.
+- **Favorites** (TICKET-033) - every guest saves 2-5 active places, so
+  the hearts, the Saved page and the admin "Saved by" column have
+  something to show (about 40 in total). The **first guest** (`guest_0_…`)
+  also keeps one **retired** place saved - the Saved page's greyed-out
+  "No longer available" card, listed first. If the random mix retired no
+  property, the seeder retires the last one for that. The demo admin
+  saves nothing (admins have no hearts).
 
 Usage:
 
@@ -4426,7 +4433,7 @@ Options:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--clear` | off | Delete previously seeded data first (reviews, bookings, images, properties, `guest_*`/`@example.com` users, and the demo admin) before re-seeding. Real accounts are never touched. |
+| `--clear` | off | Delete previously seeded data first (favorites, reviews, bookings, images, properties, `guest_*`/`@example.com` users, and the demo admin) before re-seeding. Real accounts are never touched. |
 | `--properties N` | 14 | How many properties to create |
 | `--guests N` | 10 | How many guest users to create |
 | `--seed N` | none | Fix the random seed for reproducible output |

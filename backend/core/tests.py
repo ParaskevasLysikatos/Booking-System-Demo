@@ -7,6 +7,9 @@ from unittest import mock
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
+from django.contrib.auth.models import User
+
+from favorites.models import Favorite
 from listings.models import Property
 
 
@@ -27,6 +30,39 @@ class SeedIfEmptyTests(TestCase):
         self.assertIn("skipping", out)
         # nothing wiped, nothing duplicated
         self.assertEqual(list(Property.objects.values_list("id", flat=True)), before)
+
+
+class SeedFavoritesTests(TestCase):
+    """TICKET-033: the seeder gives demo guests saved places."""
+
+    def seed(self, *args):
+        call_command("seed_demo_data", "--properties", "8", "--guests", "3", "--seed", "7", *args, stdout=StringIO())
+
+    def guests(self):
+        return User.objects.filter(username__startswith="guest_").order_by("username")
+
+    def test_every_guest_saves_two_to_five_active_places(self):
+        self.seed()
+        for guest in self.guests():
+            active = Favorite.objects.filter(user=guest, property__is_active=True).count()
+            self.assertTrue(2 <= active <= 5, (guest.username, active))
+
+    def test_first_guest_keeps_one_retired_place_saved(self):
+        self.seed()
+        first = self.guests().first()
+        self.assertEqual(Favorite.objects.filter(user=first, property__is_active=False).count(), 1)
+        self.assertTrue(Property.objects.filter(is_active=False).exists())
+
+    def test_admin_has_no_favorites(self):
+        self.seed()
+        self.assertFalse(Favorite.objects.filter(user__username="admin_demo").exists())
+
+    def test_clear_removes_old_favorites(self):
+        self.seed()
+        old_ids = set(Favorite.objects.values_list("id", flat=True))
+        self.seed("--clear")
+        self.assertFalse(old_ids & set(Favorite.objects.values_list("id", flat=True)))
+        self.assertTrue(Favorite.objects.exists())
 
 
 class HealthCheckTests(TestCase):
