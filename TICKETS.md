@@ -594,6 +594,7 @@ test, always last).
     - **Checks:** after-audit clean at all 4 widths; Chrome's installability check (`Page.getInstallabilityErrors`) on the build: no errors; iPhone emulation: button + steps dialog fit 390 px; production build 600 kB initial / 146 kB transferred, no budget warnings. **12 new frontend tests (225 total)** - InstallService (7), toolbar install (2), detail bottom bar (3).
     - **Pushed** `942518b` + `46f4517`; Render redeployed; live site serves the manifest (name "Booking System Demo") and icons; **Hosted demo check green** (incl. the new manifest check).
     - README: new "Mobile & PWA (TICKET-031)" section (design, per-page table, how it was checked, install matrix per browser); layout, status and next steps updated.
+  - Fix after review (owner's check in Chrome device mode, iPhone 16): on phones a real 4:3 photo on a My bookings card spilled out of its 16:9 box and covered the title/dates (the audit's stock photos hadn't loaded). Image pinned to its box (`absolute` + `object-fit: cover`); same for the booking form's summary photo (was cropped off-centre). The audit now serves a real photo and flags images larger than their box: clean at all 4 widths.
   - Notes: Render serves `.webmanifest` as `binary/octet-stream`; browsers don't check the manifest's type, so no header change. Chrome only offers installing after some interaction with the site (its engagement rule), so the Install item can take a few seconds of use to appear; it never appears in the installed app.
 
 ---
