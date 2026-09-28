@@ -574,9 +574,27 @@ test, always last).
       - **Tested end to end** (28 Sep): Google Cloud set up together (Gmail API enabled, `gmail.send` scope added, the app kept in **Testing** with the owner's Gmail as test user - publishing would need a home page + privacy policy; the refresh token therefore expires after 7 days, ~5 Oct: re-run `gmail_authorize`). `gmail_authorize` locally (its prompt made clearer after an email was pasted instead of the browser address; 1 test) → `send_test_email` arrived from the real Gmail. Render (`29e3e9d`, `GMAIL_*` set, `BREVO_API_KEY` deleted), as `admin_demo`: booking #45 → "Complete your payment", admin Confirm → "confirmed" + owner alert, admin Cancel → "cancelled" - all four **from lysikatosparaskevas@gmail.com, in the inbox (not spam), addressed to the owner's Gmail** instead of `admin_demo@example.com`. **260 backend tests pass.**
   - **Done (after review).** Emails now go out through the Gmail API as the owner's real Gmail, and an admin account's booking emails reach the owner's inbox. Reminder: until the Google app is published, renew the Gmail token weekly (`gmail_authorize`, then update `.env` and Render) - step by step in the README's "Gmail token: renew it, or make it permanent". Follow-up idea (not planned yet): a small public `/privacy` page on the site, so the Google app can be published and the token stops expiring.
 
-- [ ] **TICKET-031** — Responsive layout + PWA manifest
+- [x] **TICKET-031** — Responsive layout + PWA manifest
   - Priority: P1 · Depends on: Epic 3 complete
   - Covers the "mobile app" goal without a separate codebase.
+  - Decisions (agreed before building):
+    - **Manifest + icons only, no service worker**: installable, but nothing is cached, so the demo never shows an old build or stale booking/payment data.
+    - Admin tables on phones/tablets: **stack into cards**.
+    - App icon: a **simple original logo** (white house on the app's azure `#005cbb`), approved from a preview.
+    - An **Install app** button in the account menu (an install icon next to Log in when logged out); on iPhone the Share → Add to Home Screen steps.
+  - Audit first (headless Chrome, every route as visitor/guest/admin at 360/390/768/1280 px, local backend + seeded data): no page scrolled sideways, but the admin tables were cut off on phones and tablets (bookings table 1,567 px wide, scrolling even on a 1280 laptop), the dashboard's 6 period buttons overflowed on phones, the admin side nav squeezed tablets, and on phones the detail page's price / Book now only came after the whole calendar.
+  - Done:
+    - **Shared breakpoints** `src/styles/_responsive.scss` (phone ≤ 600, tablet ≤ 960; `@use 'responsive' as r;` via `stylePreprocessorOptions.includePaths`) replace the one-off 480/600/720/900/960 values; plus a `table-cards` mixin.
+    - **Admin bookings / properties → cards** at ≤ 960 px, CSS only (`data-label` per cell): bookings = #ref + status, property, labelled rows, actions at the bottom; properties = photo, title with "€/night · Sleeps · rating", location, status, actions. Laptops (961-1440 px): bookings table drops "Booked", wraps text, shortens emails (full one on hover) → no sideways scroll at 1280.
+    - **Admin shell**: side nav → top bar on tablets, four equal icon tabs (with the pending badge) on phones. **Dashboard**: period buttons scroll in their own strip, breakdown shows property/occupancy/revenue on phones.
+    - **Property detail**: a bottom bar on tablets/phones (price + stay total, *Choose dates* → scrolls to and focuses the panel, *Book now* once dates are confirmed), hidden while the panel is on screen (IntersectionObserver).
+    - **Toolbar**: links stay down to 600 px (only the email collapses on tablets). **Booking form**: shorter photo and less stepper indent on phones. `100dvh`, `viewport-fit=cover` + safe-area padding (toolbar, footer, bottom bar), no iOS text resize.
+    - **PWA**: `public/manifest.webmanifest` (standalone, `start_url` `/listings`, theme colour = the toolbar, shortcuts Find a stay / My bookings), icons (192, 512, maskable 512, Apple touch 180, SVG, new `favicon.ico`), `index.html` tags. `core/pwa/InstallService` (created at start-up by `App`) keeps Chrome's `beforeinstallprompt` and replays it once from the button; iPhone/iPad → `InstallIosDialog` steps; hidden when running as the app / after `appinstalled`.
+    - `scripts/hosted-check.sh` also checks the manifest + 512 px icon.
+    - **Checks:** after-audit clean at all 4 widths; Chrome's installability check (`Page.getInstallabilityErrors`) on the build: no errors; iPhone emulation: button + steps dialog fit 390 px; production build 600 kB initial / 146 kB transferred, no budget warnings. **12 new frontend tests (225 total)** - InstallService (7), toolbar install (2), detail bottom bar (3).
+    - **Pushed** `942518b` + `46f4517`; Render redeployed; live site serves the manifest (name "Booking System Demo") and icons; **Hosted demo check green** (incl. the new manifest check).
+    - README: new "Mobile & PWA (TICKET-031)" section (design, per-page table, how it was checked, install matrix per browser); layout, status and next steps updated.
+  - Notes: Render serves `.webmanifest` as `binary/octet-stream`; browsers don't check the manifest's type, so no header change. Chrome only offers installing after some interaction with the site (its engagement rule), so the Install item can take a few seconds of use to appear; it never appears in the installed app.
 
 ---
 
