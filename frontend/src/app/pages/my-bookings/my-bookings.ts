@@ -22,6 +22,9 @@ import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { clockSignal, clockTime, formatRemaining, remainingMs } from '../../core/payments/countdown';
 import { guestRefundText, refundView } from '../../core/payments/payment-labels';
 import { PaymentService } from '../../core/payments/payment.service';
+import { Review } from '../../core/reviews/review.models';
+import { ReviewDialog, ReviewDialogData } from '../../shared/review-dialog';
+import { StarRatingComponent } from '../../shared/star-rating';
 import { CancelBookingDialog } from './cancel-dialog';
 
 export type BookingsTab = 'upcoming' | 'past' | 'cancelled';
@@ -50,7 +53,7 @@ const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confir
 /** /my-bookings (TICKET-021) - the logged-in user's own bookings. Guarded by authGuard. */
 @Component({
   selector: 'app-my-bookings',
-  imports: [MatButtonModule, MatIconModule, MatPaginatorModule, MatProgressSpinnerModule, MatTabsModule, RouterLink],
+  imports: [MatButtonModule, MatIconModule, MatPaginatorModule, MatProgressSpinnerModule, MatTabsModule, RouterLink, StarRatingComponent],
   templateUrl: './my-bookings.html',
   styleUrl: './my-bookings.scss',
 })
@@ -162,6 +165,22 @@ export class MyBookingsPage {
             this.refresh$.next(); // e.g. the deadline passed meanwhile - show the current state
           },
         });
+      });
+  }
+
+  /** "Leave a review" on a past stay (TICKET-032) - the server said `can_review`. */
+  review(booking: Booking): void {
+    this.dialog
+      .open<ReviewDialog, ReviewDialogData, Review>(ReviewDialog, {
+        data: { propertyId: booking.property.id, propertyTitle: booking.property.title },
+        width: '520px',
+        maxWidth: '95vw',
+      })
+      .afterClosed()
+      .pipe(filter((review): review is Review => !!review))
+      .subscribe(() => {
+        this.snackBar.open('Thanks - your review is posted.', 'OK', { duration: 5000 });
+        this.refresh$.next(); // every stay at that place now shows "You rated this place"
       });
   }
 

@@ -3,12 +3,14 @@ import { Component, ElementRef, computed, effect, inject, signal, viewChild } fr
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MAT_DATE_LOCALE, provideNativeDateAdapter } from '@angular/material/core';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
@@ -32,6 +34,9 @@ import { BookedNights } from '../../core/properties/availability';
 import { MAX_DAYS_AHEAD, PropertyDetail } from '../../core/properties/property.models';
 import { stayDateFilter, stayProblem } from '../../core/properties/stay-rules';
 import { PropertyService } from '../../core/properties/property.service';
+import { RatingSummary, Review, ViewerReview } from '../../core/reviews/review.models';
+import { ReviewDialog, ReviewDialogData } from '../../shared/review-dialog';
+import { StarRatingComponent } from '../../shared/star-rating';
 import { AvailabilityCalendarComponent, DateSelection } from './availability-calendar/availability-calendar';
 import { GalleryComponent } from './gallery/gallery';
 import { PropertyReviewsComponent } from './reviews/property-reviews';
@@ -58,6 +63,7 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
     AvailabilityCalendarComponent,
     GalleryComponent,
     PropertyReviewsComponent,
+    StarRatingComponent,
   ],
   providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
   templateUrl: './property-detail.html',
@@ -69,6 +75,8 @@ export class PropertyDetailPage {
   private readonly properties = inject(PropertyService);
   private readonly auth = inject(AuthService);
   private readonly titleService = inject(Title);
+  private readonly dialog = inject(MatDialog);
+  private readonly snackBar = inject(MatSnackBar);
 
   readonly minDate = todayLocal();
   readonly maxDate = addDays(this.minDate, MAX_DAYS_AHEAD);
@@ -245,6 +253,50 @@ export class PropertyDetailPage {
   // --- reviews (TICKET-032) ------------------------------------------------
 
   private readonly reviewsSection = viewChild<ElementRef<HTMLElement>>('reviews');
+  private readonly reviewsList = viewChild(PropertyReviewsComponent);
+
+  /** Latest summary from the Reviews section (per property), so the header follows a new review. */
+  readonly reviewSummary = signal<{ id: number; summary: RatingSummary } | null>(null);
+  /** Set once the caller posts a review here, so the button turns into "You rated this stay". */
+  private readonly postedReview = signal<{ id: number; viewer: ViewerReview } | null>(null);
+
+  readonly headerRating = computed(() => {
+    const p = this.property();
+    const s = this.reviewSummary();
+    if (p && s && s.id === p.id) return { avg: s.summary.rating_avg, count: s.summary.review_count };
+    return { avg: p?.rating_avg ?? null, count: p?.review_count ?? 0 };
+  });
+
+  private readonly viewer = computed<ViewerReview | null>(() => {
+    const p = this.property();
+    if (!p) return null;
+    const posted = this.postedReview();
+    return posted && posted.id === p.id ? posted.viewer : (p.viewer_review ?? null);
+  });
+  /** The server decides (confirmed stay that has ended, not reviewed yet) - never worked out here. */
+  readonly canReview = computed(() => !!this.viewer()?.can_review);
+  readonly myReview = computed(() => this.viewer()?.my_review ?? null);
+
+  writeReview(): void {
+    const p = this.property();
+    if (!p || !this.canReview()) return;
+    this.dialog
+      .open<ReviewDialog, ReviewDialogData, Review>(ReviewDialog, {
+        data: { propertyId: p.id, propertyTitle: p.title },
+        width: '520px',
+        maxWidth: '95vw',
+      })
+      .afterClosed()
+      .subscribe((review) => {
+        if (!review) return;
+        this.postedReview.set({
+          id: p.id,
+          viewer: { can_review: false, my_review: { id: review.id, rating: review.rating, comment: review.comment, created_at: review.created_at } },
+        });
+        this.reviewsList()?.reload();
+        this.snackBar.open('Thanks - your review is posted.', 'OK', { duration: 5000 });
+      });
+  }
 
   /** Header "★ 4.5 · 2 reviews": scroll to the Reviews section (no URL change, so
    *  the query params that hold the chosen stay stay as they are). */

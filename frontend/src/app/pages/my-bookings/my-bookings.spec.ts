@@ -28,7 +28,7 @@ describe('MyBookingsPage', () => {
   let harness: RouterTestingHarness;
   let http: HttpTestingController;
   let router: Router;
-  let dialogAnswer: boolean;
+  let dialogAnswer: unknown;
   let snack: ReturnType<typeof vi.fn>;
 
   async function open(url = '/my-bookings'): Promise<MyBookingsPage> {
@@ -157,6 +157,59 @@ describe('MyBookingsPage', () => {
     await harness.fixture.whenStable();
     expect(router.url).toBe('/my-bookings?page=2');
     expect(listReq().request.params.get('page')).toBe('2');
+  });
+
+  describe('reviews (TICKET-032)', () => {
+    const past = (id: number, overrides: Partial<Booking> = {}) =>
+      booking(id, { check_in: day(-6), check_out: day(-3), status: 'confirmed', can_cancel: false, ...overrides });
+
+    it('past stays: "Leave a review" when the server allows it, "You rated this place" once reviewed', async () => {
+      await open('/my-bookings?tab=past');
+      listReq().flush(page([
+        past(1, { can_review: true, my_review: null }),
+        past(2, { property: { id: 8, title: 'Villa', location: 'Crete', price_per_night: '200.00', cover_image: null }, can_review: false, my_review: { id: 3, rating: 4, comment: '', created_at: '' } }),
+        past(3, { can_review: false, my_review: null }),
+      ]));
+      await settle();
+      const cards = Array.from((harness.routeNativeElement as HTMLElement).querySelectorAll('li.card'));
+      expect(cards[0].textContent).toContain('Leave a review');
+      expect(cards[1].textContent).toContain('You rated this place');
+      expect(cards[1].querySelector('[aria-label="4 out of 5 stars"]')).toBeTruthy();
+      expect(cards[2].textContent).not.toContain('review');
+    });
+
+    it('nothing about reviews on upcoming bookings, even for a reviewed place', async () => {
+      await open();
+      listReq().flush(page([booking(9, { status: 'confirmed', my_review: { id: 3, rating: 5, comment: '', created_at: '' } })]));
+      await settle();
+      expect(text()).not.toContain('You rated');
+      expect(text()).not.toContain('Leave a review');
+    });
+
+    it('Leave a review -> dialog -> snackbar and the list is refreshed', async () => {
+      const page_ = await open('/my-bookings?tab=past');
+      listReq().flush(page([past(1, { can_review: true })]));
+      await settle();
+      dialogAnswer = { id: 50, rating: 5, comment: 'Great', author_name: 'Maria K.', created_at: '' };
+      page_.review(past(1, { can_review: true }));
+      expect(TestBed.inject(MatDialog).open).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        data: { propertyId: 5, propertyTitle: 'Harbour Loft' },
+      }));
+      expect(snack).toHaveBeenCalledWith('Thanks - your review is posted.', 'OK', expect.anything());
+      listReq().flush(page([past(1, { can_review: false, my_review: { id: 50, rating: 5, comment: 'Great', created_at: '' } })]));
+      await settle();
+      expect(text()).toContain('You rated this place');
+    });
+
+    it('closing the dialog without posting changes nothing', async () => {
+      const page_ = await open('/my-bookings?tab=past');
+      listReq().flush(page([past(1, { can_review: true })]));
+      await settle();
+      dialogAnswer = undefined;
+      page_.review(past(1, { can_review: true }));
+      expect(snack).not.toHaveBeenCalled();
+      // afterEach: http.verify() - no refresh request
+    });
   });
 });
 

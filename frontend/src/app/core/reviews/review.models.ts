@@ -40,5 +40,18 @@ export interface ViewerReview {
   my_review: MyReview | null;
 }
 
+/** POST /api/reviews/ body - the guest is always the logged-in user. */
+export interface CreateReviewRequest {
+  property: number;
+  rating: number;
+  comment: string;
+}
+
+/** Longest comment the API accepts (backend MAX_COMMENT_LENGTH). */
+export const MAX_REVIEW_COMMENT = 1000;
+
+/** Words shown under the star picker. */
+export const RATING_WORDS: Record<number, string> = { 1: 'Terrible', 2: 'Poor', 3: 'Okay', 4: 'Good', 5: 'Excellent' };
+
 /** Reviews shown per page under a property (backend ReviewPagination). */
 export const REVIEWS_PAGE_SIZE = 5;

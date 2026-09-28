@@ -91,6 +91,18 @@ p { margin: 0; }
   mat-spinner { margin: 0 auto; }
 }
 
+/* Reviews (TICKET-032) */
+.review mat-icon { margin-right: 6px; }
+.reviewed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--mat-sys-on-surface-variant);
+  > mat-icon { font-size: 18px; width: 18px; height: 18px; color: var(--mat-sys-primary); }
+}
+
 /* Online payment line (TICKET-029) */
 .pay-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
 .pay {

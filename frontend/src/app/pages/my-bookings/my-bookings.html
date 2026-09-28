@@ -135,6 +135,18 @@
                     }
                   </div>
                 }
+
+                <!-- Reviews (TICKET-032): only after a stay; the server decides can_review. -->
+                @if (b.status !== 'cancelled' && !isUpcoming(b)) {
+                  @if (b.my_review; as mine) {
+                    <p class="reviewed"><mat-icon>check_circle</mat-icon>You rated this place <app-star-rating [rating]="mine.rating" [size]="16" /></p>
+                  } @else if (b.can_review) {
+                    <div class="actions">
+                      <span class="hint">How was your stay?</span>
+                      <button mat-stroked-button type="button" class="review" (click)="review(b)"><mat-icon>rate_review</mat-icon>Leave a review</button>
+                    </div>
+                  }
+                }
               </div>
             </li>
           }

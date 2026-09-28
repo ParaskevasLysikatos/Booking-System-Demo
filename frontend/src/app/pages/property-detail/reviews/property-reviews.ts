@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -30,6 +30,8 @@ export class PropertyReviewsComponent {
   private readonly reviewsApi = inject(ReviewService);
 
   readonly propertyId = input.required<number>();
+  /** The latest summary from the API - the page's header uses it, so it updates after a review is posted. */
+  readonly summaryChange = output<RatingSummary>();
 
   private readonly reload$ = new BehaviorSubject<void>(undefined);
 
@@ -110,6 +112,7 @@ export class PropertyReviewsComponent {
 
   private applyPage(page: ReviewPage, pageNumber: number): void {
     this.summary.set(page.summary);
+    this.summaryChange.emit(page.summary);
     this.total.set(page.count);
     this.nextPage.set(page.next ? pageNumber + 1 : null);
   }

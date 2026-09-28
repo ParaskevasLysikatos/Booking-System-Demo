@@ -36,9 +36,10 @@
         <p class="sub">
           <span><mat-icon>place</mat-icon>{{ p.location }}</span>
           <span>
-            @if (p.rating_avg; as avg) {
+            @if (headerRating().avg; as avg) {
+              @let count = headerRating().count;
               <a class="rating-link" href="#reviews" (click)="goToReviews($event)">
-                <mat-icon class="star">star</mat-icon>{{ avg.toFixed(1) }} · {{ p.review_count }} {{ p.review_count === 1 ? 'review' : 'reviews' }}
+                <mat-icon class="star">star</mat-icon>{{ avg.toFixed(1) }} · {{ count }} {{ count === 1 ? 'review' : 'reviews' }}
               </a>
             } @else {
               <span class="new">New</span>
@@ -83,8 +84,15 @@
           </section>
 
           <section #reviews id="reviews" class="reviews" aria-labelledby="reviews-heading" tabindex="-1">
-            <h2 id="reviews-heading">Reviews</h2>
-            <app-property-reviews [propertyId]="p.id" />
+            <div class="reviews-head">
+              <h2 id="reviews-heading">Reviews</h2>
+              @if (myReview(); as mine) {
+                <p class="my-review"><mat-icon>check_circle</mat-icon>You rated this place <app-star-rating [rating]="mine.rating" [size]="16" /></p>
+              } @else if (canReview()) {
+                <button mat-stroked-button type="button" class="write-review" (click)="writeReview()"><mat-icon>rate_review</mat-icon>Write a review</button>
+              }
+            </div>
+            <app-property-reviews [propertyId]="p.id" (summaryChange)="reviewSummary.set({ id: p.id, summary: $event })" />
           </section>
         </div>
 

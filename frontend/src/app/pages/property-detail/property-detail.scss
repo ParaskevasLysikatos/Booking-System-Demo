@@ -35,6 +35,29 @@
   text-underline-offset: 3px;
 }
 
+.reviews-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+
+  h2 { margin: 0; }
+  .write-review mat-icon { margin-right: 6px; }
+}
+
+.my-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--mat-sys-on-surface-variant);
+
+  > mat-icon { font-size: 18px; width: 18px; height: 18px; color: var(--mat-sys-primary); }
+}
+
 /* Keep the heading clear of the sticky toolbar when scrolled to (TICKET-032). */
 .reviews { scroll-margin-top: 80px; outline: none; }
 

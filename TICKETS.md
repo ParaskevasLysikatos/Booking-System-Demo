@@ -624,6 +624,12 @@ test, always last).
     - The header "★ 3.9 · 8 reviews" is now a link that scrolls to the section (URL unchanged). Shared `shared/star-rating.ts`.
     - 9 new tests (234 frontend tests pass); production build clean (no budget warnings). Checked in headless Chrome at 1280 and 390 px with a property that has 8 reviews: no sideways scroll.
     - README: new "Reviews section (TICKET-032)" under "Property detail page"; layout, tests and next steps updated.
+  - Step 3 done (writing a review):
+    - `shared/review-dialog.ts`: "How was your stay at …?", a star picker made of real radio buttons (keyboard/screen-reader friendly, 44 px targets, hover preview, Terrible…Excellent), optional comment with a 1,000 counter, the "Reviews are final" note; posts itself (spinner, can't close while posting), shows a refusal inside the still-open dialog, closes with the new review. `ReviewService.create()`.
+    - Property page: **Write a review** only when the server's `viewer_review.can_review` is true; afterwards "✓ You rated this place ★★★★☆", the reviews reload and the header rating follows the section's summary.
+    - My bookings (past, not cancelled): **Leave a review** when `can_review`, "✓ You rated this place" when `my_review`; snackbar + list reload after posting.
+    - 13 new tests (247 frontend tests pass); production build clean. End-to-end in headless Chrome against the real API at 1280 and 390 px (post from both places, rating required, header 8 → 9 reviews, no sideways scroll).
+    - README: "The review dialog", "Reviews on past stays", tests and next steps.
 
 - [ ] **TICKET-033** — Favorites
   - Priority: P2 · Depends on: TICKET-017, TICKET-018

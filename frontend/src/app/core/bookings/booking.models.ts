@@ -1,6 +1,7 @@
 /** Shapes of the Bookings API (backend bookings/serializers.py). */
 
 import { PaymentSummary } from '../payments/payment.models';
+import type { MyReview } from '../reviews/review.models';
 
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled';
 
@@ -26,6 +27,10 @@ export interface Booking {
   cancel_deadline: string; // ISO datetime, local time with offset
   /** Online payment (TICKET-029); null/absent = this booking doesn't take online payment. */
   payment?: PaymentSummary | null;
+  /** TICKET-032: my booking, confirmed, checked out, and I haven't reviewed the place yet. */
+  can_review?: boolean;
+  /** TICKET-032: my review of this booking's property (from any of my stays there). */
+  my_review?: MyReview | null;
   guest_email: string | null; // admins only
   created_at: string;
 }

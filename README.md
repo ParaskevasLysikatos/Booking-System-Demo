@@ -1496,8 +1496,46 @@ itself is still one request.
   stay and the button becomes **Try again**.
 - **States:** a skeleton while loading; "No reviews yet. Guests can leave
   one after their stay."; "Couldn't load the reviews." + Try again.
-- `reload()` re-reads from page 1 - step 3 uses it after a review is
-  posted.
+- `reload()` re-reads from page 1 - used after a review is posted.
+
+**Writing a review (step 3).** The section's heading row shows, from the
+property's `viewer_review` (the server decides - the page never works out
+the rule itself):
+
+- **Write a review** when `can_review` is true (logged in, a confirmed
+  stay here has ended, not reviewed yet). It opens the review dialog
+  (below). After posting: the button becomes **"✓ You rated this place
+  ★★★★☆"**, the reviews reload (the new one on top), the header rating
+  follows the new summary (e.g. 8 → 9 reviews), and a snackbar says
+  "Thanks - your review is posted."
+- **"✓ You rated this place ★★★★☆"** when `my_review` is set.
+- Nothing for visitors who aren't logged in or haven't stayed.
+
+The header's "★ 3.9 · 9 reviews" uses the summary the Reviews section
+last loaded (the property's own `rating_avg`/`review_count` until then),
+so it never disagrees with the section below it.
+
+### The review dialog (`shared/review-dialog.ts`, TICKET-032)
+
+Shared by the property page and My bookings; `data` is the property's id
+and title.
+
+- "How was your stay at **Modern Villa in Rhodes**?"
+- **Star picker:** five real radio buttons drawn as stars (so arrow keys,
+  Tab and screen readers work as usual; each is labelled "4 stars -
+  Good"), 44 px targets, the stars light up on hover, and the word
+  (Terrible / Poor / Okay / Good / Excellent) appears beside them.
+  Posting without a rating says "Choose a rating from 1 to 5 stars." and
+  sends nothing.
+- **Comment** (optional), with a "56 / 1000" counter; typing stops at
+  1,000 characters. Sent trimmed.
+- The note **"Reviews are final: once posted you can't edit or delete
+  it. It shows your first name and last initial."**
+- **Post review** shows a spinner and the dialog can't be closed while
+  posting. On success it closes with the new review. If the server
+  refuses (e.g. "You've already reviewed this place." from another tab),
+  the message is shown in the dialog, which stays open; a comment error
+  is shown under the comment.
 
 Checked in a headless Chrome against a seeded property with 8 reviews,
 at 1280 px and 390 px (no sideways scroll, the header link scrolls to
@@ -1598,6 +1636,27 @@ Also checked by hand in Chrome against the seeded data:
   and retries; no reviews; a failed load + Try again
 - the page: the Reviews section renders, and the header rating scrolls
   to it without changing the URL
+
+**TICKET-032 step 3** added 13 tests (247 frontend tests in total):
+
+- review dialog (6): the question, 5 labelled star radios and the "final"
+  note; no rating → message and nothing sent; stars + word + counter;
+  posts rating + trimmed comment, blocks closing while posting, closes
+  with the review; a refusal stays in the open dialog; a comment error
+  under the comment
+- property page (3): no button without `viewer_review`; "You rated this
+  place" with the stars; Write a review → posted → the rating replaces the
+  button, the reviews reload and the header follows (3.7 · 3 reviews)
+- My bookings (4): Leave a review / You rated / nothing, per past card;
+  nothing on upcoming bookings; Leave a review → snackbar + reload;
+  closing the dialog changes nothing
+
+Checked end to end in a headless Chrome against the real API (a guest
+with two ended, confirmed stays): Write a review → no rating → message;
+4 stars + comment → posted, header 8 → 9 reviews, the new review first,
+"You rated this place"; My bookings → Past shows "You rated" on that stay
+and Leave a review on the other → posted from a 390 px phone (no sideways
+scroll).
 
 ## Booking form (Angular)
 
@@ -1757,6 +1816,18 @@ Each card shows:
    was open): its exact reason goes in a snackbar ("Online cancellation
    closed on … Please contact us."), and the list refreshes, so the card
    now shows it can no longer be cancelled online.
+
+### Reviews on past stays (TICKET-032)
+
+On a past (not cancelled) booking card, from the booking's `can_review`
+/ `my_review` fields:
+
+- **"How was your stay?" + Leave a review** when `can_review` is true →
+  the review dialog (see "Property detail page → The review dialog") →
+  snackbar "Thanks - your review is posted." and the list reloads.
+- **"✓ You rated this place ★★★★☆"** once the place is reviewed - on
+  every past stay there, since it's one review per place.
+- Nothing on Upcoming or Cancelled bookings.
 
 ### Backend additions for this page
 
@@ -4409,4 +4480,7 @@ posting after a confirmed stay, `can_review`/`my_review` for the buttons,
 admin hide/unhide) is done; see "Reviews API (TICKET-032)"; step 2 (the
 Reviews section on the property page: star summary with per-star bars,
 reviews, Show more) is done; see "Property detail page → Reviews
-section". Next: step 3, writing a review (property page + My bookings).
+section"; step 3 (writing a review: the shared review dialog with a star
+picker, "Write a review" on the property page and "Leave a review" on past
+stays in My bookings) is done; see "The review dialog". Next: step 4, the
+admin Reviews page.
