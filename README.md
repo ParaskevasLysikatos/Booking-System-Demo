@@ -3349,12 +3349,12 @@ step 5 (locally in Mailpit, then on Render with a real inbox).
 
 | # | Rule | How to check by hand | Expected | Automated | E2E |
 | --- | --- | --- | --- | --- | --- |
-| EM-01 | A new booking emails the guest "received" | Book a stay | Mailpit: `Booking #N received - …` (payments off) or `Complete your payment - booking #N, …` (on) | EMAIL-14, EMAIL-21 | |
+| EM-01 | A new booking emails the guest "received" | Book a stay | Mailpit: `Booking #N received - …` (payments off) or `Complete your payment - booking #N, …` (on) | EMAIL-14, EMAIL-21 | Render ✅ |
 | EM-02 | With payments on, "received" has **Pay now** and the hold's end time | Open the email, click Pay now | Lands on `/bookings/N/payment` with the countdown; the time in the email = the hold's end | EMAIL-21 | |
 | EM-03 | Payment → guest "confirmed" + owner alert, **once** | Pay with 4242; resend the event (`stripe events resend evt_…`) | 2 emails (guest + `BOOKING_ALERT_EMAILS`), nothing more after the resend | EMAIL-23 | |
-| EM-04 | Admin Confirm → "confirmed" + alert | Confirm a pending booking in /admin/bookings | 2 emails; alert says "Confirmed by hand - no online payment" when unpaid | EMAIL-15 | |
+| EM-04 | Admin Confirm → "confirmed" + alert | Confirm a pending booking in /admin/bookings | 2 emails; alert says "Confirmed by hand - no online payment" when unpaid | EMAIL-15 | Render ✅ |
 | EM-05 | Guest cancel → "as you requested" | Cancel from My bookings | Cancelled email; "Nothing was charged." if unpaid | EMAIL-16 | |
-| EM-06 | Admin cancel → "the host has cancelled" | Cancel a guest's booking as admin | Cancelled email with the host wording | EMAIL-17 | |
+| EM-06 | Admin cancel → "the host has cancelled" | Cancel a guest's booking as admin | Cancelled email with the host wording | EMAIL-17 | Render ✅ |
 | EM-07 | Cancelling a paid booking mentions the refund | Pay, then cancel | "A full refund of €X is on its way - back on your card within 5-10 business days" | EMAIL-25 | |
 | EM-08 | Hold ran out → "we didn't receive your payment", Book again | Back out of Stripe, expire the session (`stripe checkout sessions expire cs_…`) | Cancelled email with the payment-expired wording + Book again → the property | EMAIL-22, EMAIL-24 | |
 | EM-09 | A delayed payment that fails → "your payment didn't go through" | (auto only - needs a delayed payment method) | Cancelled email, payment-failed wording | EMAIL-32 | auto only |
@@ -3366,9 +3366,30 @@ step 5 (locally in Mailpit, then on Render with a real inbox).
 | EM-15 | A send stuck in `sending` is retried only after 10 minutes | (needs a crash mid-send) | - | EMAIL-13 | auto only |
 | EM-16 | No recipient → no email (account without email, empty alert list) | Empty `BOOKING_ALERT_EMAILS`, confirm | Only the guest's email | EMAIL-10 | |
 | EM-17 | Seeded / Django Admin bookings send nothing | `seed_demo_data` | No rows in Booking emails | EMAIL-20 | |
-| EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | |
+| EM-18 | Brevo: text + HTML, sender, Reply-To, tag; errors readable, never the key | Send on Render; Brevo → Transactional → Logs | Delivered; tag = email kind; replies go to `DEFAULT_FROM_EMAIL` | EMAIL-01…04 | Render ✅ |
 | EM-19 | Email settings can never stop a deploy (warnings only); Brevo without a key → console | Deploy before setting `BREVO_API_KEY` | Deploy OK, warning `notifications.W002`, emails in the log | EMAIL-05, EMAIL-06 | |
 | EM-20 | User content is escaped in HTML | Property title with `<b>` | Shown as text | EMAIL-31 | auto only |
+
+### Emails: end-to-end results - Render (28 Sep 2026)
+
+Brevo set up (the Gmail sender was already verified; a new API key), and
+`BREVO_API_KEY` / `DEFAULT_FROM_EMAIL` / `BOOKING_ALERT_EMAILS` added in
+Render, then redeployed `dbe7e77`. Driven in Chrome on the hosted site as
+`admin_demo` (so the *guest* emails went to `admin_demo@example.com`, which
+can't receive mail - they were checked in Brevo's logs, the owner alert in
+the real Gmail inbox):
+
+| Step | Result | Rules |
+| --- | --- | --- |
+| Book #44 (Santorini, 18-20 Jan 2027) → Confirm and pay → Stripe page opened, not paid | Brevo log: **"Complete your payment - booking #44, Spacious Suite in Santorini"**, tag `booking_received`, sent within a second of booking | EM-01, EM-18 |
+| Admin **Confirm** #44 (payment waived) | Brevo: **"Booking #44 confirmed - …"** (`booking_confirmed`) and **"New booking #44: Spacious Suite in Santorini, 18–20 Jan (€256)"** (`admin_new_booking`) → **Delivered to the Gmail inbox** (not spam), text: "Payment: Confirmed by hand - no online payment", dates, total, admin link all correct | EM-04, EM-18 |
+| Admin **Cancel** #44 | Brevo: **"Booking #44 cancelled - …"** (`booking_cancelled`) | EM-06 |
+| Brevo's handling of the sender | As documented: the Gmail sender is replaced by `lysikatosparaskevas@12284635.brevosend.com`; the name stays | EM-18 |
+| `example.com` recipient | First email **hard-bounced**, after which Brevo **blocks** that address for later emails ("Blocked" in the log) - expected for a non-existent inbox; our side recorded them as sent (Brevo accepted them) | - |
+
+No errors in Render's application log. Not covered here (the demo admin's
+inbox can't receive mail): the guest-side emails *in an inbox*, and paying
+with a card on Render - both are covered by the local run in Mailpit.
 
 ## Django Admin (dev-only)
 
