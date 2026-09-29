@@ -114,8 +114,9 @@ class PropertyImage(models.Model):
     image = models.URLField(
         max_length=500,
         help_text=(
-            "Photo URL. Demo data uses stock photo URLs (see the Faker seed "
-            "script); real uploads are a later, nice-to-have ticket."
+            "Photo URL: a photo uploaded to the S3 bucket (TICKET-036, "
+            "uploads/s3.py) or any pasted https image URL. Demo data uses "
+            "stock photo URLs (see the Faker seed script)."
         ),
     )
     is_cover = models.BooleanField(

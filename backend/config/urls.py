@@ -10,4 +10,5 @@ urlpatterns = [
     path('api/', include('reviews.urls')),
     path('api/', include('favorites.urls')),
     path('api/payments/', include('payments.urls')),
+    path('api/admin/uploads/', include('uploads.urls')),  # TICKET-036
 ]

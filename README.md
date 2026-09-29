@@ -68,6 +68,11 @@ time"), and the dashboard draws it as a "Revenue over time" chart:
 stacked confirmed + expected columns, a Today line, tooltips, keyboard,
 a Table view. It was checked locally and on Render; see "Admin
 dashboard → Revenue chart" and "Revenue chart: final check".
+**TICKET-036 (real photo uploads to S3) is in progress:** step 1 is done -
+admins can ask the API for a short-lived presigned S3 upload (`POST
+/api/admin/uploads/presign/`, JPEG/PNG/WebP up to 10 MB), so the browser
+can upload a photo straight to the owner's bucket; without the `AWS_*`
+settings uploads are simply off. See "Photo uploads API (TICKET-036)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -136,7 +141,8 @@ your actual machine outside Docker, uses `localhost:<port>`.
 backend/
   Dockerfile           Python 3.12 image; runs migrate then runserver on boot (local dev)
   requirements.txt     Django, DRF, simplejwt, django-cors-headers, django-environ, psycopg2, Faker,
-                       gunicorn + whitenoise (production server and static files, TICKET-026)
+                       gunicorn + whitenoise (production server and static files, TICKET-026),
+                       stripe (TICKET-029), boto3 (S3 photo uploads, TICKET-036)
   build.sh             Render build: pip install, collectstatic, migrate, first-deploy seed
   manage.py
   config/              Django project settings
@@ -165,7 +171,8 @@ backend/
     tests.py           API tests for the Properties endpoints
     admin.py           Registers both in Django Admin, images inline on the Property page (dev-only DB inspection, see Epic 4 for the real admin UI)
     migrations/        0001_initial.py (Property), 0002_propertyimage.py (PropertyImage),
-                       0003_property_coordinates.py + 0004_backfill_coordinates.py (map positions, TICKET-034)
+                       0003_property_coordinates.py + 0004_backfill_coordinates.py (map positions, TICKET-034),
+                       0005 updates the photo field's help text (uploads, TICKET-036)
   accounts/            Adds a role/phone Profile on top of Django's built-in User
     models.py          Profile model (role: guest/admin, phone)
     signals.py         post_save on User auto-creates a Profile (any creation path)
@@ -228,6 +235,11 @@ backend/
     management/commands/send_test_email.py       Send one test email through the configured provider
     tests.py           Gmail API backend + commands, settings checks, outbox, email flow and retry tests
     migrations/        0001 creates the booking emails table; 0002 adds the cancel reason
+  uploads/             Photo uploads to the owner's S3 bucket (TICKET-036) - no models; see "Photo uploads API"
+    s3.py              uploads_enabled(), presign() (presigned POST for one new key under property-images/), public_url()
+    views.py + urls.py GET /api/admin/uploads/config/, POST /api/admin/uploads/presign/ (admin only)
+    checks.py          Startup checks: half-configured AWS_* settings (warning), non-https public base URL
+    tests.py           Permissions, config, presigned POST policy (real signing, no network), size/type checks, settings checks
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -326,7 +338,7 @@ flagged `is_cover` (used as the listing's thumbnail):
 | Field | Type | Notes |
 | --- | --- | --- |
 | `property` | `ForeignKey -> Property` | `related_name="images"`, `on_delete=CASCADE` |
-| `image` | `URLField` | Photo URL. Demo data uses stock photo URLs (Faker seed script); real uploads are TICKET-036, a later nice-to-have |
+| `image` | `URLField` | Photo URL: a photo uploaded to the S3 bucket (TICKET-036, stored as its public `https://<bucket>.s3.<region>.amazonaws.com/property-images/…` URL) or any pasted image URL. Demo data uses stock photo URLs (Faker seed script) |
 | `is_cover` | `BooleanField` | Marks the thumbnail photo. At most one `True` per property |
 | `created_at` | `DateTimeField` | Auto-managed |
 
@@ -1841,6 +1853,134 @@ the API):
 - **Typing a real address is the admin's job** (the owner's decision).
   There are no hints for tourist names Nominatim doesn't know; click or
   drag the pin instead.
+
+## Photo uploads API (TICKET-036)
+
+Admins can upload a property's photos to the owner's **Amazon S3 bucket**
+instead of pasting image URLs. The browser sends the file **straight to
+S3**. Django never receives the file: it only signs a short-lived
+permission for exactly one upload.
+
+### Decisions (agreed before building)
+
+- **Browser → S3 directly (presigned POST).** Photos never pass through
+  Render's free instance (512 MB of memory, and it sleeps). The one cost
+  is that the bucket needs a CORS rule.
+- **Only a public-read prefix.** A bucket policy allows public `GET` on
+  `property-images/*` only; the rest of the bucket stays private.
+  `PropertyImage.image` stays a URL field holding the photo's permanent
+  public URL, so the gallery, cards, map pop-ups and seeder don't change.
+- **Resize in the browser** before uploading (step 2): longest side at
+  most 1600 px, WebP (JPEG if the browser can't make WebP).
+- **No `AWS_*` settings → uploads are off.** This is the same pattern as
+  Stripe and Gmail. The Photos editor keeps working with pasted URLs, and
+  pasting a URL stays available either way.
+
+### How an upload works
+
+```
+Angular (admin)                     Django                                  S3
+  |  POST /api/admin/uploads/presign/  |                                      |
+  |  {content_type, size} ---------->  | checks admin, type, size             |
+  |                                    | signs a POST policy (no AWS call)    |
+  |  <-- {url, fields, public_url} --  |                                      |
+  |  multipart POST url: fields + file ---------------------------------------> | checks the policy:
+  |  <---------------------------------------------------------------- 204 --- | key, type, size, expiry
+  |  adds public_url to the photo list; Save sends it like any pasted URL      |
+```
+
+### Endpoints (admin only: `401` logged out, `403` for guests)
+
+**`GET /api/admin/uploads/config/`** tells the Photos editor whether to
+show "Upload photos". It contains no secrets:
+
+```json
+{ "enabled": true, "max_bytes": 10485760, "content_types": ["image/jpeg", "image/png", "image/webp"] }
+```
+
+**`POST /api/admin/uploads/presign/`** with `{"content_type": "image/webp",
+"size": 312345}` returns `201`:
+
+```json
+{
+  "url": "https://<bucket>.s3.eu-central-1.amazonaws.com/",
+  "fields": {
+    "Content-Type": "image/webp",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "key": "property-images/2026/09/3f9c…e1.webp",
+    "x-amz-algorithm": "AWS4-HMAC-SHA256", "x-amz-credential": "…", "x-amz-date": "…",
+    "policy": "…", "x-amz-signature": "…"
+  },
+  "key": "property-images/2026/09/3f9c…e1.webp",
+  "public_url": "https://<bucket>.s3.eu-central-1.amazonaws.com/property-images/2026/09/3f9c…e1.webp",
+  "expires_in": 300,
+  "max_bytes": 10485760
+}
+```
+
+The browser then POSTs a `multipart/form-data` form to `url`. The form
+carries every entry of `fields`, and then the file as the **last** field,
+named `file`. S3 answers `204`.
+
+What the signed policy pins, so a leaked response can't be misused:
+
+| Rule | Value |
+| --- | --- |
+| bucket and key | exactly the one returned: a random `property-images/YYYY/MM/<32 hex>.<ext>`, never an existing photo |
+| `Content-Type` | exactly the requested type (JPEG, PNG or WebP only - no SVG, which can carry scripts) |
+| size | `content-length-range` 1 byte to `UPLOADS_MAX_BYTES` (10 MB) - enforced by S3 itself |
+| expiry | 5 minutes |
+| `Cache-Control` | `public, max-age=31536000, immutable` (keys are never reused, so caching forever is safe) |
+
+Errors:
+
+| Status | When |
+| --- | --- |
+| `400` `content_type` | Not JPEG/PNG/WebP: "Only JPEG, PNG and WebP photos can be uploaded." |
+| `400` `size` | Missing, below 1, or above the limit: "Photos can be at most 10 MB." (a friendly early check; S3 enforces the real one) |
+| `503` `uploads_disabled` | The `AWS_*` settings aren't all set: "Photo uploads are switched off. Paste an image URL instead." |
+| `503` `uploads_unavailable` | Signing failed (the details go to the server log only) |
+| `429` | More than 120 presigns a minute from one admin |
+
+The endpoint URL comes from the bucket's region
+(`https://<bucket>.s3.<region>.amazonaws.com/`), not the global
+`s3.amazonaws.com`. For a new bucket, the global name can answer with a
+redirect, and browsers don't follow a redirect for a cross-site POST.
+
+### Settings
+
+| Variable | Purpose |
+| --- | --- |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | The keys of an IAM user that can **only** put/delete objects under `property-images/` (the exact policy comes with step 3's setup guide). Never your root/admin keys |
+| `AWS_S3_BUCKET` / `AWS_S3_REGION` | The bucket name and its region, e.g. `eu-central-1` (Frankfurt) |
+| `AWS_S3_PUBLIC_BASE_URL` | Optional: another `https://` base for the photo URLs, e.g. a CloudFront domain |
+| `UPLOADS_MAX_BYTES` | Optional: the largest photo accepted (default `10485760` = 10 MB) |
+
+Locally, put them in `.env` and rebuild the backend image once, because
+`boto3` is a new package: `docker compose up -d --build backend`.
+`uploads/checks.py` warns at startup (`uploads.W001`) if only some of the
+four are set. `uploads.E001` means the public base URL isn't `https://`.
+
+### Tests
+
+`uploads/tests.py` has 24 tests. The signing is real (boto3 with fake
+keys), because presigning makes no network call. The tests decode the
+policy S3 would check. They cover:
+
+- admin only (`401`/`403`), and `GET` on presign → `405`
+- config on/off, where any one missing setting turns uploads off
+- the URL, key format, fields and public URL
+- the policy's bucket, key, type, cache and size range
+- the 5-minute expiry
+- the extension per type, and a new key every time
+- other types refused (GIF, SVG, HTML, PDF)
+- the size limit, exactly at and one over it
+- a custom limit and public base URL
+- no secret in any response
+- `503` switched off, and `503` when signing fails, without leaking the error
+- the settings checks
+
+**Results:** **424** backend tests pass on Postgres.
 
 ## Frontend auth (Angular)
 
@@ -5927,6 +6067,8 @@ you ever need to regenerate it.
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` / `EMAIL_USE_TLS` / `EMAIL_TIMEOUT` / `EMAIL_SENDING_STALE_MINUTES` | backend | SMTP details (Docker: `mailpit:1025`), timeout in seconds (default 10), minutes before a stuck send is retried (default 10) |
 | `POSTGRES_DB/USER/PASSWORD` | db, backend, pgadmin | Database name and credentials |
 | `PGADMIN_DEFAULT_EMAIL/PASSWORD` | pgadmin | Login for the pgAdmin web UI itself |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_S3_BUCKET` / `AWS_S3_REGION` | backend | Photo uploads to S3 (TICKET-036): the upload-only IAM user's keys, the bucket and its region (e.g. `eu-central-1`). Any of the four empty = uploads off (paste URLs instead). See "Photo uploads API" |
+| `AWS_S3_PUBLIC_BASE_URL` / `UPLOADS_MAX_BYTES` | backend | Optional: serve photos from another `https://` base (e.g. CloudFront) instead of the bucket's own address; largest photo S3 accepts (default 10 MB) |
 | `GEOCODING_URL` / `GEOCODING_USER_AGENT` / `GEOCODING_LANGUAGE` / `GEOCODING_TIMEOUT` | backend | Optional: the admin form's "Find on map" place search (TICKET-034). Defaults: OpenStreetMap Nominatim, an identifying User-Agent for this project, `en`, `5` seconds. An empty `GEOCODING_URL` switches the search off. See "Admin place search API" |
 
 ## Using pgAdmin
@@ -6127,4 +6269,12 @@ Table toggle, fits phones) is done; see "Admin dashboard → Revenue
 chart"; **TICKET-035 is done** (step 3: Chrome checks as the admin on
 the local app and on Render - every preset's legend and column amounts
 equal the cards, the stacked tooltip, the keyboard, the Table view, no
-console errors; see "Revenue chart: final check").
+console errors; see "Revenue chart: final check"). **TICKET-036 (real
+photo uploads) is in progress:** step 1 (the `uploads` app: `GET
+/api/admin/uploads/config/` and `POST /api/admin/uploads/presign/` - a
+5-minute presigned S3 POST for one new random key under
+`property-images/`, JPEG/PNG/WebP, 1 byte-10 MB, switched off without the
+`AWS_*` settings, startup checks) is done; see "Photo uploads API
+(TICKET-036)". Next: step 2 (Upload photos in the admin Photos editor:
+drag & drop, resize in the browser, progress), then step 3 (removed photos
+deleted from S3, Render settings, the bucket setup guide, final check).

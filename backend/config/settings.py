@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'favorites',
     'payments',
     'notifications',
+    'uploads',
 ]
 
 MIDDLEWARE = [
@@ -169,6 +170,23 @@ GEOCODING_USER_AGENT = env(
 )
 GEOCODING_LANGUAGE = env('GEOCODING_LANGUAGE', default='en')
 GEOCODING_TIMEOUT = env.int('GEOCODING_TIMEOUT', default=5)
+
+# Photo uploads to the owner's S3 bucket (TICKET-036, uploads/s3.py). The
+# browser uploads straight to S3 with a presigned POST from
+# /api/admin/uploads/presign/; Django never handles the file. Leave any of
+# the four AWS_* values empty and uploads are simply off (the admin Photos
+# editor still takes pasted URLs). Use an IAM user that can only
+# PutObject/DeleteObject under property-images/ - see the README's
+# "Photo uploads (S3)". Checked at startup by uploads/checks.py.
+AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY', default='')
+AWS_S3_BUCKET = env('AWS_S3_BUCKET', default='')
+AWS_S3_REGION = env('AWS_S3_REGION', default='')
+# Optional: serve the photos from elsewhere (e.g. a CloudFront domain)
+# instead of https://<bucket>.s3.<region>.amazonaws.com.
+AWS_S3_PUBLIC_BASE_URL = env('AWS_S3_PUBLIC_BASE_URL', default='')
+# Largest photo S3 will accept (after the browser's resize, ~0.2-0.4 MB).
+UPLOADS_MAX_BYTES = env.int('UPLOADS_MAX_BYTES', default=10 * 1024 * 1024)
 
 # Booking rules (TICKET-015). Bookings store only a check-in *date*; the
 # guest cancellation deadline is measured from this check-in time (local
