@@ -110,7 +110,8 @@ properties list and form with photos and map position, reviews), and
 Greek is now a separate chunk loaded only when it's needed. Step 6 is done -
 the server's own messages (booking clashes, validation, password rules,
 login errors, payment and refund refusals) come back in Greek when the app
-is in Greek. See "Two languages (English / Greek, TICKET-038)".
+is in Greek. Step 7 is done - Stripe's payment page opens in the app's
+language too, with the stay described in Greek. See "Two languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -4645,7 +4646,9 @@ the network), in three phases:
 
 1. Lock the booking + payment row, check the booking is payable, and fix
    the exact request - parameters and the idempotency key
-   `booking-<id>-checkout-<attempt>` - **only from stored values**. Commit.
+   `booking-<id>-checkout-<attempt>` - **only from stored values** (and,
+   since TICKET-038, the request's language: a Greek page's key ends in
+   `-el`). Commit.
 2. Call Stripe. (The SDK itself retries dropped connections up to twice,
    with the same key.)
 3. Lock again and store the session id, URL and Stripe's `expires_at`.
@@ -5114,6 +5117,7 @@ service arrives with the Docker step.)*
 | CHK-06 | A parallel duplicate click gets a friendly answer | Stripe returns an idempotency conflict | `409` `checkout_in_progress` | `test_parallel_duplicate_gets_a_friendly_409` | |
 | CHK-07 | States that can't be paid are refused with a reason | Try to pay a confirmed / cancelled / paid / processing / expired booking | `409` `already_confirmed` / `booking_cancelled` / `already_paid` / `already_paid` / `payment_window_closed`; no payment → `payment_not_required`; payments off → `503` `payments_disabled` | `test_states_that_cant_be_paid`, `test_bookings_without_a_payment_are_not_payable`, `test_payments_switched_off_at_checkout` | |
 | CHK-08 | A booking cancelled **while** its payment page was being created never keeps a payable page | Cancel during the Stripe call | `409` `booking_cancelled`; the new session is expired immediately | `test_cancelled_while_talking_to_stripe` | |
+| CHK-09 | The payment page is in the **app's language** (TICKET-038): Stripe's texts (`locale`) and our line item; "Pay now" keeps the page's original language | Pay with the app in ΕΛ; then switch to EN and press Pay now | Greek Stripe page, "Loft - 3 νύχτες", key `…-checkout-1-el`; the same Greek page again after the switch | `CheckoutLanguageTests` | |
 
 ### 4. What Stripe's webhook does
 
@@ -6183,7 +6187,7 @@ build or site.
 6. The backend in Greek (a small language middleware, `gettext`, an `el`
    `.po`) - **done**.
 7. Stripe's payment page in the same language (`locale` on the Checkout
-   Session).
+   Session) - **done**.
 8. Final check in both languages, locally and on Render.
 
 ### How it works (`src/app/core/i18n/`)
@@ -6613,6 +6617,64 @@ Postgres):
   Django Admin login page with `Accept-Language: el`.
 - **The catalog:** the committed `.mo` has every `.po` text, translated -
   editing `django.po` and forgetting `compilemessages` fails this test.
+
+### Stripe's payment page (step 7)
+
+Stripe's hosted payment page now opens in the app's language. Before, it
+guessed from the browser (`auto`), so a Greek browser got a Greek page even
+with the app in English, and the other way round.
+
+| App language | Stripe's texts | Our line item |
+|---|---|---|
+| English | English (`locale: "en"`) | "Loft - 3 nights" · "Wed 10 Mar 2027 to Sat 13 Mar 2027, 2 guests, Thessaloniki" (unchanged) |
+| Greek | Greek (`locale: "el"`) | "Loft - 3 νύχτες" · "Τετ 10 Μαρ 2027 έως Σάβ 13 Μαρ 2027, 2 άτομα, Thessaloniki" |
+
+**Decisions (agreed before building):**
+- **"Pay now" keeps the page's language.** A page gets its language when
+  it's created, which is normally right after booking. If the guest
+  switches language later, "Pay now" reopens the same page as before -
+  no second page, no extra Stripe calls. The page expires within about 30
+  minutes anyway.
+- **The line item is Greek too.** The property's title and location stay as
+  the admin typed them. The Dashboard description ("Booking #12") stays
+  English.
+
+**How it works** (`payments/services.py`):
+- `checkout_language()` reads the request's language, which the API's
+  language middleware set from `Accept-Language` (step 6). It gives `el`
+  for Greek and `en` otherwise; a management command also gets `en`.
+- `session_params(booking, payment, language)` adds `locale` and builds the
+  product name and description with `ngettext` under that language
+  (`line_item_text()`): "1 νύχτα" / "3 νύχτες", "1 άτομο" / "2 άτομα".
+  Greek dates use the same short names as the app ("Τετ 10 Μαρ 2027",
+  `stay_date()`), not Django's ("Μάρ"). English is exactly what it was.
+- **The language is part of the idempotency key:**
+  `booking-12-checkout-1` in English (as before), `booking-12-checkout-1-el`
+  in Greek. The request is still fully fixed by its key:
+  - a retry in the same language sends the identical request, so Stripe
+    returns the page it may already have made
+  - a retry after switching language is a different request under a
+    different key. Stripe never sees one key with two different requests,
+    which it would refuse. A page lost that way was never shown to anyone,
+    and the webhook ignores sessions that aren't the booking's recorded one.
+- The Greek texts are two plurals in `backend/locale/el/LC_MESSAGES/django.po`.
+- The "payment page couldn't open" answers from our API are already Greek
+  (step 6).
+- Stripe's `el` and `en` are both in its list of supported Checkout
+  locales.
+
+Tests (`CheckoutLanguageTests`, 8 new, **516 backend tests** pass on Postgres):
+- a Greek page: `locale`, key `…-checkout-1-el`, name and description in
+  Greek; the amount, links and Dashboard description unchanged
+- singular forms in both languages; the app's Greek dates ("Κυρ 2 Μαΐ 2027")
+- another language (`fr`) → English, with the unsuffixed key
+- "Pay now" after switching keeps the Greek page (Stripe asked once)
+- a Greek retry after a network error repeats the identical request; a
+  retry in English after a Greek failure uses its own key and records its
+  page
+- a refusal ("this booking was cancelled") in Greek
+- The existing exact-request test now also checks `locale: "en"` and the
+  full English description, unchanged
 
 ### Material's own texts, per page
 
@@ -7514,7 +7576,9 @@ done; see "Two languages → Admin pages" and "Greek loads only when it's
 needed"; step 6 (the API's messages in Greek through Django's translations:
 `Accept-Language` → `core.middleware`, our texts in `backend/locale/el/`,
 Django Admin and emails stay English) is done; see "Two languages → Server
-messages in Greek". Next: Stripe's page language (step 7) and the
-final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
+messages in Greek"; step 7 (Stripe's payment page in the app's language:
+`locale` plus a Greek line item, the language in the idempotency key, "Pay
+now" keeps the page's language) is done; see "Two languages → Stripe's
+payment page". Next: the final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").

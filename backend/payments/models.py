@@ -15,8 +15,9 @@ class Payment(models.Model):
     simply doesn't take online payment.
 
     The Checkout Session is created later by POST /api/bookings/{id}/checkout/
-    with the idempotency key "booking-<id>-checkout-<checkout_attempt>" and
-    parameters built only from stored values, so a double click or a retry
+    with the idempotency key "booking-<id>-checkout-<checkout_attempt>" (plus
+    "-el" for a page made in Greek, TICKET-038) and parameters built only
+    from stored values and that language, so a double click or a retry
     after a lost response gets the *same* session back from Stripe instead
     of a second one. One session per booking once it exists ("Pay now"
     reuses checkout_url).

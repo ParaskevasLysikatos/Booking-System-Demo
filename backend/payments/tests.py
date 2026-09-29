@@ -293,6 +293,12 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
         self.assertEqual(item["price_data"]["unit_amount"], 24015)  # cents, exact
         self.assertEqual(item["price_data"]["currency"], "eur")
         self.assertIn("Loft - 3 nights", item["price_data"]["product_data"]["name"])
+        check_in, check_out = booking.check_in, booking.check_out
+        self.assertEqual(  # unchanged by TICKET-038
+            item["price_data"]["product_data"]["description"],
+            f"{check_in:%a %d %b %Y} to {check_out:%a %d %b %Y}, 2 guests, Thessaloniki",
+        )
+        self.assertEqual(params["locale"], "en")  # TICKET-038: English page, not the browser's language
         self.assertEqual(params["mode"], "payment")
         self.assertEqual(params["metadata"]["booking_id"], str(booking.pk))
         self.assertEqual(params["client_reference_id"], str(booking.pk))
@@ -428,6 +434,99 @@ class CheckoutEndpointTests(CheckoutFixtures, APITestCase):
         with self.assertNumQueries(4):  # count + one page query (payment LEFT JOINed) + images prefetch + the caller's reviews (TICKET-032)
             res = self.client.get(reverse("booking-list"))
         self.assertEqual([b["payment"]["status"] for b in res.data["results"]], ["open"] * 3)
+
+
+@override_settings(**PAYMENTS_ON)
+class CheckoutLanguageTests(CheckoutFixtures, APITestCase):
+    """TICKET-038 step 7: Stripe's page in the language of the request that
+    creates it - Stripe's own texts (`locale`) and our line item."""
+
+    GREEK = {"HTTP_ACCEPT_LANGUAGE": "el"}
+
+    def test_greek_page(self):
+        booking, _ = self.book_via_api()
+        res = self.client.post(checkout_url(booking.pk), **self.GREEK)
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        params, options = self.create_kwargs()
+        self.assertEqual(params["locale"], "el")
+        self.assertEqual(options, {"idempotency_key": f"booking-{booking.pk}-checkout-1-el"})
+        product = params["line_items"][0]["price_data"]["product_data"]
+        self.assertEqual(product["name"], "Loft - 3 νύχτες")
+        self.assertEqual(
+            product["description"],
+            f"{services.stay_date(booking.check_in, 'el')} έως {services.stay_date(booking.check_out, 'el')}, "
+            "2 άτομα, Thessaloniki",
+        )
+        # Only what the guest sees changes: amounts, links and the Dashboard text don't.
+        self.assertEqual(params["line_items"][0]["price_data"]["unit_amount"], 24015)
+        self.assertEqual(params["payment_intent_data"]["description"], f"Booking #{booking.pk}")
+        self.assertEqual(params["cancel_url"], f"http://localhost:4200/bookings/{booking.pk}/payment?cancelled=1")
+
+    def test_greek_singular(self):
+        booking, _ = self.book_via_api(10, 11)
+        Booking.objects.filter(pk=booking.pk).update(guests=1)
+        booking.refresh_from_db()
+        name, description = services.line_item_text(booking, "el")
+        self.assertEqual(name, "Loft - 1 νύχτα")
+        self.assertIn(", 1 άτομο, Thessaloniki", description)
+        name, description = services.line_item_text(booking, "en")
+        self.assertEqual(name, "Loft - 1 night")
+        self.assertIn(", 1 guest, Thessaloniki", description)
+
+    def test_greek_dates_as_the_app_writes_them(self):
+        from datetime import date
+        self.assertEqual(services.stay_date(date(2027, 3, 10), "el"), "Τετ 10 Μαρ 2027")
+        self.assertEqual(services.stay_date(date(2027, 5, 2), "el"), "Κυρ 2 Μαΐ 2027")
+        self.assertEqual(services.stay_date(date(2027, 3, 1), "en"), "Mon 01 Mar 2027")  # as before
+
+    def test_other_languages_get_english(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk), HTTP_ACCEPT_LANGUAGE="fr")
+        params, options = self.create_kwargs()
+        self.assertEqual(params["locale"], "en")
+        self.assertEqual(options["idempotency_key"], f"booking-{booking.pk}-checkout-1")
+
+    def test_pay_now_keeps_the_page_language(self):
+        """The owner's decision: a page made in Greek stays Greek after a
+        switch to English - "Pay now" reuses it, no second session."""
+        booking, _ = self.book_via_api()
+        greek = self.client.post(checkout_url(booking.pk), **self.GREEK)
+        english = self.client.post(checkout_url(booking.pk))
+        self.assertEqual(english.status_code, status.HTTP_200_OK)
+        self.assertEqual(english.data["checkout_url"], greek.data["checkout_url"])
+        self.sessions.create.assert_called_once()
+
+    def test_greek_retry_repeats_the_identical_request(self):
+        booking, _ = self.book_via_api()
+        self.sessions.create.side_effect = [stripe.APIConnectionError("network down"), fake_session()]
+        with self.assertLogs("payments.services", "ERROR"), self.assertLogs("django.request", "ERROR"):
+            self.client.post(checkout_url(booking.pk), **self.GREEK)
+        self.client.post(checkout_url(booking.pk), **self.GREEK)
+        self.assertEqual(self.create_kwargs(0), self.create_kwargs(1))
+
+    def test_retry_in_the_other_language_is_a_different_request(self):
+        """A lost first answer, then a retry after switching language: a new
+        key, so Stripe never sees one key with two different requests. The
+        lost page (if Stripe made it) was never shown and isn't the recorded
+        one, so the webhook ignores it."""
+        booking, _ = self.book_via_api()
+        self.sessions.create.side_effect = [stripe.APIConnectionError("network down"), fake_session()]
+        with self.assertLogs("payments.services", "ERROR"), self.assertLogs("django.request", "ERROR"):
+            self.client.post(checkout_url(booking.pk), **self.GREEK)
+        res = self.client.post(checkout_url(booking.pk))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        (greek, greek_options), (english, english_options) = self.create_kwargs(0), self.create_kwargs(1)
+        self.assertEqual(greek_options["idempotency_key"], f"booking-{booking.pk}-checkout-1-el")
+        self.assertEqual(english_options["idempotency_key"], f"booking-{booking.pk}-checkout-1")
+        self.assertEqual((greek["locale"], english["locale"]), ("el", "en"))
+        self.assertEqual(Payment.objects.get(booking=booking).stripe_checkout_session_id, "cs_test_123")
+
+    def test_checkout_error_in_greek(self):
+        booking, _ = self.book_via_api()
+        Booking.objects.filter(pk=booking.pk).update(status=Booking.Status.CANCELLED)
+        res = self.client.post(checkout_url(booking.pk), **self.GREEK)
+        self.assertEqual(res.json()["detail"], "Αυτή η κράτηση ακυρώθηκε.")
+        self.assertEqual(res.json()["code"], "booking_cancelled")
 
 
 # --------------------------------------------------------------------------

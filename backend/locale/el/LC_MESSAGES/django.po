@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Booking System Demo\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-29 20:01+0300\n"
-"PO-Revision-Date: 2026-09-29 20:00+0300\n"
+"POT-Creation-Date: 2026-09-29 20:15+0300\n"
+"PO-Revision-Date: 2026-09-29 21:00+0300\n"
 "Last-Translator: \n"
 "Language-Team: Greek\n"
 "Language: el\n"
@@ -249,6 +249,20 @@ msgstr "Τα χρήματα αυτής της κράτησης έχουν ήδη
 msgid "A refund is already on its way - Stripe will confirm it."
 msgstr ""
 "Μια επιστροφή χρημάτων είναι ήδη καθ' οδόν - η Stripe θα την επιβεβαιώσει."
+
+#: payments/services.py
+#, python-format
+msgid "%(title)s - %(count)s night"
+msgid_plural "%(title)s - %(count)s nights"
+msgstr[0] "%(title)s - %(count)s νύχτα"
+msgstr[1] "%(title)s - %(count)s νύχτες"
+
+#: payments/services.py
+#, python-format
+msgid "%(check_in)s to %(check_out)s, %(count)s guest, %(location)s"
+msgid_plural "%(check_in)s to %(check_out)s, %(count)s guests, %(location)s"
+msgstr[0] "%(check_in)s έως %(check_out)s, %(count)s άτομο, %(location)s"
+msgstr[1] "%(check_in)s έως %(check_out)s, %(count)s άτομα, %(location)s"
 
 #: payments/services.py
 msgid "This booking doesn't take online payment."

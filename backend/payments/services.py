@@ -26,6 +26,14 @@ Because the request in (1) depends only on stored values, repeating it (a
 double click, a retry after a lost response, the SDK's own network retries)
 sends Stripe the identical request with the same idempotency key, and Stripe
 answers with the session it already created instead of making a second one.
+
+Language (TICKET-038 step 7): the page is created in the language of the
+request that creates it - Stripe's own texts (`locale`) and our line item.
+The language is part of the idempotency key (a Greek attempt is
+"...-checkout-1-el"), so the request is still fully fixed by the key: a retry
+in the same language repeats it exactly; a retry after switching language
+is a different request under a different key. Once a session exists, "Pay
+now" reuses it as it is, in the language it was created in.
 """
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -33,8 +41,8 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 import stripe
 from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
-from django.utils.translation import gettext as _
+from django.utils import timezone, translation
+from django.utils.translation import gettext as _, ngettext
 
 from bookings.models import Booking
 from notifications.outbox import booking_cancelled, reason_for_payment_status
@@ -82,17 +90,63 @@ def start_hold(booking):
     )
 
 
-def idempotency_key(payment):
-    return f"booking-{payment.booking_id}-checkout-{payment.checkout_attempt}"
+# Stripe Checkout `locale` for each of the app's languages (TICKET-038).
+CHECKOUT_LOCALES = {"en": "en", "el": "el"}
+
+# Short day / month names as the app shows them in Greek (Intl el-GR,
+# "Τετ 10 Μαρ 2027") - Django's own Greek abbreviations differ ("Μάρ").
+GREEK_WEEKDAYS = ["Δευ", "Τρί", "Τετ", "Πέμ", "Παρ", "Σάβ", "Κυρ"]
+GREEK_MONTHS = ["Ιαν", "Φεβ", "Μαρ", "Απρ", "Μαΐ", "Ιουν", "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ"]
 
 
-def session_params(booking, payment):
-    """Built only from stored values - see the module docstring. Deliberately
-    no payment_method_types: Stripe's dynamic payment methods decide what to
-    offer (managed in the Dashboard)."""
+def checkout_language():
+    """The language of the current request ("el" / "en"), which the API's
+    language middleware activated from Accept-Language. English outside a
+    request."""
+    language = translation.get_language() or "en"
+    return "el" if language.split("-")[0] == "el" else "en"
+
+
+def stay_date(value, language):
+    """date(2027, 3, 10) -> "Wed 10 Mar 2027" / "Τετ 10 Μαρ 2027"."""
+    if language == "el":
+        return f"{GREEK_WEEKDAYS[value.weekday()]} {value.day} {GREEK_MONTHS[value.month - 1]} {value.year}"
+    return f"{value:%a %d %b %Y}"
+
+
+def idempotency_key(payment, language="en"):
+    key = f"booking-{payment.booking_id}-checkout-{payment.checkout_attempt}"
+    return key if language == "en" else f"{key}-{language}"
+
+
+def line_item_text(booking, language):
+    """The product name and description on Stripe's page, in `language`.
+    The property's title and location stay as the admin typed them."""
     prop = booking.property
     nights = booking.get_nights()
     guests = booking.guests
+    with translation.override(language):
+        name = ngettext(
+            "%(title)s - %(count)s night", "%(title)s - %(count)s nights", nights,
+        ) % {"title": prop.title, "count": nights}
+        description = ngettext(
+            "%(check_in)s to %(check_out)s, %(count)s guest, %(location)s",
+            "%(check_in)s to %(check_out)s, %(count)s guests, %(location)s",
+            guests,
+        ) % {
+            "check_in": stay_date(booking.check_in, language),
+            "check_out": stay_date(booking.check_out, language),
+            "count": guests,
+            "location": prop.location,
+        }
+    return name, description
+
+
+def session_params(booking, payment, language="en"):
+    """Built only from stored values and the language - see the module
+    docstring. Deliberately no payment_method_types: Stripe's dynamic payment
+    methods decide what to offer (managed in the Dashboard)."""
+    name, description = line_item_text(booking, language)
     params = {
         "mode": "payment",
         "line_items": [{
@@ -100,18 +154,16 @@ def session_params(booking, payment):
             "price_data": {
                 "currency": payment.currency,
                 "unit_amount": payment.amount_cents,
-                "product_data": {
-                    "name": f"{prop.title} - {nights} night{'s' if nights != 1 else ''}",
-                    "description": (
-                        f"{booking.check_in:%a %d %b %Y} to {booking.check_out:%a %d %b %Y}, "
-                        f"{guests} guest{'s' if guests != 1 else ''}, {prop.location}"
-                    ),
-                },
+                "product_data": {"name": name, "description": description},
             },
         }],
         "client_reference_id": str(booking.pk),
         "metadata": {"booking_id": str(booking.pk), "payment_id": str(payment.pk)},
+        # Stripe's own texts (buttons, card form, errors) in the app's
+        # language, instead of guessing from the browser ("auto").
+        "locale": CHECKOUT_LOCALES[language],
         "payment_intent_data": {
+            # For the Stripe Dashboard - always English.
             "description": f"Booking #{booking.pk}",
             "metadata": {"booking_id": str(booking.pk)},
         },
@@ -187,8 +239,9 @@ def start_checkout(booking_id):
             payment.expires_at = hold_expiry(now)
             payment.save(update_fields=["checkout_attempt", "expires_at", "updated_at"])
         attempt = payment.checkout_attempt
-        params = session_params(booking, payment)
-        key = idempotency_key(payment)
+        language = checkout_language()
+        params = session_params(booking, payment, language)
+        key = idempotency_key(payment, language)
 
     # 2) Ask Stripe (no DB locks held).
     try:
