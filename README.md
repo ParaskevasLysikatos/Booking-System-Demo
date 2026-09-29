@@ -60,14 +60,14 @@ you'll be"; step 7 is done - the admin property form has a **required**
 Map position: Find on map (best match) plus click/drag the pin; see "Admin
 properties → Map position". **TICKET-034 (map view) is done**, after a
 final check locally and on Render as admin; see "Map view: final check".
-**TICKET-035 (revenue chart on the admin dashboard) is in progress:**
-step 1 is done - `GET /api/admin/stats/` also returns a `series` of
-revenue and expected revenue by day, week or month (picked from the
-period's length), adding up exactly to the Revenue card; see "Admin
-stats API → Revenue over time"; step 2 is done - the dashboard has a
-"Revenue over time" chart (stacked confirmed + expected columns, a Today
-line, tooltips, keyboard, a Table view); see "Admin dashboard → Revenue
-chart".
+**TICKET-035 (revenue chart on the admin dashboard) is done:** `GET
+/api/admin/stats/` also returns a `series` of revenue and expected
+revenue by day, week or month (picked from the period's length), adding
+up exactly to the Revenue card (see "Admin stats API → Revenue over
+time"), and the dashboard draws it as a "Revenue over time" chart:
+stacked confirmed + expected columns, a Today line, tooltips, keyboard,
+a Table view. It was checked locally and on Render; see "Admin
+dashboard → Revenue chart" and "Revenue chart: final check".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -3358,6 +3358,37 @@ This caught four things, all fixed before shipping:
   revenue. The chart now fits instead of scrolling.
 - The first month label was cut to "ept" at the left edge.
 
+### Revenue chart: final check (TICKET-035 step 3)
+
+The check ran on 29 Sep 2026 in Chrome, logged in as the demo admin, on
+`26bbaa6`. Local ran on the Docker stack (no rebuild needed: no new
+packages); Render ran after its auto-deploy. Nothing was saved to either
+database.
+
+| Check | Local | Render |
+| --- | --- | --- |
+| Chart between the cards and the per-property table | ✅ | ✅ |
+| This / Last / Next month, Next 30 days: 30-31 day columns; Last 12 months: 12 month columns | ✅ | ✅ |
+| Custom 1 Jul - 30 Nov: 23 week columns, partial first and last week ("1 – 5 Jul 2026 (partial week)", "30 Nov 2026 (partial week)") | ✅ | - |
+| Legend = Revenue card, for confirmed **and** expected, on every preset | ✅ e.g. €2,142 last month; €144 + €594 next month | ✅ €2,111 + €1,008 this month; €4,803 + €4,093 next month; €5,212 + €1,008 last 12 months |
+| The columns' own amounts (screen-reader labels) add up to the card | - | ✅ on all three presets above |
+| Today line only when the period includes today | ✅ (none for last / next month) | ✅ |
+| Stacked column: confirmed + 2 px gap + expected; tooltip beside it with both amounts and the nights | ✅ 12 – 18 Oct: €144 + €462, 2 booked · 7 pending | ✅ Sat 10 Oct: €315 + €232, 3 booked · 1 pending |
+| Click a column → → with the keyboard: focus and tooltip move, blue focus ring, one Tab stop | ✅ | ✅ (10 → 12 Oct) |
+| Table view: one row per week + Total row = the cards (€2,427 / €594) | ✅ | - |
+| Axis ticks round (€0-€40, €0-€150, €0-€2.5k) | ✅ | ✅ |
+| No sideways page scroll; no console errors | ✅ | ✅ |
+
+Phones and tablets (390 / 320 / 768 px) were checked in step 2 in a
+headless Chromium: the same code, and the live site serves the same
+build.
+
+A note for anyone repeating this: in a Chrome tab running **in the
+background**, the browser pauses the animation frames that Angular's
+zoneless change detection renders on, and a scripted `.focus()` doesn't
+fire. A script can then see "no tooltip" even though the chart is fine.
+Use real clicks and key presses, or bring the tab to the front.
+
 ## Admin properties (Angular)
 
 TICKET-024 replaces the Properties placeholder with the real admin UI:
@@ -6093,4 +6124,7 @@ API → Revenue over time"; step 2 (the "Revenue over time" chart on
 `/admin/dashboard`: hand-built SVG, stacked confirmed + expected
 columns, a Today line, tooltip beside the column, keyboard, Chart /
 Table toggle, fits phones) is done; see "Admin dashboard → Revenue
-chart"; next is step 3, the check in Chrome locally and on Render.
+chart"; **TICKET-035 is done** (step 3: Chrome checks as the admin on
+the local app and on Render - every preset's legend and column amounts
+equal the cards, the stacked tooltip, the keyboard, the Table view, no
+console errors; see "Revenue chart: final check").

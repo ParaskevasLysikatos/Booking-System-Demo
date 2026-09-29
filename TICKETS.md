@@ -749,7 +749,7 @@ test, always last).
   - **Done.** Stays have a map position (exact for admins, a ~500 m area for everyone else); `/listings` shows every matching stay on a map (60/40 split on wide screens, Show map on phones, clusters, pop-up card with heart and stay total); the property page has "Where you'll be" + Open in Google Maps; the admin form requires a position (Find on map with Nominatim, click/drag). Base map: softened OpenStreetMap (CARTO now needs a key). Backend 392 tests, frontend 353 tests.
   - Follow-up: shorter Find on map labels → TICKET-042. (Not doing: hints for tourist names Nominatim doesn't know - owner's call: typing a real address is the admin's job, and the pin can always be clicked/dragged.)
 
-- [ ] **TICKET-035** — Revenue chart over time (admin dashboard)
+- [x] **TICKET-035** — Revenue chart over time (admin dashboard)
   - Priority: P2 · Depends on: TICKET-023
   - Decisions (agreed before building):
     - **what:** confirmed revenue as solid columns with the **expected (pending)** revenue stacked on top in a lighter shade - same per-night rules as the stat cards, so the bars add up to the Revenue card
@@ -769,6 +769,12 @@ test, always last).
     - Changes after looking at it in a headless Chromium (seeded data, demo admin, 1280/768/390/320 px): no dimming of the other columns (a dimmed dark column looked like "expected"); tooltip beside the column, not over it; **fit instead of scroll** on phones (a month by day and 12 months fit a 320 px phone; only a 40-62-day daily range scrolls, with a note) - the planned "scroll, starting at today" hid all of a month's revenue; edge x labels anchored inward (was clipped to "ept").
     - 22 new frontend tests (13 helpers, 8 component, 1 dashboard); **375 frontend tests** pass; production build clean, initial bundle unchanged (601 kB / 147 kB), dashboard chunk ~39 kB.
     - README: new "Admin dashboard → Revenue chart (TICKET-035)"; layout, admin routes, status and next steps updated.
+  - Step 3 done (final check, 29 Sep, on `26bbaa6`, Chrome as the demo admin; nothing saved):
+    - **Local** (Docker stack, no rebuild): chart between cards and table; all five presets + a custom Jul-Nov range (23 weeks, partial first/last week); legend = the cards for confirmed and expected on every preset; Today line only when today is inside; stacked 12-18 Oct column (€144 + €462) tooltip; click + → keyboard with focus ring; Table view with Total row = the cards; no page overflow.
+    - **Render** (auto-deployed): this month €2,111 + €1,008, next month €4,803 + €4,093, last 12 months €5,212 + €1,008 - card = legend = sum of the columns' amounts each time; stacked 10 Oct tooltip (€315 + €232); keyboard 10 → 12 Oct; no console errors.
+    - Note for re-runs: in a background Chrome tab, rendering (animation frames) pauses and scripted `.focus()` doesn't fire, so checks must use real clicks/keys.
+    - README: new "Revenue chart: final check"; status and next steps updated.
+  - **Done.** The admin dashboard shows "Revenue over time": confirmed revenue with the expected (pending) revenue stacked on top, by day / week / month picked from the period, adding up exactly to the Revenue card, with a Today line, tooltips beside the column, full keyboard use, a Chart / Table toggle, and a layout that fits phones. Hand-built SVG (no new package, initial bundle unchanged). Backend 400 tests, frontend 375 tests. Not done (easy later if wanted): click a column to zoom into it; the comparison period as a faint second series.
 
 - [ ] **TICKET-036** — Real photo uploads
   - Priority: P2 · Depends on: TICKET-006
