@@ -10,7 +10,10 @@ export const GEOCODE_URL = `${environment.apiUrl}/admin/geocode/`;
 export type GeocodePrecision = 'address' | 'street' | 'area' | 'city';
 
 export interface GeocodeResult {
+  /** Nominatim's full address line. */
   label: string;
+  /** Short form for "Placed at …", e.g. "Ιωάννη Τσιμισκή, Ladadika, Thessaloniki" (TICKET-042). */
+  short_label: string;
   name: string;
   latitude: number;
   longitude: number;

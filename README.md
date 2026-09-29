@@ -1700,10 +1700,9 @@ point. `GET /api/admin/geocode/?q=…` does that with OpenStreetMap
 {
   "query": "Tsimiski 45, Thessaloniki",
   "results": [
-    { "label": "45, Tsimiski, Center, Thessaloniki, 546 23, Greece", "name": "45",
-      "latitude": 40.632711, "longitude": 22.943158, "precision": "address", "kind": "house" },
-    { "label": "Tsimiski, Thessaloniki, Greece", "name": "Tsimiski",
-      "latitude": 40.6311, "longitude": 22.9468, "precision": "street", "kind": "road" }
+    { "label": "Ιωάννη Τσιμισκή, Ladadika, 1st District of Thessaloniki, Thessaloniki Municipal Unit, Municipality of Thessaloniki, Thessaloniki Regional Unit, Central Macedonia, Macedonia and Thrace, 546 23, Greece",
+      "short_label": "Ιωάννη Τσιμισκή, Ladadika, Thessaloniki", "name": "Ιωάννη Τσιμισκή",
+      "latitude": 40.632723, "longitude": 22.943047, "precision": "street", "kind": "road" }
   ],
   "attribution": "Search by OpenStreetMap Nominatim · © OpenStreetMap contributors"
 }
@@ -1721,6 +1720,35 @@ how exact the point is:
 | *(dropped)* | below 13 | country, region, county |
 
 `kind` is Nominatim's own label (`house`, `road`, `suburb`, `city`, ...).
+
+**`short_label`** (TICKET-042) is a short form of `label` (Nominatim's
+whole address chain) for the form's "Placed at …" line. It is built in
+`listings/geocoding.py:short_label()` from Nominatim's address details
+(the request asks for `addressdetails=1`):
+
+`[own name,] street [number,] [neighbourhood,] town` - plus the region
+when there is only a town, or no town at all.
+
+| Nominatim result | `short_label` |
+| --- | --- |
+| a street (`road` + `neighbourhood` + `city`) | Ιωάννη Τσιμισκή, Ladadika, Thessaloniki |
+| a house number | Εγνατία 100, Thessaloniki |
+| a named place (`name` differs from street/town) | White Tower of Thessaloniki, Νίκης, Thessaloniki |
+| a square in a quarter | Syntagma Square, Kolonaki, Athens |
+| just a village | Kardamyli, Messenia |
+| just a city (region = the city → next region) | Chania, Crete |
+| no town (a gorge, a beach) | Samaria Gorge, Chania |
+| no address details | first 3 parts of `label`, minus postcode and "Greece" |
+
+Details: the most specific town wins (`village`, `town`, `hamlet`, then
+`city`, `municipality` - Kardamyli's `city` is "Municipal Unit of
+Lefktro"); Greek admin wrappers are dropped ("Thessaloniki Municipal
+Unit" → Thessaloniki, "Messenia Regional Unit" → Messenia); areas that
+don't help are skipped ("1st District of …", the "Μητροπολιτική Περιοχή"
+metropolitan-area suburb); repeated parts appear once. The examples are
+real Nominatim answers (checked 29 Sep 2026) and are the unit tests
+(`ShortLabelTests`). Cached results are keyed `geocode:v2:…`, so lists
+cached before this change (without `short_label`) are never served.
 Duplicates (the same point twice) are removed, and items without a valid
 point are skipped.
 
@@ -4044,8 +4072,10 @@ admins see the pin."
   - The search is `GET /api/admin/geocode/` (see "Admin place search
     API"). The **first (best) result** is used at once: the pin moves
     there, the map zooms to it (zoom 16), and the page says which place
-    it picked, e.g. "Placed at 45, Tsimiski, Center, Thessaloniki, 546 23,
-    Greece (exact address). Drag the pin to fine-tune."
+    it picked, e.g. "Placed at **Ιωάννη Τσιμισκή, Ladadika, Thessaloniki**
+    (street). Drag the pin to fine-tune." - the result's `short_label`
+    (TICKET-042); hovering the name shows Nominatim's full address line
+    (`title`). Without a short label it shows the full line.
   - The precision labels are exact address, street, neighbourhood /
     village and town centre.
 - **Nothing found:** "No place in Greece matched "…". Try a street and

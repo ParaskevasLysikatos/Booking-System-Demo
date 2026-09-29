@@ -22,7 +22,7 @@ export function roundCoord(value: number): number {
 type SearchState =
   | { status: 'idle' }
   | { status: 'searching' }
-  | { status: 'found'; label: string; precision: string }
+  | { status: 'found'; label: string; full: string; precision: string }
   | { status: 'none'; query: string }
   | { status: 'error'; message: string };
 
@@ -68,7 +68,7 @@ type SearchState =
       @switch (search().status) {
         @case ('found') {
           <mat-icon class="ok">check_circle</mat-icon>
-          <span>Placed at <strong>{{ $any(search()).label }}</strong> ({{ $any(search()).precision }}). Drag the pin to fine-tune.</span>
+          <span>Placed at <strong [attr.title]="$any(search()).full">{{ $any(search()).label }}</strong> ({{ $any(search()).precision }}). Drag the pin to fine-tune.</span>
         }
         @case ('none') {
           <mat-icon class="warn">help</mat-icon>
@@ -200,7 +200,13 @@ export class LocationPickerComponent implements ControlValueAccessor {
           return;
         }
         this.place({ lat: best.latitude, lng: best.longitude }, true);
-        this.search.set({ status: 'found', label: best.label, precision: PRECISION_LABELS[best.precision] ?? best.precision });
+        // TICKET-042: the short label reads at a glance; the full line is the tooltip.
+        this.search.set({
+          status: 'found',
+          label: best.short_label || best.label,
+          full: best.label,
+          precision: PRECISION_LABELS[best.precision] ?? best.precision,
+        });
       },
       error: (err: unknown) => this.search.set({ status: 'error', message: searchErrorMessage(err) }),
     });

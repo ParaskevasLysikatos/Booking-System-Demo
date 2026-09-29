@@ -20,7 +20,7 @@ class HostComponent {
 }
 
 const result = (over: Partial<GeocodeResult> = {}): GeocodeResult => ({
-  label: '45, Tsimiski, Center, Thessaloniki, 546 23, Greece', name: '45',
+  label: '45, Tsimiski, Center, Thessaloniki, 546 23, Greece', short_label: 'Tsimiski 45, Thessaloniki', name: '45',
   latitude: 40.632711, longitude: 22.943158, precision: 'address', kind: 'house', ...over,
 });
 
@@ -87,7 +87,10 @@ describe('LocationPickerComponent (TICKET-034 step 7)', () => {
     await settle();
     expect(host.position.value).toEqual({ lat: 40.632711, lng: 22.943158 });
     expect(host.position.dirty).toBe(true);
-    expect(text()).toContain('Placed at 45, Tsimiski, Center, Thessaloniki, 546 23, Greece (exact address). Drag the pin to fine-tune.');
+    expect(text()).toContain('Placed at Tsimiski 45, Thessaloniki (exact address). Drag the pin to fine-tune.');
+    // TICKET-042: the full address line is the tooltip.
+    expect(fixture.nativeElement.querySelector('.status strong').getAttribute('title'))
+      .toBe('45, Tsimiski, Center, Thessaloniki, 546 23, Greece');
     expect(text()).toContain('40.632711, 22.943158');
     expect(map().fitToMarkers()).toBe(true); // jump to the found place
     expect(map().markers()).toEqual([
@@ -100,6 +103,14 @@ describe('LocationPickerComponent (TICKET-034 step 7)', () => {
     http.expectOne((r) => r.url === GEOCODE_URL).flush({ query: 'x', attribution: '', results: [result({ precision: 'city' })] });
     await settle();
     expect(text()).toContain('(town centre)');
+  });
+
+  it('falls back to the full line when there is no short label (TICKET-042)', async () => {
+    findButton().click();
+    http.expectOne((r) => r.url === GEOCODE_URL)
+      .flush({ query: 'x', attribution: '', results: [result({ short_label: '', label: 'Volos, Greece', precision: 'city' })] });
+    await settle();
+    expect(text()).toContain('Placed at Volos, Greece (town centre).');
   });
 
   it('nothing found: says so and leaves the position alone', async () => {

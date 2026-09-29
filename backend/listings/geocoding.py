@@ -19,6 +19,7 @@ https://operations.osmfoundation.org/policies/nominatim/
 
 import hashlib
 import json
+import re
 import threading
 import time
 import urllib.error
@@ -50,6 +51,89 @@ def precision_for(place_rank):
     if place_rank >= 17:
         return "area"  # village, suburb, neighbourhood, island
     return "city"
+
+
+# Short labels (TICKET-042): Nominatim's display_name is the whole address
+# chain ("Ιωάννη Τσιμισκή, Ladadika, 1st District of Thessaloniki,
+# Thessaloniki Municipal Unit, Municipality of Thessaloniki, ..., 546 23,
+# Greece"). short_label() keeps what an admin needs at a glance: the place's
+# own name (for a named place), street + number, one neighbourhood and the
+# town - "Ιωάννη Τσιμισκή, Ladadika, Thessaloniki".
+STREET_KEYS = ("road", "pedestrian", "footway", "path", "square")
+AREA_KEYS = ("neighbourhood", "quarter", "suburb", "residential")
+# Most specific first: Kardamyli is a village inside "Municipal Unit of
+# Lefktro" (Nominatim's `city`) - the village is what people know.
+TOWN_KEYS = ("village", "town", "hamlet", "city", "municipality")
+REGION_KEYS = ("county", "state_district", "state")
+FALLBACK_PARTS = 3
+_POSTCODE = re.compile(r"^\d{3}\s?\d{2}$")
+# Greek administrative wrappers around a plain name.
+_ADMIN_WORDS = re.compile(
+    r"^(?:Municipal Unit of|Municipality of|Regional Unit of|Region of)\s+"
+    r"|\s+(?:Municipal Unit|Municipality|Regional Unit|Region)$",
+    re.IGNORECASE,
+)
+# Areas too broad to help: "1st District of Thessaloniki", the
+# "Μητροπολιτική Περιοχή Θεσσαλονίκης" (metropolitan area) suburb.
+_BROAD_AREA = re.compile(r"district|metropolitan|μητροπολιτική", re.IGNORECASE)
+
+
+def _plain(value):
+    return _ADMIN_WORDS.sub("", str(value or "").strip()).strip()
+
+
+def short_label(item):
+    """A short, readable form of a Nominatim result, built from its
+    `address` details (asked for with addressdetails=1):
+
+        [own name,] street [number,] [neighbourhood,] town
+        Egnatia 100 -> "Εγνατία 100, Thessaloniki"
+        a named place -> "White Tower of Thessaloniki, Νίκης, Thessaloniki"
+        just a town -> "Kardamyli, Messenia", "Chania, Crete"
+        no town -> "<name>, <regional unit>"
+
+    Without address details it falls back to the first parts of
+    display_name, minus postcode and country. The full line stays available
+    as `label`."""
+    address = item.get("address") if isinstance(item.get("address"), dict) else {}
+
+    def first(keys, skip=None):
+        for key in keys:
+            value = _plain(address.get(key))
+            if value and not (skip and skip.search(value)):
+                return value
+        return ""
+
+    street = first(STREET_KEYS)
+    number = str(address.get("house_number") or "").strip()
+    town = first(TOWN_KEYS)
+    name = str(item.get("name") or "").strip()
+
+    parts = []
+    if name and name not in (street, number, town) and not name.isdigit():
+        parts.append(name)  # a named place: "White Tower of Thessaloniki"
+    if street:
+        parts.append(f"{street} {number}" if number else street)
+    parts.append(first(AREA_KEYS, skip=_BROAD_AREA))
+    parts.append(town)
+
+    seen, short = set(), []
+    for part in parts:
+        if part and part.lower() not in seen:
+            seen.add(part.lower())
+            short.append(part)
+    if short and (not town or short == [town]):
+        # Just a town, or no town at all: add the region for context.
+        region = next((r for r in (_plain(address.get(k)) for k in REGION_KEYS)
+                       if r and r.lower() not in seen), "")
+        if region:
+            short.append(region)
+    if address and short:
+        return ", ".join(short)
+
+    pieces = [p.strip() for p in str(item.get("display_name") or "").split(",") if p.strip()]
+    pieces = [p for p in pieces if not _POSTCODE.match(p) and p.lower() != "greece"]
+    return ", ".join(pieces[:FALLBACK_PARTS])
 
 
 class GeocodingError(Exception):
@@ -114,6 +198,7 @@ def _clean(raw):
         seen.add(key)
         results.append({
             "label": label,
+            "short_label": short_label(item) or label,
             "name": str(item.get("name") or label.split(",")[0]).strip(),
             "latitude": round(lat, 6),
             "longitude": round(lng, 6),
@@ -128,7 +213,8 @@ def _clean(raw):
 def _cache_key(query):
     normalised = " ".join(query.lower().split())
     digest = hashlib.sha256(f"{normalised}|{settings.GEOCODING_LANGUAGE}".encode()).hexdigest()
-    return f"geocode:v1:{digest}"
+    # v2: results carry short_label (TICKET-042) - older cached lists don't.
+    return f"geocode:v2:{digest}"
 
 
 def search(query):
@@ -146,6 +232,7 @@ def search(query):
         "format": "jsonv2",
         "countrycodes": "gr",
         "limit": FETCH_LIMIT,
+        "addressdetails": 1,  # the parts short_label() is built from
         "accept-language": settings.GEOCODING_LANGUAGE,
     }
     with _lock:

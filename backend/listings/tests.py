@@ -758,7 +758,7 @@ import urllib.error  # noqa: E402
 from unittest import mock  # noqa: E402
 
 from django.core.cache import cache  # noqa: E402
-from django.test import override_settings  # noqa: E402
+from django.test import SimpleTestCase, override_settings  # noqa: E402
 
 from . import geocoding  # noqa: E402
 
@@ -805,7 +805,9 @@ class GeocodeAPITests(PropertyAPITestBase):
         results = resp.data["results"]
         self.assertEqual([r["precision"] for r in results], ["address", "street", "city"])  # region dropped
         self.assertEqual(results[0], {
-            "label": "45, Tsimiski, Center, Thessaloniki, 546 23, Greece", "name": "45",
+            "label": "45, Tsimiski, Center, Thessaloniki, 546 23, Greece",
+            "short_label": "45, Tsimiski, Center",  # no address details -> first parts
+            "name": "45",
             "latitude": 40.632711, "longitude": 22.943158, "precision": "address", "kind": "house",
         })
 
@@ -816,6 +818,7 @@ class GeocodeAPITests(PropertyAPITestBase):
         self.assertEqual(params["q"], "Volos")
         self.assertEqual(params["format"], "jsonv2")
         self.assertEqual(params["accept-language"], "en")
+        self.assertEqual(params["addressdetails"], 1)  # TICKET-042: parts for short_label
 
     def test_at_most_five_and_no_duplicates(self):
         raw = [nominatim_item(f"Street {i}", 40.60 + i / 100, 22.90, 26) for i in range(8)]
@@ -891,6 +894,13 @@ class GeocodeAPITests(PropertyAPITestBase):
         self.assertIn("countrycodes=gr", request.full_url)
         self.assertTrue(request.full_url.startswith("https://nominatim.openstreetmap.org/search?"))
 
+    def test_results_carry_a_short_label(self):
+        raw = [dict(nominatim_item("Ιωάννη Τσιμισκή", 40.6327, 22.9430, 26, "road", LONG_TSIMISKI),
+                    address=TSIMISKI_ADDRESS)]
+        result = self.get("Tsimiski, Thessaloniki", fetch_return=raw)[0].data["results"][0]
+        self.assertEqual(result["short_label"], "Ιωάννη Τσιμισκή, Ladadika, Thessaloniki")
+        self.assertEqual(result["label"], LONG_TSIMISKI)  # the full line is still there
+
     @override_settings(GEOCODING_URL="")
     def test_switched_off_is_503(self):
         resp, fetch = self.get("Chania")
@@ -919,3 +929,69 @@ class GeocodeAPITests(PropertyAPITestBase):
         with mock.patch("listings.views.GeocodeThrottle.rate", "2/min"):
             codes = [self.get(f"place {i}")[0].status_code for i in range(3)]
         self.assertEqual(codes, [200, 200, 429])
+
+
+LONG_TSIMISKI = (
+    "Ιωάννη Τσιμισκή, Ladadika, 1st District of Thessaloniki, Thessaloniki Municipal Unit, "
+    "Municipality of Thessaloniki, Thessaloniki Regional Unit, Central Macedonia, "
+    "Macedonia and Thrace, 546 23, Greece"
+)
+# Real Nominatim address details (addressdetails=1), 29 Sep 2026.
+TSIMISKI_ADDRESS = {
+    "road": "Ιωάννη Τσιμισκή", "neighbourhood": "Ladadika", "city_district": "1st District of Thessaloniki",
+    "city": "Thessaloniki Municipal Unit", "municipality": "Municipality of Thessaloniki",
+    "county": "Thessaloniki Regional Unit", "state": "Central Macedonia", "postcode": "546 23",
+    "country": "Greece", "country_code": "gr",
+}
+
+
+class ShortLabelTests(SimpleTestCase):
+    """TICKET-042: short "Placed at ..." labels, from real Nominatim shapes."""
+
+    def short(self, name, address=None, display=""):
+        item = {"name": name, "display_name": display}
+        if address is not None:
+            item["address"] = address
+        return geocoding.short_label(item)
+
+    def test_street_neighbourhood_town(self):
+        self.assertEqual(self.short("Ιωάννη Τσιμισκή", TSIMISKI_ADDRESS), "Ιωάννη Τσιμισκή, Ladadika, Thessaloniki")
+
+    def test_house_number_after_the_street(self):
+        address = {"house_number": "100", "road": "Εγνατία", "city": "Thessaloniki",
+                   "county": "Thessaloniki Regional Unit"}
+        self.assertEqual(self.short("", address), "Εγνατία 100, Thessaloniki")
+
+    def test_broad_areas_are_skipped(self):
+        address = dict(TSIMISKI_ADDRESS, suburb="Μητροπολιτική Περιοχή Θεσσαλονίκης")
+        del address["neighbourhood"]
+        self.assertEqual(self.short("Ιωάννη Τσιμισκή", address), "Ιωάννη Τσιμισκή, Thessaloniki")
+
+    def test_named_place_keeps_its_name(self):
+        address = {"tourism": "White Tower of Thessaloniki", "road": "Νίκης",
+                   "city": "Thessaloniki Municipal Unit", "county": "Thessaloniki Regional Unit"}
+        self.assertEqual(self.short("White Tower of Thessaloniki", address),
+                         "White Tower of Thessaloniki, Νίκης, Thessaloniki")
+
+    def test_quarter_and_plain_city(self):
+        address = {"road": "Syntagma Square", "quarter": "Kolonaki", "city_district": "1st District of Athens",
+                   "city": "Athens", "county": "Regional Unit of Central Athens"}
+        self.assertEqual(self.short("Syntagma Square", address), "Syntagma Square, Kolonaki, Athens")
+
+    def test_town_only_adds_the_region(self):
+        village = {"village": "Kardamyli", "city": "Municipal Unit of Lefktro",
+                   "municipality": "Municipality of West Mani", "county": "Messenia Regional Unit"}
+        self.assertEqual(self.short("Kardamyli", village), "Kardamyli, Messenia")  # the village, not the unit
+        city = {"city": "Chania", "municipality": "Municipality of Chania",
+                "county": "Chania Regional Unit", "state": "Crete"}
+        self.assertEqual(self.short("Chania", city), "Chania, Crete")  # county = town -> next region
+
+    def test_no_town(self):
+        address = {"natural": "Samaria Gorge", "county": "Chania Regional Unit", "state": "Crete"}
+        self.assertEqual(self.short("Samaria Gorge", address), "Samaria Gorge, Chania")
+
+    def test_without_address_details_uses_the_first_parts(self):
+        self.assertEqual(self.short("45", display="45, Tsimiski, Center, Thessaloniki, 546 23, Greece"),
+                         "45, Tsimiski, Center")
+        self.assertEqual(self.short("Volos", display="Volos, 383 33, Greece"), "Volos")
+        self.assertEqual(self.short("Volos", {"country": "Greece"}, "Volos, Greece"), "Volos")
