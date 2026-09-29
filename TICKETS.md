@@ -957,6 +957,10 @@ test, always last).
   - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)
   - Redeploy both Render services from the final `master`, run the local and hosted smoke tests (the "Payments: business rules & test cases" E2E cases + the TICKET-028 hosted demo check), and tick off the README's "Demo day" checklist.
   - (The former TICKET-039 "Record a backup demo video" was dropped - decision after TICKET-029.)
+  - TICKET-044 checks (only tested locally with Stripe mocked, so check them for real here):
+    - **Stripe's own page:** the "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC." line shows above Stripe's Pay button, in English and in Greek (the page's language). It has never been seen on Stripe's real page yet - the tests only checked the request sent to Stripe.
+    - **Render:** after the redeploy, `https://booking-demo-api.onrender.com/api/payments/config/` returns `"test_mode": true`; the hint shows in booking step 2 (under "You'll pay … on Stripe's payment page") and on the "Payment not completed" page above **Pay now** - and not on paid / cancelled / timed-out pages.
+    - **Copy button on a real phone:** tap it, see the ✓, paste into Stripe's card field (clipboards on phones can behave differently from headless Chrome).
 
 ---
 
