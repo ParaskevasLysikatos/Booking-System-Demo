@@ -6093,15 +6093,25 @@ the demo never starts out empty:
   (TICKET-034): a random point within 400 m-1.5 km of a spot a little
   inland of the town centre (`listings/geo.py:CITY_CENTRES`), so pins
   don't land in the sea.
-- **Images** - 2-5 per property, deterministic `picsum.photos` URLs (free,
-  no API key), with the first one flagged as the cover image.
-  *(TICKET-037, in progress):* a fixed set of 36 free-licensed Unsplash
-  photos now lives in `backend/core/seed_photos/` (1280 px WebP, credits in
-  its `CREDITS.md`), grouped by file name prefix - exteriors/terraces
-  (`villa-`, `house-`, `cottage-`, `penthouse-`, `view-`) and interiors
-  (`apartment-`, `studio-`, `loft-`, `bedroom-`, `kitchen-`, `bathroom-`).
-  The next steps upload them to the S3 bucket under
-  `property-images/seed/` and make the seeder use them instead of picsum.
+- **Images** (TICKET-037) - 3-5 per property. With S3 configured (the
+  four `AWS_*` settings), they are the **seed photos in the bucket**
+  (`property-images/seed/<name>.webp`, see "Seed photos in S3") -
+  `backend/core/seed_photos/` holds 36 Unsplash photos grouped by file
+  name: exteriors/terraces (`villa-`, `house-`, `cottage-`,
+  `penthouse-`, `view-`) and interiors (`apartment-`, `studio-`, `loft-`,
+  `bedroom-`, `kitchen-`, `bathroom-`). `PHOTO_GROUPS` in the command
+  matches them to the property type from the title: the **cover** comes
+  from the type's own group (a Villa → `villa-*` pool shot, a Loft →
+  `loft-*`, a Room → a bedroom or studio), then one photo from each of
+  2-4 interior/view groups (e.g. bedroom, sea view, kitchen, bathroom).
+  The least-used photo is picked each time, so covers rarely repeat and
+  no property shows the same photo twice. Many properties share a photo;
+  that's safe because the app never deletes seed photos from S3. Run
+  `manage.py upload_seed_photos` once before seeding with S3 on.
+  **Without S3** (fresh clones, tests) the seeder falls back to
+  deterministic `picsum.photos` URLs, like before. The command's last
+  lines say which source was used (`Photos: S3 seed photos (…)` /
+  `Photos: picsum.photos (…)`).
 - **Guest users** - 10 by default, usernames `guest_<n>_<fakename>`,
   emails `...@example.com`, all sharing one known password so you can log
   in as any of them while testing: **`DemoPass123!`**.

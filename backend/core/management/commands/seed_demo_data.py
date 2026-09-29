@@ -14,6 +14,8 @@ from favorites.models import Favorite
 from listings.geo import demo_point
 from listings.models import Property, PropertyImage
 from reviews.models import Review
+from uploads import s3 as uploads_s3
+from uploads import seed as seed_photos
 
 DEMO_GUEST_PASSWORD = "DemoPass123!"
 DEMO_ADMIN_USERNAME = "admin_demo"
@@ -52,6 +54,24 @@ AMENITIES_POOL = [
     "washer", "heating", "pets_allowed", "balcony", "sea_view",
     "elevator", "gym",
 ]
+
+# Which seed photos (TICKET-037, backend/core/seed_photos/<group>-<nn>.webp)
+# suit each property type: the cover comes from the first list (an exterior,
+# terrace or the main room), the other photos one per group from the second
+# list, in order - so a villa shows its pool first, then a sea view,
+# bedroom, kitchen, bathroom.
+PHOTO_GROUPS = {
+    "Villa": (["villa"], ["bedroom", "view", "kitchen", "bathroom"]),
+    "House": (["house"], ["bedroom", "kitchen", "view", "bathroom"]),
+    "Cottage": (["cottage"], ["bedroom", "kitchen", "bathroom", "view"]),
+    "Retreat": (["cottage", "villa"], ["bedroom", "view", "kitchen", "bathroom"]),
+    "Penthouse": (["penthouse"], ["apartment", "view", "bedroom", "kitchen", "bathroom"]),
+    "Apartment": (["apartment"], ["bedroom", "kitchen", "bathroom", "view"]),
+    "Suite": (["apartment", "bedroom"], ["bedroom", "bathroom", "view", "kitchen"]),
+    "Loft": (["loft"], ["bedroom", "kitchen", "bathroom", "apartment"]),
+    "Studio": (["studio"], ["kitchen", "bathroom", "bedroom"]),
+    "Room": (["bedroom", "studio"], ["bathroom", "view", "kitchen"]),
+}
 
 # Weighted rating distribution (skewed positive, like a real demo dataset).
 RATING_WEIGHTS = {5: 45, 4: 30, 3: 15, 2: 7, 1: 3}
@@ -154,6 +174,7 @@ class Command(BaseCommand):
             f"\nSeeded {len(properties)} properties, {len(guests)} guests "
             f"and {favorites} saved places (favorites)."
         ))
+        self.stdout.write(f"Photos: {self.photo_source}")
         if admin_created:
             self.stdout.write(
                 f"Demo admin login: {DEMO_ADMIN_EMAIL} / {DEMO_ADMIN_PASSWORD} "
@@ -231,7 +252,8 @@ class Command(BaseCommand):
         for _ in range(count):
             location = random.choice(LOCATIONS)
             city = location.split(",")[0]
-            title = f"{random.choice(ADJECTIVES)} {random.choice(NOUNS)} in {city}"
+            noun = random.choice(NOUNS)
+            title = f"{random.choice(ADJECTIVES)} {noun} in {city}"
             amenities = random.sample(
                 AMENITIES_POOL, k=random.randint(3, len(AMENITIES_POOL))
             )
@@ -248,20 +270,65 @@ class Command(BaseCommand):
                 amenities=amenities,
                 is_active=random.random() < 0.9,
             )
+            prop.seed_kind = noun  # picks its photos in _create_images
             properties.append(prop)
         return properties
 
     # -- images -----------------------------------------------------------
 
     def _create_images(self, properties):
+        """3-5 photos per property. With S3 configured (the four AWS_*
+        settings) they are the seed photos in the bucket, matched to the
+        property type (PHOTO_GROUPS) - run `manage.py upload_seed_photos`
+        once first. Without S3 (fresh clones, tests) they fall back to
+        deterministic picsum.photos URLs, like before TICKET-037."""
+        by_group = self._seed_photo_groups()
+        if not by_group:
+            self.photo_source = "picsum.photos (S3 off or no seed photos)"
+            for prop in properties:
+                for idx in range(random.randint(3, 5)):
+                    PropertyImage.objects.create(
+                        property=prop,
+                        image=f"https://picsum.photos/seed/{prop.pk}-{idx}/800/600",
+                        is_cover=(idx == 0),
+                    )
+            return
+
+        self.photo_source = f"S3 seed photos ({uploads_s3.public_url(seed_photos.SEED_PREFIX)})"
+        used = {}  # name -> times used so far, to spread the photos out
+
+        def least_used(options):
+            fewest = min(used.get(n, 0) for n in options)
+            name = random.choice([n for n in options if used.get(n, 0) == fewest])
+            used[name] = used.get(name, 0) + 1
+            return name
+
         for prop in properties:
-            image_count = random.randint(2, 5)
-            for idx in range(image_count):
+            cover_groups, extra_groups = PHOTO_GROUPS.get(
+                getattr(prop, "seed_kind", ""), (["apartment"], ["bedroom", "kitchen", "bathroom"])
+            )
+            covers = [n for g in cover_groups for n in by_group.get(g, [])]
+            if not covers:  # a trimmed folder: any photo will do
+                covers = [n for names in by_group.values() for n in names]
+            names = [least_used(covers)]
+            for group in extra_groups[:random.randint(2, 4)]:
+                options = [n for n in by_group.get(group, []) if n not in names]
+                if options:
+                    names.append(least_used(options))
+            for idx, name in enumerate(names):
                 PropertyImage.objects.create(
-                    property=prop,
-                    image=f"https://picsum.photos/seed/{prop.pk}-{idx}/800/600",
-                    is_cover=(idx == 0),
+                    property=prop, image=seed_photos.seed_url(name), is_cover=(idx == 0),
                 )
+
+    def _seed_photo_groups(self):
+        """{"villa": ["villa-01.webp", ...], ...} from the repo folder, or {}
+        when S3 isn't configured (then the seeder uses picsum)."""
+        if not uploads_s3.uploads_enabled():
+            return {}
+        groups = {}
+        for path in seed_photos.seed_files():
+            groups.setdefault(path.name.rsplit("-", 1)[0], []).append(path.name)
+        return groups
 
     # -- bookings -----------------------------------------------------------
 

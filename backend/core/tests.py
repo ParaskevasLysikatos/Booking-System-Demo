@@ -98,3 +98,61 @@ class SeedCoordinatesTests(TestCase):
             lat, lng, radius = geo.CITY_CENTRES[geo.city_for(prop.location)]
             self.assertIsNotNone(prop.latitude, prop.location)
             self.assertLessEqual(geo.distance_metres(lat, lng, prop.latitude, prop.longitude), radius + 1)
+
+
+class SeedPhotosTests(TestCase):
+    """TICKET-037: with S3 configured the seeder uses the seed photos in the
+    bucket, matched to the property type; without it, picsum."""
+
+    S3_ON = dict(
+        AWS_ACCESS_KEY_ID="AKIATESTKEY", AWS_SECRET_ACCESS_KEY="test-secret",
+        AWS_S3_BUCKET="demo-bucket", AWS_S3_REGION="eu-central-1", AWS_S3_PUBLIC_BASE_URL="",
+    )
+    S3_OFF = dict(S3_ON, AWS_ACCESS_KEY_ID="", AWS_SECRET_ACCESS_KEY="", AWS_S3_BUCKET="", AWS_S3_REGION="")
+    SEED_BASE = "https://demo-bucket.s3.eu-central-1.amazonaws.com/property-images/seed/"
+
+    def seed(self):
+        out = StringIO()
+        call_command("seed_demo_data", "--properties", "14", "--guests", "2", "--seed", "3", stdout=out)
+        return out.getvalue()
+
+    @staticmethod
+    def kind(prop):
+        return prop.title.split(" in ")[0].split()[-1]  # "Cozy Villa in Chania" -> "Villa"
+
+    def test_s3_seed_photos_match_the_property_type(self):
+        from core.management.commands.seed_demo_data import PHOTO_GROUPS
+        from uploads import seed
+
+        on_disk = {p.name for p in seed.seed_files()}
+        with override_settings(**self.S3_ON):
+            out = self.seed()
+        self.assertIn("Photos: S3 seed photos", out)
+        for prop in Property.objects.prefetch_related("images"):
+            images = list(prop.images.order_by("id"))
+            names = [img.image[len(self.SEED_BASE):] for img in images]
+            with self.subTest(prop.title):
+                self.assertTrue(all(img.image.startswith(self.SEED_BASE) for img in images))
+                self.assertTrue(set(names) <= on_disk)
+                self.assertTrue(3 <= len(images) <= 5)
+                self.assertEqual(len(set(names)), len(names))           # no photo twice
+                self.assertEqual([img.is_cover for img in images], [True] + [False] * (len(images) - 1))
+                cover_groups = PHOTO_GROUPS[self.kind(prop)][0]
+                self.assertIn(names[0].rsplit("-", 1)[0], cover_groups)  # e.g. a villa's cover is a villa-*
+
+    def test_covers_are_spread_out(self):
+        with override_settings(**self.S3_ON):
+            self.seed()
+        covers = [p.images.get(is_cover=True).image for p in Property.objects.all()]
+        self.assertGreaterEqual(len(set(covers)), 10)  # 14 properties, few repeats
+
+    def test_falls_back_to_picsum_without_s3(self):
+        with override_settings(**self.S3_OFF):
+            out = self.seed()
+        self.assertIn("Photos: picsum.photos", out)
+        for prop in Property.objects.all():
+            images = list(prop.images.all())
+            with self.subTest(prop.title):
+                self.assertTrue(3 <= len(images) <= 5)
+                self.assertTrue(all(img.image.startswith("https://picsum.photos/seed/") for img in images))
+                self.assertEqual(sum(img.is_cover for img in images), 1)
