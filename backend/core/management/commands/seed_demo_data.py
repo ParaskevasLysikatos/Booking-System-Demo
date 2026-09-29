@@ -10,17 +10,22 @@ from django.utils import timezone
 from faker import Faker
 
 from bookings.models import Booking
+from core.demo_accounts import (
+    DEMO_ADMIN_EMAIL,
+    DEMO_ADMIN_PASSWORD,
+    DEMO_ADMIN_USERNAME,
+    DEMO_GUEST_PASSWORD,
+    demo_admin_users,
+    demo_guest_email,
+    demo_guest_users,
+    legacy_demo_users,
+)
 from favorites.models import Favorite
 from listings.geo import demo_point
 from listings.models import Property, PropertyImage
 from reviews.models import Review
 from uploads import s3 as uploads_s3
 from uploads import seed as seed_photos
-
-DEMO_GUEST_PASSWORD = "DemoPass123!"
-DEMO_ADMIN_USERNAME = "admin_demo"
-DEMO_ADMIN_EMAIL = "admin_demo@example.com"
-DEMO_ADMIN_PASSWORD = "AdminPass123!"
 
 # Greek-themed locations, since this demo is explicitly set in Greece rather
 # than Faker's default en_US locale.
@@ -137,8 +142,10 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Delete previously seeded demo data first (reviews, bookings, "
-                "property images, properties, and demo guest users - real/admin "
-                "accounts are never touched)."
+                "property images, properties, and the demo accounts - "
+                "guest<N>@demo.com and admin@demo.com, plus the old-style "
+                "guest_*@example.com / admin_demo ones; real accounts are "
+                "never touched)."
             ),
         )
         parser.add_argument(
@@ -184,7 +191,7 @@ class Command(BaseCommand):
             if options["clear"]:
                 self._clear_demo_data()
 
-            admin_created = self._create_admin()
+            admin_status = self._create_admin()
             guests = self._create_guests(fake, options["guests"])
             properties = self._create_properties(fake, options["properties"])
             self._ensure_one_retired(properties)
@@ -201,27 +208,33 @@ class Command(BaseCommand):
             f"{reviews} reviews and {favorites} saved places (favorites)."
         ))
         self.stdout.write(f"Photos: {self.photo_source}")
-        if admin_created:
-            self.stdout.write(
-                f"Demo admin login: {DEMO_ADMIN_EMAIL} / {DEMO_ADMIN_PASSWORD} "
-                f"(app/API, by email) - or username {DEMO_ADMIN_USERNAME} for /admin/"
-            )
-        else:
-            self.stdout.write(
-                f"Demo admin '{DEMO_ADMIN_USERNAME}' already existed - left untouched."
-            )
         self.stdout.write(
-            f"Demo guest login password (all guest_* accounts, log in with "
-            f"their @example.com email): {DEMO_GUEST_PASSWORD}"
+            f"Demo admin login: {DEMO_ADMIN_EMAIL} / {DEMO_ADMIN_PASSWORD} "
+            f"(app/API, by email) - or username {DEMO_ADMIN_USERNAME} for /admin/"
         )
+        if admin_status == "existed":
+            self.stdout.write("  (the demo admin already existed - left untouched)")
+        elif admin_status == "username_taken":
+            self.stdout.write(self.style.WARNING(
+                f"  Not created: another account already uses the username "
+                f"'{DEMO_ADMIN_USERNAME}'. Rename that account and re-run to get "
+                f"the demo admin."
+            ))
+        if guests:
+            self.stdout.write(
+                f"Demo guest logins: {guests[0].email} ... {guests[-1].email} "
+                f"/ {DEMO_GUEST_PASSWORD}"
+            )
 
     # -- clearing -----------------------------------------------------
 
     def _clear_demo_data(self):
         """Delete order matters: Booking/Review use on_delete=PROTECT on
-        `property`, so they must go before Property. Demo guest users are
-        identified by the username/email pattern this command itself uses,
-        so real/admin accounts are never touched."""
+        `property`, so they must go before Property. Demo accounts are
+        identified by the patterns in core/demo_accounts.py (the current
+        guest<N>@demo.com / admin@demo.com and the old-style
+        guest_*@example.com / admin_demo), so real accounts are never
+        touched."""
         self.stdout.write("Clearing previously seeded demo data...")
         # Favorites would go with their properties/users anyway (CASCADE);
         # deleted first so the order reads like the rest.
@@ -230,44 +243,53 @@ class Command(BaseCommand):
         Booking.objects.all().delete()
         PropertyImage.objects.all().delete()
         Property.objects.all().delete()
-        User.objects.filter(
-            username__startswith="guest_", email__endswith="@example.com"
-        ).delete()
-        User.objects.filter(username=DEMO_ADMIN_USERNAME).delete()
+        demo_guest_users().delete()
+        demo_admin_users().delete()
+        legacy_demo_users().delete()
 
     # -- admin ------------------------------------------------------------
 
     def _create_admin(self):
-        """One fixed-credential superuser for testing admin-only flows.
-        Superuser/staff status makes the existing post_save signal
-        (accounts/signals.py) set Profile.role='admin' automatically - the
-        same path a real admin account goes through, so this exercises the
-        actual rule rather than a seed-only shortcut. Idempotent: if it
-        already exists (e.g. re-running the command without --clear), it's
-        left alone rather than raising an IntegrityError on the duplicate
-        username."""
+        """One fixed-credential superuser (admin@demo.com / admin123) for
+        admin-only flows. Superuser/staff status makes the existing post_save
+        signal (accounts/signals.py) set Profile.role='admin' automatically -
+        the same path a real admin account goes through, so this exercises
+        the actual rule rather than a seed-only shortcut.
+
+        Returns "created", "existed" (re-running without --clear: left
+        alone) or "username_taken" (a different account - e.g. the owner's
+        own superuser - is already called "admin": never touched)."""
+        if demo_admin_users().exists():
+            return "existed"
         if User.objects.filter(username=DEMO_ADMIN_USERNAME).exists():
-            return False
+            return "username_taken"
+        # create_superuser() also skips the password validators.
         User.objects.create_superuser(
             DEMO_ADMIN_USERNAME, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD
         )
-        return True
+        return "created"
 
     # -- guests ---------------------------------------------------------
 
     def _create_guests(self, fake, count):
+        """guest1@demo.com ... guest<count>@demo.com, all with the shared
+        DEMO_GUEST_PASSWORD (set_password() skips the password validators).
+        The username is the email - the same rule sign-up uses. Faker only
+        provides the names. A guest that already exists (re-running without
+        --clear) is reused as is, so re-running never hits a duplicate."""
         guests = []
-        for i in range(count):
-            username = f"guest_{i}_{fake.unique.user_name()}"
-            email = f"{username}@example.com"
-            user = User(
-                username=username,
-                email=email,
-                first_name=fake.first_name(),
-                last_name=fake.last_name(),
-            )
-            user.set_password(DEMO_GUEST_PASSWORD)
-            user.save()
+        for number in range(1, count + 1):
+            email = demo_guest_email(number)
+            user = User.objects.filter(username__iexact=email).first()
+            if user is None:
+                user = User(
+                    username=email,
+                    email=email,
+                    first_name=fake.first_name(),
+                    last_name=fake.last_name(),
+                )
+                user.set_password(DEMO_GUEST_PASSWORD)
+                user.save()
             guests.append(user)
         return guests
 

@@ -56,7 +56,7 @@ def recipients_for(booking, kind):
     - Guest emails: the guest's own address - except when the "guest" is an
       admin account (role admin, e.g. the demo admin booking a stay): an
       admin's login email isn't treated as a real inbox (the demo admin's is
-      admin_demo@example.com), so their mail goes to BOOKING_ALERT_EMAILS,
+      admin@demo.com), so their mail goes to BOOKING_ALERT_EMAILS,
       the owner's real address from the environment. With that list empty
       it falls back to the account's own email.
     """

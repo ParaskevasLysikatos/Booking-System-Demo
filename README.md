@@ -594,9 +594,10 @@ The `user` object (same shape everywhere, `accounts/serializers.py:UserSerialize
   `AllowAny` - individual views tighten it (`/me/` uses `IsAuthenticated`;
   admin-only writes use the permission classes described under "Permissions").
 
-Demo accounts from `seed_demo_data` can log in straight away: the demo
-admin as `admin_demo@example.com` / `AdminPass123!`, and any seeded guest by
-their `...@example.com` email with `DemoPass123!`. Note: a superuser
+Demo accounts from `seed_demo_data` can log in straight away (TICKET-041):
+the demo admin as `admin@demo.com` / `admin123`, and the seeded guests as
+`guest1@demo.com` ... `guest10@demo.com` / `guest123` (see "Seeding demo
+data → Demo logins"). Note: a superuser
 created with `createsuperuser` and no email can still use `/admin/`, but
 can't log in to the API until you give it an email.
 
@@ -611,7 +612,7 @@ curl -X POST http://localhost:8000/api/auth/register/ \
 # Log in
 curl -X POST http://localhost:8000/api/auth/login/ \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin_demo@example.com", "password": "AdminPass123!"}'
+  -d '{"email": "admin@demo.com", "password": "admin123"}'
 
 # Who am I? (paste the "access" value from the login response)
 curl http://localhost:8000/api/auth/me/ -H "Authorization: Bearer <access>"
@@ -785,7 +786,7 @@ curl "http://localhost:8000/api/properties/3/?check_in=2026-11-02&check_out=2026
 
 # Admin: log in, then create / edit / retire
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login/ -H "Content-Type: application/json" \
-  -d '{"email":"admin_demo@example.com","password":"AdminPass123!"}' | python -c "import sys,json;print(json.load(sys.stdin)['access'])")
+  -d '{"email":"admin@demo.com","password":"admin123"}' | python -c "import sys,json;print(json.load(sys.stdin)['access'])")
 curl -X PATCH http://localhost:8000/api/properties/3/ -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" -d '{"price_per_night": "79.00"}'
 curl -X DELETE http://localhost:8000/api/properties/3/ -H "Authorization: Bearer $TOKEN"
@@ -1041,7 +1042,7 @@ page doesn't cost one query per booking.
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login/ -H "Content-Type: application/json" \
-  -d '{"email":"admin_demo@example.com","password":"AdminPass123!"}' | python -c "import sys,json;print(json.load(sys.stdin)['access'])")
+  -d '{"email":"admin@demo.com","password":"admin123"}' | python -c "import sys,json;print(json.load(sys.stdin)['access'])")
 
 # Book 4 nights for 2 guests
 curl -X POST http://localhost:8000/api/bookings/ -H "Authorization: Bearer $TOKEN" \
@@ -5552,7 +5553,7 @@ straight away.
 review): when the "guest" of a booking is an admin account (role `admin`,
 e.g. the demo admin booking a stay), its received / confirmed / cancelled
 emails go to `BOOKING_ALERT_EMAILS` instead of the account's login email -
-an admin login such as `admin_demo@example.com` isn't a real inbox. With
+an admin login such as `admin@demo.com` isn't a real inbox. With
 `BOOKING_ALERT_EMAILS` empty they fall back to the account's own email.
 Normal guests always get mail at their own address.
 
@@ -6171,17 +6172,20 @@ the demo never starts out empty:
   deterministic `picsum.photos` URLs, like before. The command's last
   lines say which source was used (`Photos: S3 seed photos (…)` /
   `Photos: picsum.photos (…)`).
-- **Guest users** - 10 by default, usernames `guest_<n>_<fakename>`,
-  emails `...@example.com`, all sharing one known password so you can log
-  in as any of them while testing: **`DemoPass123!`**.
-- **One demo admin** - a fixed-credential superuser, `admin_demo` /
-  **`AdminPass123!`**. Being a superuser makes the existing signal
-  (`accounts/signals.py`) set `Profile.role="admin"` automatically - the
-  same path a real admin account goes through - so it's ready for both
-  Django Admin and the app's own admin-only checks once those land.
-  Idempotent: re-running the command without `--clear` leaves an existing
-  `admin_demo` untouched instead of erroring on the duplicate username.
-  The same password is used on the hosted Render copy (a deliberate choice
+- **Guest users** (TICKET-041) - 10 by default, **`guest1@demo.com` ...
+  `guest10@demo.com`**, all with the password **`guest123`**. The username
+  is the email (the same rule sign-up uses); Faker only provides the first
+  and last names. Re-running without `--clear` reuses existing guests
+  instead of erroring on the fixed usernames.
+- **One demo admin** (TICKET-041) - a superuser, **`admin@demo.com` /
+  `admin123`** (Django Admin at `/admin/` asks for the username: `admin`).
+  Being a superuser makes the existing signal (`accounts/signals.py`) set
+  `Profile.role="admin"` automatically - the same path a real admin account
+  goes through. Re-running without `--clear` leaves it untouched. If a
+  *different* account is already called `admin` (e.g. your own
+  `createsuperuser`), the seeder leaves that account alone, skips the demo
+  admin and prints a warning.
+  The same logins are used on the hosted Render copy (a deliberate choice
   for the demo, see "Deploying to Render").
 - **Bookings** - 0-5 per property, spread from 60 days in the past to 300
   days in the future, reusing `Booking.objects.overlapping()` (the same
@@ -6212,11 +6216,39 @@ the demo never starts out empty:
   page is decided before this, so it never lands on a retired place.
 - **Favorites** (TICKET-033) - every guest saves 2-5 active places, so
   the hearts, the Saved page and the admin "Saved by" column have
-  something to show (about 40 in total). The **first guest** (`guest_0_…`)
+  something to show (about 40 in total). The **first guest** (`guest1@demo.com`)
   also keeps one **retired** place saved - the Saved page's greyed-out
   "No longer available" card, listed first. If the random mix retired no
   property, the seeder retires the last one for that. The demo admin
   saves nothing (admins have no hearts).
+
+### Demo logins (TICKET-041)
+
+Simple on purpose, so they're easy to type at the meetup table:
+
+| Role | Email (app / API login) | Password |
+| --- | --- | --- |
+| Admin | `admin@demo.com` (Django Admin username: `admin`) | `admin123` |
+| Guests | `guest1@demo.com` ... `guest10@demo.com` | `guest123` |
+
+- **One place:** the values live in `backend/core/demo_accounts.py`
+  (`DEMO_ADMIN_EMAIL`, `DEMO_ADMIN_PASSWORD`, `DEMO_GUEST_PASSWORD`,
+  `demo_guest_email(n)`, `DEMO_EMAIL_DOMAIN`), next to the helpers that
+  find the demo accounts (`demo_guest_users()`, `demo_admin_users()` -
+  matched on username **and** email - and `legacy_demo_users()` for the
+  old-style ones). The seeder uses them and the command prints them at the
+  end.
+- **Simple passwords are fine here:** the seeder uses `set_password()` /
+  `create_superuser()`, which skip Django's password validators. Sign-up
+  (`POST /api/auth/register/`) still enforces them for real accounts.
+- **Emails are not special-cased:** a booking made as `guest1@demo.com`
+  is emailed to that address like any other guest's (demo.com is a real
+  domain - to change that, set `DEMO_EMAIL_DOMAIN`). The admin's own mail
+  keeps going to `BOOKING_ALERT_EMAILS` as before. To see the guest emails
+  yourself, sign up with your own address.
+- **Before TICKET-041** the seeder made `guest_<n>_<fakename>@example.com`
+  / `DemoPass123!` guests and an `admin_demo` / `AdminPass123!` admin.
+  `--clear` removes those too, so re-seeding never leaves both sets behind.
 
 Usage:
 
@@ -6228,7 +6260,7 @@ Options:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--clear` | off | Delete previously seeded data first (favorites, reviews, bookings, images, properties, `guest_*`/`@example.com` users, and the demo admin) before re-seeding. Real accounts are never touched. |
+| `--clear` | off | Delete previously seeded data first (favorites, reviews, bookings, images, properties and the demo accounts: `guest<N>@demo.com`, `admin@demo.com`, plus the old-style `guest_*@example.com` / `admin_demo` ones from before TICKET-041) before re-seeding. Real accounts are never touched - but their bookings, reviews and favorites go with the properties. |
 | `--properties N` | 14 | How many properties to create |
 | `--guests N` | 10 | How many guest users to create |
 | `--seed N` | none | Fix the random seed for reproducible output |

@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 
 from django.contrib.auth.models import User
 
+from core.demo_accounts import DEMO_ADMIN_USERNAME, demo_guest_users
 from favorites.models import Favorite
 from listings.models import Property
 
@@ -39,7 +40,7 @@ class SeedFavoritesTests(TestCase):
         call_command("seed_demo_data", "--properties", "8", "--guests", "3", "--seed", "7", *args, stdout=StringIO())
 
     def guests(self):
-        return User.objects.filter(username__startswith="guest_").order_by("username")
+        return demo_guest_users().order_by("username")
 
     def test_every_guest_saves_two_to_five_active_places(self):
         self.seed()
@@ -55,7 +56,7 @@ class SeedFavoritesTests(TestCase):
 
     def test_admin_has_no_favorites(self):
         self.seed()
-        self.assertFalse(Favorite.objects.filter(user__username="admin_demo").exists())
+        self.assertFalse(Favorite.objects.filter(user__username=DEMO_ADMIN_USERNAME).exists())
 
     def test_clear_removes_old_favorites(self):
         self.seed()
@@ -211,7 +212,7 @@ class SeedReviewsTests(TestCase):
         from reviews.models import Review
 
         today = timezone.localdate()
-        for guest in User.objects.filter(username__startswith="guest_"):
+        for guest in demo_guest_users():
             ended = Booking.objects.filter(guest=guest, status=Booking.Status.CONFIRMED, check_out__lte=today)
             reviewed = set(Review.objects.filter(guest=guest).values_list("property_id", flat=True))
             with self.subTest(guest.username):
@@ -226,3 +227,91 @@ class SeedReviewsTests(TestCase):
                     Booking.objects.overlapping(booking.property, booking.check_in, booking.check_out)
                     .exclude(pk=booking.pk).exists()
                 )
+
+
+class SeedDemoLoginsTests(TestCase):
+    """TICKET-041: simple, fixed demo logins - admin@demo.com / admin123 and
+    guest1@demo.com ... guestN@demo.com / guest123 - and --clear removing
+    both these and the old-style accounts, never real ones."""
+
+    def seed(self, *args, guests=3):
+        out = StringIO()
+        call_command(
+            "seed_demo_data", "--properties", "3", "--guests", str(guests), "--seed", "2", *args, stdout=out
+        )
+        return out.getvalue()
+
+    def api_login(self, email, password):
+        from django.urls import reverse
+
+        return self.client.post(
+            reverse("auth-login"), {"email": email, "password": password}, content_type="application/json"
+        )
+
+    def test_guests_are_numbered_with_one_shared_password(self):
+        out = self.seed()
+        emails = sorted(demo_guest_users().values_list("email", flat=True))
+        self.assertEqual(emails, ["guest1@demo.com", "guest2@demo.com", "guest3@demo.com"])
+        for guest in demo_guest_users():
+            with self.subTest(guest.email):
+                self.assertEqual(guest.username, guest.email)  # same rule as sign-up
+                self.assertTrue(guest.first_name and guest.last_name)  # Faker names
+                self.assertTrue(guest.check_password("guest123"))
+                self.assertFalse(guest.is_staff)
+                self.assertEqual(guest.profile.role, "guest")
+        self.assertIn("guest1@demo.com ... guest3@demo.com / guest123", out)
+
+    def test_guest_logs_in_through_the_api(self):
+        self.seed()
+        resp = self.api_login("guest2@demo.com", "guest123")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()["user"]["role"], "guest")
+
+    def test_admin_logs_in_to_the_api_and_django_admin(self):
+        out = self.seed()
+        admin = User.objects.get(email="admin@demo.com")
+        self.assertEqual(admin.username, "admin")
+        self.assertTrue(admin.is_superuser)
+        self.assertEqual(admin.profile.role, "admin")
+        resp = self.api_login("admin@demo.com", "admin123")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()["user"]["role"], "admin")
+        self.assertTrue(self.client.login(username="admin", password="admin123"))
+        self.assertIn("admin@demo.com / admin123", out)
+
+    def test_rerun_without_clear_reuses_the_accounts(self):
+        self.seed()
+        first_ids = set(demo_guest_users().values_list("id", flat=True))
+        out = self.seed()  # no IntegrityError on the fixed usernames
+        self.assertEqual(set(demo_guest_users().values_list("id", flat=True)), first_ids)
+        self.assertEqual(User.objects.filter(email="admin@demo.com").count(), 1)
+        self.assertIn("left untouched", out)
+
+    def test_clear_removes_old_style_and_current_demo_accounts_only(self):
+        # What the old seeder left behind (before TICKET-041).
+        User.objects.create_superuser("admin_demo", "admin_demo@example.com", "AdminPass123!")
+        User.objects.create_user("guest_0_jdoe", "guest_0_jdoe@example.com", "DemoPass123!")
+        # Real accounts: a sign-up and an owner's own superuser.
+        User.objects.create_user("maria@example.com", "maria@example.com", "S3cure-Booking-Pass!")
+        User.objects.create_superuser("owner", "owner@gmail.com", "S3cure-Booking-Pass!")
+        self.seed(guests=4)
+        self.seed("--clear", guests=2)
+
+        self.assertFalse(User.objects.filter(username__in=["admin_demo", "guest_0_jdoe"]).exists())
+        self.assertEqual(
+            sorted(demo_guest_users().values_list("email", flat=True)),
+            ["guest1@demo.com", "guest2@demo.com"],  # guest3/guest4 from the first run are gone
+        )
+        self.assertEqual(User.objects.filter(email="admin@demo.com").count(), 1)
+        self.assertTrue(User.objects.filter(username="maria@example.com").exists())
+        self.assertTrue(User.objects.filter(username="owner").exists())
+
+    def test_an_owner_superuser_called_admin_is_never_touched(self):
+        owner = User.objects.create_superuser("admin", "owner@gmail.com", "S3cure-Booking-Pass!")
+        out = self.seed()
+        self.assertIn("already uses the username 'admin'", out)
+        self.seed("--clear")
+        owner.refresh_from_db()  # still there, unchanged
+        self.assertEqual(owner.email, "owner@gmail.com")
+        self.assertTrue(owner.check_password("S3cure-Booking-Pass!"))
+        self.assertFalse(User.objects.filter(email="admin@demo.com").exists())
