@@ -167,6 +167,7 @@ backend/
     pagination.py      StandardPagination - 12 per page, ?page_size= up to 50
     admin.py           No models of its own - just the admin site's global branding (dev-DB-inspection labeling)
     management/commands/seed_demo_data.py   Faker-based demo data generator (see "Seeding demo data" below)
+    seed_photos/       36 Unsplash photos for the seeded properties (1280 px WebP) + CREDITS.md (TICKET-037)
   listings/            Data layer for bookable properties
     models.py          Property + PropertyImage models (Property has optional latitude/longitude, TICKET-034)
     geo.py             Map helpers: the approximate point guests see, the demo city centres (TICKET-034)
@@ -251,6 +252,9 @@ backend/
     signals.py         Deletes a removed photo from S3 after commit - own uploads only, only when no row uses it (step 3)
     checks.py          Startup checks: half-configured AWS_* settings (warning), non-https public base URL
     tests.py           Permissions, config, presigned POST policy (real signing, no network), size/type checks, settings checks
+    seed.py            Seed photos (TICKET-037): seed_files(), seed_url() -> property-images/seed/<name>.webp, remote_size() (public HEAD), upload()
+    management/commands/upload_seed_photos.py   Uploads core/seed_photos/ to the bucket, skipping ones already there
+    tests_seed.py      Seed folder, URLs, the upload command (mocked S3), shared seed photos never deleted
 
 frontend/
   Dockerfile           Node 22 image; runs `ng serve --host 0.0.0.0 --poll 1000`
@@ -2220,6 +2224,62 @@ added; there are still **403** frontend tests, all passing.
 **Note for re-runs:** in a background Chrome tab the upload pauses
 (Chrome throttles it) until the tab is in front again. It then
 finishes normally.
+
+## Seed photos in S3 (TICKET-037)
+
+The demo properties get their photos from a fixed set of 36 free-licensed
+Unsplash photos kept in the repo at `backend/core/seed_photos/`
+(credits per file in its `CREDITS.md`). They go into the bucket **once**,
+under a simple, fixed folder:
+
+```
+https://<bucket>.s3.<region>.amazonaws.com/property-images/seed/villa-01.webp
+                                            property-images/seed/apartment-03.webp
+                                            ...
+```
+
+- **No AWS change:** `property-images/seed/` is inside `property-images/`,
+  so the bucket policy already makes the photos public and the IAM user's
+  `PutObject` already covers it.
+- **Never deleted by the app:** `s3.key_from_url()` only matches keys the
+  app uploaded itself (`property-images/YYYY/MM/<32 hex>.<ext>`), so when
+  an admin removes a seed photo from one property - and many properties
+  share each seed photo - nothing is deleted from S3 (tested in
+  `uploads/tests_seed.py`).
+- **Cache:** `Cache-Control: public, max-age=604800` (one week), not
+  `immutable` like uploads - a seed file keeps its name if the photo is
+  ever swapped.
+
+### Uploading them: `manage.py upload_seed_photos`
+
+```bash
+docker compose exec backend python manage.py upload_seed_photos            # upload new/changed ones
+docker compose exec backend python manage.py upload_seed_photos --dry-run  # only report
+docker compose exec backend python manage.py upload_seed_photos --force    # re-upload all
+```
+
+- Needs the four `AWS_*` settings (same as photo uploads); without them it
+  stops with a clear error and uploads nothing.
+- For each `<type>-<nn>.webp` in the folder (anything else, e.g.
+  `CREDITS.md`, is ignored) it first sends an **anonymous `HEAD`** to the
+  photo's public URL: `200` with the same size → *skip*; `403`/`404`
+  (anonymous callers can't list the bucket, so a missing key answers 403)
+  → *new*; a different size → *changed*, uploaded again. This way the IAM
+  user needs no `s3:ListBucket`. If the check itself fails (network), the
+  photo is uploaded anyway - a `PutObject` of the same key is harmless.
+- Uploads with `put_object` (`image/webp`, the cache header above); one
+  failed photo doesn't stop the rest, and the command ends with an error
+  listing the failed ones. Safe to re-run any time.
+- Run it once locally (the `.env` keys); Render uses the same bucket, so
+  the hosted copy needs no separate upload.
+
+Tests: `docker compose exec backend python manage.py test uploads` -
+`uploads/tests_seed.py` adds 21 tests (the repo folder is valid WebP,
+every photo is credited, name filtering, URLs, `remote_size()`
+HEAD/403/404/500, the command's new/skip/changed/`--force`/`--dry-run`/
+failure/off cases with a mocked S3 client, and a seed photo shared by two
+properties is never deleted - neither when removed from one nor when no
+property uses it any more).
 
 ## Frontend auth (Angular)
 
