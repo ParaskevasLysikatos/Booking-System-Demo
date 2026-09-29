@@ -779,6 +779,13 @@ test, always last).
 - [ ] **TICKET-036** — Real photo uploads
   - Priority: P2 · Depends on: TICKET-006
   - Replaces the fallback of fixed stock photo URLs. ( i want to add my S3 aws bucket)
+  - Decisions (agreed before building):
+    - **browser → S3 directly**: Django only hands out a short-lived **presigned POST** (admin only; type jpeg/png/webp, size ≤ 10 MB, one random key under `property-images/`), so photos never pass through Render's 512 MB, sleeping free instance. Needs a CORS rule on the bucket.
+    - **public-read prefix**: a bucket policy allows public `GET` on `property-images/*` only; the rest of the bucket stays private. `PropertyImage.image` stays a URL field holding the photo's permanent public URL, so the gallery, cards, map pop-ups and seeder don't change.
+    - **resize in the browser** before upload: longest side ≤ 1600 px, WebP (JPEG where the browser can't encode WebP) - a 5-10 MB phone photo becomes ~200-400 KB.
+    - the owner's bucket already exists; the IAM user (least privilege: `s3:PutObject` + `s3:DeleteObject` on `property-images/*` only), bucket CORS and bucket policy are documented in the README and set up by the owner; keys go in `.env` / the Render dashboard, never in the repo.
+    - without the `AWS_*` settings uploads are simply off (same pattern as Stripe/Gmail): the Photos editor falls back to pasting URLs; pasting a URL stays available either way.
+  - Plan: step 1 backend presign endpoint (+ config, checks, tests) · step 2 upload in the Photos editor (drag & drop, resize, progress) · step 3 delete removed photos from S3 (own prefix only), `render.yaml`, README AWS setup, Chrome check (local + Render), done.
 
 - [ ] **TICKET-042** — Shorter "Placed at …" labels in the admin Find on map
   - Priority: P2 · Depends on: TICKET-034 · Small; can be folded into TICKET-037 (UI polish pass)
