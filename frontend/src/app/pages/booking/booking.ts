@@ -3,7 +3,6 @@ import { Component, computed, effect, inject, signal, viewChild } from '@angular
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MAT_DATE_LOCALE, provideNativeDateAdapter } from '@angular/material/core';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -29,6 +28,8 @@ import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { clockTime } from '../../core/payments/countdown';
 import { PaymentService } from '../../core/payments/payment.service';
 import { BookingSummary } from '../../shared/booking-summary';
+import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
+import { provideStepperI18n } from '../../core/i18n/stepper-i18n';
 
 type LoadStatus = 'loading' | 'ok' | 'unavailable' | 'error';
 export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'error';
@@ -65,7 +66,8 @@ function humanize(message: string): string {
     MatSelectModule,
     MatStepperModule,
   ],
-  providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
+  // date pickers and the stepper's texts in the chosen language (TICKET-038)
+  providers: [provideLocalizedDatepicker(), provideStepperI18n()],
   templateUrl: './booking.html',
   styleUrl: './booking.scss',
 })

@@ -20,6 +20,7 @@ import { parseApiErrors } from '../../../core/api-errors';
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../../core/properties/property.models';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 import { StarRatingComponent } from '../../../shared/star-rating';
+import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
 
 export interface AdminReviewsUrlQuery {
   visibility: ReviewVisibility;
@@ -69,6 +70,7 @@ type ListState = { status: 'loading' } | { status: 'ok'; data: Paginated<AdminRe
     StarRatingComponent,
   ],
   templateUrl: './admin-reviews.html',
+  providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './admin-reviews.scss',
 })
 export class AdminReviewsPage {

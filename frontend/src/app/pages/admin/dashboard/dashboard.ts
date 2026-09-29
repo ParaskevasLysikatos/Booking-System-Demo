@@ -3,7 +3,6 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { MAT_DATE_LOCALE, provideNativeDateAdapter } from '@angular/material/core';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -31,6 +30,7 @@ import { addDays } from '../../../core/dates';
 import { formatPrice } from '../../../core/money';
 import { PropertyBreakdownComponent } from './property-breakdown';
 import { RevenueChartComponent } from './revenue-chart';
+import { provideLocalizedDatepicker } from '../../../core/i18n/datepicker-i18n';
 
 type DashState =
   | { status: 'loading' }
@@ -107,7 +107,7 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
     PropertyBreakdownComponent,
     RevenueChartComponent,
   ],
-  providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
+  providers: [provideLocalizedDatepicker()], // date pickers in the chosen language (TICKET-038)
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.scss',
 })

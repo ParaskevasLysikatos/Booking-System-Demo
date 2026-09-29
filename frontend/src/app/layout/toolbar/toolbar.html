@@ -1,28 +1,43 @@
 <mat-toolbar class="toolbar">
   <a class="brand" routerLink="/">
     <mat-icon>holiday_village</mat-icon>
-    <span>Booking System Demo</span>
+    <span>{{ 'app.name' | t }}</span>
   </a>
   <span class="spacer"></span>
 
+  <!-- EN / ΕΛ (TICKET-038): switches the whole app at once, no reload; remembered per browser. -->
+  <div class="lang" role="group" [attr.aria-label]="'lang.group' | t">
+    @for (lang of languages; track lang) {
+      <button
+        type="button"
+        class="lang-option"
+        [class.active]="i18n.lang() === lang"
+        [attr.aria-pressed]="i18n.lang() === lang"
+        [attr.aria-label]="names[lang]"
+        [attr.lang]="lang"
+        (click)="i18n.setLang(lang)"
+      >{{ short[lang] }}</button>
+    }
+  </div>
+
   @if (auth.currentUser(); as user) {
-    <nav class="links" aria-label="Main">
+    <nav class="links" [attr.aria-label]="'toolbar.mainNav' | t">
       @if (!auth.isAdmin()) {
         <a mat-button routerLink="/favorites" routerLinkActive="active" ariaCurrentWhenActive="page" class="saved-link">
-          <mat-icon>favorite_border</mat-icon>Saved
+          <mat-icon>favorite_border</mat-icon>{{ 'toolbar.saved' | t }}
         </a>
       }
       <a mat-button routerLink="/my-bookings" routerLinkActive="active" ariaCurrentWhenActive="page">
-        <mat-icon>luggage</mat-icon>My bookings
+        <mat-icon>luggage</mat-icon>{{ 'toolbar.myBookings' | t }}
       </a>
       @if (auth.isAdmin()) {
         <a mat-button routerLink="/admin" routerLinkActive="active" ariaCurrentWhenActive="page" class="admin-link">
-          <mat-icon>admin_panel_settings</mat-icon>Admin
+          <mat-icon>admin_panel_settings</mat-icon>{{ 'toolbar.admin' | t }}
         </a>
       }
     </nav>
 
-    <button mat-stroked-button type="button" class="account" [matMenuTriggerFor]="account" [attr.aria-label]="'Account menu for ' + user.email">
+    <button mat-stroked-button type="button" class="account" [matMenuTriggerFor]="account" [attr.aria-label]="'toolbar.accountMenu' | t: { email: user.email }">
       <mat-icon>account_circle</mat-icon>
       <span class="email">{{ user.email }}</span>
       <mat-icon class="caret" iconPositionEnd>expand_more</mat-icon>
@@ -31,29 +46,29 @@
     <mat-menu #account="matMenu" xPosition="before">
       <div class="menu-head" (click)="$event.stopPropagation()">
         <strong>{{ user.email }}</strong>
-        <span class="role" [class.admin]="auth.isAdmin()">{{ auth.isAdmin() ? 'Admin' : 'Guest' }}</span>
+        <span class="role" [class.admin]="auth.isAdmin()">{{ (auth.isAdmin() ? 'toolbar.roleAdmin' : 'toolbar.roleGuest') | t }}</span>
       </div>
       <mat-divider />
       <!-- The main links repeat here for phones, where the inline links are hidden. -->
       @if (!auth.isAdmin()) {
-        <a mat-menu-item routerLink="/favorites" class="menu-link"><mat-icon>favorite_border</mat-icon>Saved</a>
+        <a mat-menu-item routerLink="/favorites" class="menu-link"><mat-icon>favorite_border</mat-icon>{{ 'toolbar.saved' | t }}</a>
       }
-      <a mat-menu-item routerLink="/my-bookings" class="menu-link"><mat-icon>luggage</mat-icon>My bookings</a>
+      <a mat-menu-item routerLink="/my-bookings" class="menu-link"><mat-icon>luggage</mat-icon>{{ 'toolbar.myBookings' | t }}</a>
       @if (auth.isAdmin()) {
-        <a mat-menu-item routerLink="/admin" class="menu-link"><mat-icon>admin_panel_settings</mat-icon>Admin</a>
+        <a mat-menu-item routerLink="/admin" class="menu-link"><mat-icon>admin_panel_settings</mat-icon>{{ 'toolbar.admin' | t }}</a>
       }
       @if (install.canInstall()) {
-        <button mat-menu-item type="button" class="install" (click)="installApp()"><mat-icon>install_mobile</mat-icon>Install app</button>
+        <button mat-menu-item type="button" class="install" (click)="installApp()"><mat-icon>install_mobile</mat-icon>{{ 'toolbar.installApp' | t }}</button>
       }
-      <button mat-menu-item type="button" (click)="auth.logout()"><mat-icon>logout</mat-icon>Log out</button>
+      <button mat-menu-item type="button" (click)="auth.logout()"><mat-icon>logout</mat-icon>{{ 'toolbar.logOut' | t }}</button>
     </mat-menu>
   } @else {
     @if (install.canInstall()) {
-      <button mat-icon-button type="button" class="install" (click)="installApp()" matTooltip="Install app" aria-label="Install app">
+      <button mat-icon-button type="button" class="install" (click)="installApp()" [matTooltip]="'toolbar.installApp' | t" [attr.aria-label]="'toolbar.installApp' | t">
         <mat-icon>install_mobile</mat-icon>
       </button>
     }
-    <a mat-button routerLink="/login">Log in</a>
-    <a mat-flat-button routerLink="/register">Sign up</a>
+    <a mat-button routerLink="/login">{{ 'toolbar.logIn' | t }}</a>
+    <a mat-flat-button routerLink="/register">{{ 'toolbar.signUp' | t }}</a>
   }
 </mat-toolbar>

@@ -23,6 +23,36 @@
 
 .spacer { flex: 1; }
 
+/* EN / ΕΛ: a small two-option pill (TICKET-038). */
+.lang {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 999px;
+}
+
+.lang-option {
+  min-width: 36px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover { background: var(--mat-sys-surface-container-highest); }
+  &:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: 1px; }
+  &.active {
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+}
+
 .links {
   display: flex;
   gap: 4px;

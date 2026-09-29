@@ -10,6 +10,7 @@ import { BehaviorSubject, catchError, combineLatest, map, of, startWith, switchM
 import { FavoriteService, SavedProperty } from '../../core/favorites/favorite.service';
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../core/properties/property.models';
 import { PropertyCardComponent } from '../listings/property-card/property-card';
+import { providePaginatorI18n } from '../../core/i18n/paginator-i18n';
 
 type SavedState =
   | { status: 'loading'; page: number }
@@ -35,6 +36,7 @@ export const UNDO_MS = 5000;
   selector: 'app-favorites',
   imports: [MatButtonModule, MatIconModule, MatPaginatorModule, PropertyCardComponent, RouterLink],
   templateUrl: './favorites.html',
+  providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './favorites.scss',
 })
 export class FavoritesPage {

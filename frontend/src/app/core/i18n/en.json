@@ -1,0 +1,67 @@
+{
+  "app": {
+    "name": "Booking System Demo"
+  },
+  "lang": {
+    "group": "Language"
+  },
+  "titles": {
+    "listings": "Stays",
+    "myBookings": "My bookings",
+    "favorites": "Saved",
+    "adminDashboard": "Dashboard · Admin",
+    "adminProperties": "Properties · Admin",
+    "adminBookings": "Bookings · Admin",
+    "adminReviews": "Reviews · Admin",
+    "forbidden": "Admins only",
+    "login": "Log in",
+    "register": "Sign up"
+  },
+  "toolbar": {
+    "mainNav": "Main",
+    "saved": "Saved",
+    "myBookings": "My bookings",
+    "admin": "Admin",
+    "accountMenu": "Account menu for {email}",
+    "roleAdmin": "Admin",
+    "roleGuest": "Guest",
+    "installApp": "Install app",
+    "logOut": "Log out",
+    "logIn": "Log in",
+    "signUp": "Sign up"
+  },
+  "mat": {
+    "paginator": {
+      "itemsPerPage": "Items per page:",
+      "nextPage": "Next page",
+      "previousPage": "Previous page",
+      "firstPage": "First page",
+      "lastPage": "Last page",
+      "range": "{start} – {end} of {length}",
+      "rangeEmpty": "0 of {length}"
+    },
+    "datepicker": {
+      "calendar": "Calendar",
+      "openCalendar": "Open calendar",
+      "closeCalendar": "Close calendar",
+      "prevMonth": "Previous month",
+      "nextMonth": "Next month",
+      "prevYear": "Previous year",
+      "nextYear": "Next year",
+      "prevMultiYear": "Previous 24 years",
+      "nextMultiYear": "Next 24 years",
+      "switchToMonthView": "Choose date",
+      "switchToMultiYearView": "Choose month and year",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "comparisonDate": "Comparison range",
+      "yearRange": "{start} – {end}",
+      "yearRangeLabel": "{start} to {end}"
+    },
+    "stepper": {
+      "optional": "Optional",
+      "completed": "Completed",
+      "editable": "Editable"
+    }
+  }
+}

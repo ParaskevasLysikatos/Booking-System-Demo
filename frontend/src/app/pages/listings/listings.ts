@@ -10,7 +10,6 @@ import {
   ValidatorFn,
   Validators,
 } from '@angular/forms';
-import { MAT_DATE_LOCALE, provideNativeDateAdapter } from '@angular/material/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -51,6 +50,7 @@ import { MapMarker } from '../../shared/map/map-markers';
 import { ListingQuery, PAGE_SIZES, listKey, parseListingQuery, pinsKey, toQueryParams } from './listing-query';
 import { MapPopupCardComponent } from './map-popup-card/map-popup-card';
 import { PropertyCardComponent } from './property-card/property-card';
+import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
 
 type ListState =
   | { status: 'loading'; query: ListingQuery }
@@ -109,7 +109,7 @@ const priceRangeValidator: ValidatorFn = (group: AbstractControl): ValidationErr
     PropertyCardComponent,
   ],
   // Native Date adapter + dd/mm/yyyy display (how dates are written in Greece).
-  providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
+  providers: [provideLocalizedDatepicker()], // date pickers in the chosen language (TICKET-038)
   templateUrl: './listings.html',
   styleUrl: './listings.scss',
 })

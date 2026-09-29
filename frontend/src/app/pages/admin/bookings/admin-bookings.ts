@@ -27,6 +27,7 @@ import { DEFAULT_PAGE_SIZE, Paginated } from '../../../core/properties/property.
 import { clockTime } from '../../../core/payments/countdown';
 import { paymentLabel, refundView } from '../../../core/payments/payment-labels';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
+import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
 
 export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled';
 
@@ -96,6 +97,7 @@ const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confir
     MatTooltipModule,
   ],
   templateUrl: './admin-bookings.html',
+  providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './admin-bookings.scss',
 })
 export class AdminBookingsPage {

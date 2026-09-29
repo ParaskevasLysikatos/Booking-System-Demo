@@ -21,6 +21,7 @@ import { parseApiErrors } from '../../../core/api-errors';
 import { formatPrice } from '../../../core/money';
 import { Paginated, PropertyOrdering, PropertySummary } from '../../../core/properties/property.models';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
+import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
 
 export interface AdminListQuery {
   status: PropertyStatusFilter;
@@ -63,6 +64,7 @@ type ListState = { status: 'loading' } | { status: 'ok'; data: Paginated<Propert
     MatTooltipModule,
   ],
   templateUrl: './admin-property-list.html',
+  providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './admin-property-list.scss',
 })
 export class AdminPropertyListPage {

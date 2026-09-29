@@ -1,0 +1,67 @@
+{
+  "app": {
+    "name": "Booking System Demo"
+  },
+  "lang": {
+    "group": "Γλώσσα"
+  },
+  "titles": {
+    "listings": "Καταλύματα",
+    "myBookings": "Οι κρατήσεις μου",
+    "favorites": "Αποθηκευμένα",
+    "adminDashboard": "Πίνακας ελέγχου · Διαχείριση",
+    "adminProperties": "Καταλύματα · Διαχείριση",
+    "adminBookings": "Κρατήσεις · Διαχείριση",
+    "adminReviews": "Κριτικές · Διαχείριση",
+    "forbidden": "Μόνο για διαχειριστές",
+    "login": "Σύνδεση",
+    "register": "Εγγραφή"
+  },
+  "toolbar": {
+    "mainNav": "Κύρια πλοήγηση",
+    "saved": "Αποθηκευμένα",
+    "myBookings": "Οι κρατήσεις μου",
+    "admin": "Διαχείριση",
+    "accountMenu": "Μενού λογαριασμού για {email}",
+    "roleAdmin": "Διαχειριστής",
+    "roleGuest": "Επισκέπτης",
+    "installApp": "Εγκατάσταση εφαρμογής",
+    "logOut": "Αποσύνδεση",
+    "logIn": "Σύνδεση",
+    "signUp": "Εγγραφή"
+  },
+  "mat": {
+    "paginator": {
+      "itemsPerPage": "Στοιχεία ανά σελίδα:",
+      "nextPage": "Επόμενη σελίδα",
+      "previousPage": "Προηγούμενη σελίδα",
+      "firstPage": "Πρώτη σελίδα",
+      "lastPage": "Τελευταία σελίδα",
+      "range": "{start} – {end} από {length}",
+      "rangeEmpty": "0 από {length}"
+    },
+    "datepicker": {
+      "calendar": "Ημερολόγιο",
+      "openCalendar": "Άνοιγμα ημερολογίου",
+      "closeCalendar": "Κλείσιμο ημερολογίου",
+      "prevMonth": "Προηγούμενος μήνας",
+      "nextMonth": "Επόμενος μήνας",
+      "prevYear": "Προηγούμενο έτος",
+      "nextYear": "Επόμενο έτος",
+      "prevMultiYear": "Προηγούμενα 24 έτη",
+      "nextMultiYear": "Επόμενα 24 έτη",
+      "switchToMonthView": "Επιλογή ημερομηνίας",
+      "switchToMultiYearView": "Επιλογή μήνα και έτους",
+      "startDate": "Ημερομηνία έναρξης",
+      "endDate": "Ημερομηνία λήξης",
+      "comparisonDate": "Εύρος σύγκρισης",
+      "yearRange": "{start} – {end}",
+      "yearRangeLabel": "{start} έως {end}"
+    },
+    "stepper": {
+      "optional": "Προαιρετικό",
+      "completed": "Ολοκληρώθηκε",
+      "editable": "Επεξεργάσιμο"
+    }
+  }
+}

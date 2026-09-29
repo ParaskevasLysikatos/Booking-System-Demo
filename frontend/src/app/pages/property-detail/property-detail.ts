@@ -4,7 +4,6 @@ import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-i
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { MAT_DATE_LOCALE, provideNativeDateAdapter } from '@angular/material/core';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -42,6 +41,7 @@ import { AvailabilityCalendarComponent, DateSelection } from './availability-cal
 import { GalleryComponent } from './gallery/gallery';
 import { PropertyLocationComponent } from './location/property-location';
 import { PropertyReviewsComponent } from './reviews/property-reviews';
+import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
 
 type DetailState =
   | { status: 'loading' }
@@ -69,7 +69,7 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
     PropertyReviewsComponent,
     StarRatingComponent,
   ],
-  providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
+  providers: [provideLocalizedDatepicker()], // date pickers in the chosen language (TICKET-038)
   templateUrl: './property-detail.html',
   styleUrl: './property-detail.scss',
 })

@@ -3,12 +3,14 @@ import { Routes } from '@angular/router';
 import { adminGuard, authGuard, guestOnlyGuard } from './core/auth/auth.guards';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
+// Route titles are dictionary keys (TICKET-038): PageTitle turns them into
+// "<page> · Booking System Demo" in the chosen language.
 export const routes: Routes = [
   // Listings are the home page (TICKET-018).
   { path: '', pathMatch: 'full', redirectTo: 'listings' },
   {
     path: 'listings',
-    title: 'Stays · Booking System Demo',
+    title: 'titles.listings',
     loadComponent: () => import('./pages/listings/listings').then((m) => m.PropertyListPage),
   },
   {
@@ -32,14 +34,14 @@ export const routes: Routes = [
   },
   {
     path: 'my-bookings',
-    title: 'My bookings · Booking System Demo',
+    title: 'titles.myBookings',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/my-bookings/my-bookings').then((m) => m.MyBookingsPage),
   },
   {
     // The guest's saved places (TICKET-033).
     path: 'favorites',
-    title: 'Saved · Booking System Demo',
+    title: 'titles.favorites',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/favorites/favorites').then((m) => m.FavoritesPage),
   },
@@ -53,12 +55,12 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
       {
         path: 'dashboard',
-        title: 'Dashboard · Admin · Booking System Demo',
+        title: 'titles.adminDashboard',
         loadComponent: () => import('./pages/admin/dashboard/dashboard').then((m) => m.AdminDashboardPage),
       },
       {
         path: 'properties',
-        title: 'Properties · Admin · Booking System Demo',
+        title: 'titles.adminProperties',
         loadComponent: () => import('./pages/admin/properties/admin-property-list').then((m) => m.AdminPropertyListPage),
       },
       {
@@ -73,30 +75,30 @@ export const routes: Routes = [
       },
       {
         path: 'bookings',
-        title: 'Bookings · Admin · Booking System Demo',
+        title: 'titles.adminBookings',
         loadComponent: () => import('./pages/admin/bookings/admin-bookings').then((m) => m.AdminBookingsPage),
       },
       {
         path: 'reviews',
-        title: 'Reviews · Admin · Booking System Demo',
+        title: 'titles.adminReviews',
         loadComponent: () => import('./pages/admin/reviews/admin-reviews').then((m) => m.AdminReviewsPage),
       },
     ],
   },
   {
     path: 'forbidden',
-    title: 'Admins only · Booking System Demo',
+    title: 'titles.forbidden',
     loadComponent: () => import('./pages/forbidden/forbidden').then((m) => m.ForbiddenPage),
   },
   {
     path: 'login',
-    title: 'Log in · Booking System Demo',
+    title: 'titles.login',
     canActivate: [guestOnlyGuard],
     loadComponent: () => import('./pages/login/login').then((m) => m.LoginPage),
   },
   {
     path: 'register',
-    title: 'Sign up · Booking System Demo',
+    title: 'titles.register',
     canActivate: [guestOnlyGuard],
     loadComponent: () => import('./pages/register/register').then((m) => m.RegisterPage),
   },

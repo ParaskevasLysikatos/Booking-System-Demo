@@ -91,6 +91,14 @@ stay per guest left to review live (see "Seeding demo data"). TICKET-042
 was folded in: Find on map now says "Placed at Ιωάννη Τσιμισκή, Ladadika,
 Thessaloniki" with the full address as a tooltip. See "Demo data: final
 check (TICKET-037)".
+**TICKET-038 (English / Greek) is in progress:** step 1 is done - an
+"EN / ΕΛ" switch in the toolbar changes the app at once, with no reload,
+and is remembered per browser (English on a first visit). It rests on two
+dictionaries (`en.json` / `el.json`), a small `TranslationService` and a `t`
+pipe. Tab titles, Material's own texts (paginator, date pickers, stepper)
+and the date pickers' month/day names follow the language, and every API
+call says `Accept-Language`. The toolbar is translated; the pages come in
+steps 3-5. See "Two languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -271,7 +279,8 @@ frontend/
   src/environments/environment.production.ts   Same for `ng build` (Render API URL, waking-up notice on)
   package-lock.json                 Exact package versions; Render builds with `npm ci`
   src/app/
-    app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + auth interceptor, router, session restore)
+    app.ts / app.html / app.config.ts   Root shell (toolbar + router outlet) + providers (HttpClient + interceptors, router, session restore,
+                                        provideI18n - TICKET-038)
     app.routes.ts                       / -> /listings, /listings, /listings/:id, /booking/:propertyId + /my-bookings + /favorites (authGuard),
                                         /admin/** (adminGuard), /forbidden, /login, /register (all lazy)
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
@@ -293,6 +302,10 @@ frontend/
                                         revenue-chart.ts (the revenue chart's ticks, labels, geometry - TICKET-035),
                                         PhotoUploadService + image-resize.ts (photo uploads straight to S3 - TICKET-036)
     core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
+    core/i18n/                          English / Greek (TICKET-038): en.json + el.json (the texts), TranslationService
+                                        (language signal, t(), remembered in localStorage), the `t` pipe, PageTitle (translated
+                                        tab titles), languageInterceptor (Accept-Language), per-page Material texts
+                                        (provideLocalizedDatepicker / providePaginatorI18n / provideStepperI18n)
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
@@ -6118,6 +6131,159 @@ and iPad (Mac with touch) detection → the steps, never offered when already
 running as the app) and the toolbar (2: the logged-out icon and the menu
 item, the iPhone steps dialog). **225 frontend tests pass.**
 
+## Two languages (English / Greek, TICKET-038)
+
+The whole Angular app can be used in English or Greek. An **EN / ΕΛ**
+switch in the toolbar changes every text at once - no reload, no second
+build or site.
+
+### Decisions (agreed before building)
+
+- **Our own small service + pipe**, not Angular's build-time i18n (that
+  needs one build and one deployed site per language) and not
+  `ngx-translate` - no new npm package.
+- **First visit: always English.** The switch's choice is remembered in
+  this browser (`localStorage`, key `bsd.lang`).
+- **Everything in the Angular app**, the admin pages included.
+- **Server messages in Greek too, through Django's own translations**
+  (step 6): the frontend sends `Accept-Language`, and Django answers in
+  that language - its built-in messages ("This password is too common.")
+  come in Greek for free, and ours get a Greek `.po` file.
+- Not translated: property titles and descriptions (typed by the admin in
+  one language), Django Admin, and the booking emails.
+
+### Plan
+
+1. The foundation: dictionaries, `TranslationService`, the `t` pipe, the
+   switch, tab titles, Material's texts, `Accept-Language` - **done**.
+2. Dates and money in the chosen language (`el-GR`: "Τετ 10 Μαρ 2027",
+   "364,00 €").
+3. Guest pages, part 1 (listings, property page, booking form, login,
+   register, ...).
+4. Guest pages, part 2 (My bookings, dialogs, Saved, payment screens,
+   messages picked by the API's error `code`).
+5. The admin pages.
+6. The backend in Greek (Django `LocaleMiddleware`, `gettext`, `el` `.po`).
+7. Stripe's payment page in the same language (`locale` on the Checkout
+   Session).
+8. Final check in both languages, locally and on Render.
+
+### How it works (`src/app/core/i18n/`)
+
+- **`en.json` / `el.json`** hold the texts under the same nested keys
+  (`toolbar.logIn`, `mat.paginator.nextPage`, `titles.login`, ...). They
+  are bundled into the app (no extra request, no flash of English).
+  - Placeholders: `"Account menu for {email}"`.
+  - Plurals: a key whose value is `{ "one": "{count} night", "other":
+    "{count} nights" }` - the form is picked with `Intl.PluralRules` for
+    the `count` param.
+- **`TranslationService`** (`translation.service.ts`):
+  - `lang()` is a signal (`'en'` / `'el'`); `locale()` gives the `Intl`
+    locale (`en-GB` / `el-GR`)
+  - `setLang()` switches, remembers the choice (it still works when
+    storage is blocked), sets `<html lang>` and emits on `changes`
+  - `t(key, params?)` returns the text. A missing Greek text falls back to
+    English, and a missing key shows the key itself (with a warning in
+    dev), so a gap never blanks the page
+- **The `t` pipe:** `{{ 'toolbar.logIn' | t }}` or
+  `[attr.aria-label]="'toolbar.accountMenu' | t: { email: user.email }"`.
+  It is *impure* on purpose - a pure pipe only re-runs when its arguments
+  change, so it would keep the old language. It reads the `lang` signal,
+  so views refresh on a switch (OnPush ones too), and it caches its last
+  result, so the extra calls are cheap.
+- **In TypeScript** (snackbars, dialog texts, computed labels):
+  `inject(TranslationService).t('...')`. Inside a `computed()` it follows
+  a switch by itself.
+- **Tab titles (`PageTitle`, a `TitleStrategy`):**
+  - Routes give a key as their `title` (`title: 'titles.login'`), which
+    becomes "Σύνδεση · Booking System Demo".
+  - Pages whose title comes from data (a property's name) call
+    `pageTitle.set(() => ...)` / `setKey(...)`.
+  - Either way the title is rebuilt on a switch.
+- **`Accept-Language`** (`languageInterceptor`) goes on every request to
+  our API, and only there (photos, map tiles and place search keep the
+  browser's own). It runs before the auth interceptor, so a request replayed
+  after a token refresh keeps it.
+- **The switch** (`layout/toolbar/`): a small two-option pill, "EN" and
+  "ΕΛ" (each labelled with its language's own name for screen readers,
+  `aria-pressed` on the chosen one), always visible - on phones too.
+
+### Material's own texts, per page
+
+Material has built-in English texts:
+- the paginator ("Items per page", "1 – 10 of 23", Next page)
+- the date pickers ("Open calendar", "Previous month", month and day names)
+- the stepper ("Optional")
+
+`paginator-i18n.ts`, `datepicker-i18n.ts` and `stepper-i18n.ts` replace
+them with the dictionaries' `mat.*` texts. They refill them on a switch and
+tell Material to redraw, so an open calendar changes language at once.
+
+The date pickers also get a **date adapter that follows the language**:
+- Greek month and day names ("Μαρ", "Τετ")
+- typed dates as `10/3/2027` instead of `10/03/2027`
+- Monday as the first day of the week in both languages
+
+It replaces the pages' fixed `MAT_DATE_LOCALE: 'en-GB'`.
+
+They are provided by the pages that use those components:
+- `provideLocalizedDatepicker()`: listings, property page, booking form,
+  admin dashboard
+- `provideStepperI18n()`: booking form
+- `providePaginatorI18n()`: My bookings, Saved, admin bookings / properties
+  / reviews
+
+They are not provided in `app.config.ts`, because importing them there
+pulled about **320 kB** of Material code into the initial bundle (601 →
+933 kB, over the 700 kB budget). Provided per page, that code stays in
+the lazy page chunks that already load it. The initial bundle is now
+610 kB (+9 kB for the service, the pipe, the title strategy and both
+dictionaries).
+
+### Adding a text
+
+1. Add the key to **both** `en.json` and `el.json` (same place, same
+   `{placeholders}`).
+2. Use it: `{{ 'area.key' | t }}` in a template (add `TranslatePipe` to the
+   component's `imports`), or `i18n.t('area.key')` in code.
+3. `dictionaries.spec.ts` fails if a key is missing in one file, the
+   placeholders differ, a text is empty, or a plural has no `other` form.
+
+### Tests (29 new, 443 frontend tests in total)
+
+- `dictionaries.spec.ts`: both files have the same keys and the same
+  placeholders, no empty texts, and every plural has an `other` form.
+- `translation.service.spec.ts`:
+  - English on a first visit (not the browser's language); the remembered
+    language is restored; a junk stored value is ignored
+  - `setLang` switches, remembers, sets `<html lang>` and emits once, and
+    still works with storage blocked
+  - placeholders; plurals in both languages; falls back to English, then
+    to the key
+- `translate.pipe.spec.ts`: an OnPush page follows a switch without a
+  reload; a changed param re-translates; repeated calls are cached.
+- `language.interceptor.spec.ts`: the header goes to our API only and
+  follows a switch.
+- `material-i18n.spec.ts`:
+  - the paginator's labels and "1 – 10 από 23" on a rendered paginator
+  - the date picker and stepper labels
+  - the date adapter's Greek month/day names, first day of the week and
+    typed-date format; each redraws once on a switch
+- `page-title.spec.ts`:
+  - a route key becomes a translated title and is rebuilt on a switch
+  - a plain-text title is kept
+  - a page's own title (set before the router's update) is kept
+  - a page that sets `document.title` directly isn't overwritten on a
+    switch
+- `toolbar.spec.ts`: EN / ΕΛ shown with English pressed; ΕΛ switches the
+  toolbar at once and is remembered; logged in, the links, account menu
+  and role are in Greek.
+
+The production build is clean (initial 610 kB, no budget warnings). In a
+browser (desktop and 390 px phone width), ΕΛ changed the toolbar, the tab
+title ("Καταλύματα · Booking System Demo") and `<html lang="el">` at once,
+and the choice was still there after reopening the site.
+
 ## Django Admin (dev-only)
 
 Every model has a working admin registration, verified against the live
@@ -6923,7 +7089,14 @@ removes the old-style accounts; a self-limiting one-off re-seed
 the S3 seed photos and the new reviews; `GET /api/auth/demo-logins/` feeds
 a "Demo logins" box on the login page that fills the form in one click;
 see "Seeding demo data → Demo logins" and "Deploying to Render → One-off
-re-seed". Next: TICKET-038 (English / Greek), then TICKET-039 (final
-redeploy + smoke test); after the
+re-seed". **TICKET-038 (English / Greek) is in progress:** step 1 (the
+foundation: `en.json` / `el.json`, `TranslationService`, the `t` pipe, the
+EN / ΕΛ switch remembered per browser, translated tab titles, Material's
+paginator / date picker / stepper texts and a date adapter that follow the
+language, `Accept-Language` on API calls, the toolbar in Greek) is done;
+see "Two languages (English / Greek, TICKET-038)". Next: step 2 (dates and
+money in the chosen language), then the pages (steps 3-5), the backend in
+Greek (step 6), Stripe's page language (step 7) and the final check (step
+8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").

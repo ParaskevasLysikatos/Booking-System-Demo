@@ -9,6 +9,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { LANGUAGES, LANGUAGE_NAMES, LANGUAGE_SHORT, TranslationService } from '../../core/i18n/translation.service';
 import { InstallIosDialog } from '../../core/pwa/install-ios-dialog';
 import { InstallService } from '../../core/pwa/install.service';
 
@@ -21,16 +23,21 @@ import { InstallService } from '../../core/pwa/install.service';
  * On phones the links move into the account menu.
  * "Install app" (TICKET-031): in the account menu, or an icon next to
  * Log in when logged out - only when the browser can install the app.
+ * "EN / ΕΛ" (TICKET-038): always visible, left of the account / Log in.
  */
 @Component({
   selector: 'app-toolbar',
-  imports: [RouterLink, RouterLinkActive, MatButtonModule, MatDividerModule, MatIconModule, MatMenuModule, MatToolbarModule, MatTooltipModule],
+  imports: [RouterLink, RouterLinkActive, MatButtonModule, MatDividerModule, MatIconModule, MatMenuModule, MatToolbarModule, MatTooltipModule, TranslatePipe],
   templateUrl: './toolbar.html',
   styleUrl: './toolbar.scss',
 })
 export class ToolbarComponent {
   protected readonly auth = inject(AuthService);
   protected readonly install = inject(InstallService);
+  protected readonly i18n = inject(TranslationService);
+  protected readonly languages = LANGUAGES;
+  protected readonly short = LANGUAGE_SHORT;
+  protected readonly names = LANGUAGE_NAMES;
   private readonly dialog = inject(MatDialog);
 
   async installApp(): Promise<void> {

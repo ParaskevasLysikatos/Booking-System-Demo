@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { InstallService } from '../../core/pwa/install.service';
 import { ToolbarComponent } from './toolbar';
 
@@ -111,6 +112,45 @@ describe('ToolbarComponent', () => {
       await fixture.whenStable();
       fixture.detectChanges();
       expect(document.querySelector('app-install-ios-dialog')!.textContent).toContain('Add to Home Screen');
+    });
+  });
+  describe('EN / ΕΛ (TICKET-038)', () => {
+    afterEach(() => localStorage.clear());
+
+    const options = (el: HTMLElement) => [...el.querySelectorAll<HTMLButtonElement>('.lang button')];
+
+    it('shows both options, English pressed on a first visit', () => {
+      const { el } = render(null);
+      expect(options(el).map((b) => b.textContent!.trim())).toEqual(['EN', 'ΕΛ']);
+      expect(options(el).map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+      expect(options(el)[1].getAttribute('aria-label')).toBe('Ελληνικά');
+    });
+
+    it('ΕΛ switches the toolbar at once and is remembered', async () => {
+      const { fixture, el } = render(null);
+      options(el)[1].click();
+      await fixture.whenStable();
+      expect(TestBed.inject(TranslationService).lang()).toBe('el');
+      expect(localStorage.getItem('bsd.lang')).toBe('el');
+      expect(options(el).map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+      expect(el.textContent).toContain('Σύνδεση');
+      expect(el.textContent).toContain('Εγγραφή');
+      expect(el.querySelector('.lang')!.getAttribute('aria-label')).toBe('Γλώσσα');
+    });
+
+    it('logged in, in Greek: links, account menu and role', async () => {
+      localStorage.setItem('bsd.lang', 'el');
+      const { fixture, el, links } = render('guest'); // render() clears storage first
+      TestBed.inject(TranslationService).setLang('el');
+      await fixture.whenStable();
+      expect(links()).toEqual(['favorite_borderΑποθηκευμένα', 'luggageΟι κρατήσεις μου']);
+      expect(el.querySelector('.account')!.getAttribute('aria-label')).toBe('Μενού λογαριασμού για guest@example.com');
+      (el.querySelector('.account') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const menu = document.querySelector('.mat-mdc-menu-panel')!;
+      expect(menu.textContent).toContain('Επισκέπτης');
+      expect(menu.textContent).toContain('Αποσύνδεση');
     });
   });
 });

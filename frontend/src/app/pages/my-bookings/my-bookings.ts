@@ -26,6 +26,7 @@ import { Review } from '../../core/reviews/review.models';
 import { ReviewDialog, ReviewDialogData } from '../../shared/review-dialog';
 import { StarRatingComponent } from '../../shared/star-rating';
 import { CancelBookingDialog } from './cancel-dialog';
+import { providePaginatorI18n } from '../../core/i18n/paginator-i18n';
 
 export type BookingsTab = 'upcoming' | 'past' | 'cancelled';
 
@@ -55,6 +56,7 @@ const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confir
   selector: 'app-my-bookings',
   imports: [MatButtonModule, MatIconModule, MatPaginatorModule, MatProgressSpinnerModule, MatTabsModule, RouterLink, StarRatingComponent],
   templateUrl: './my-bookings.html',
+  providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './my-bookings.scss',
 })
 export class MyBookingsPage {
