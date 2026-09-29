@@ -6273,6 +6273,18 @@ Simple on purpose, so they're easy to type at the meetup table:
   later ones about 5 ms, and a changed password gets a new cache key, so
   it counts at once. The values are public anyway (they're in this README).
   8 tests in `accounts/tests.py` (`DemoLoginsTests`).
+- **The login page's "Demo logins" box** (`pages/login/`): under the form,
+  one row per listed login - a **Guest** / **Admin** button plus the
+  email / password (and "any up to guest10@demo.com" for the guests).
+  Clicking a button **fills the form**; the visitor still presses Log in,
+  so it logs in exactly like typing it. The list comes from
+  `AuthService.demoLogins()`: without demo data, while the request is
+  still out (a sleeping Render API), or if it fails, there is simply no
+  box - never an error. `demo-logins/` is in the auth interceptor's
+  public list next to login/register/refresh, so it never carries a token
+  or triggers a token refresh. Styles in `pages/auth-page.scss`
+  (`.demo-logins`, wraps on phones). 10 Vitest tests (`login.spec.ts`,
+  `auth.service.spec.ts`).
 - **Before TICKET-041** the seeder made `guest_<n>_<fakename>@example.com`
   / `DemoPass123!` guests and an `admin_demo` / `AdminPass123!` admin.
   `--clear` removes those too, so re-seeding never leaves both sets behind.

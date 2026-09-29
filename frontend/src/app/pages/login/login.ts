@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -9,6 +10,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { parseApiErrors } from '../../core/api-errors';
+import { DemoLogin } from '../../core/auth/auth.models';
 import { AuthService, safeReturnUrl } from '../../core/auth/auth.service';
 
 @Component({
@@ -42,6 +44,18 @@ export class LoginPage {
   readonly sessionExpired = this.route.snapshot.queryParamMap.get('reason') === 'expired';
   /** Sent here by a heart tap while logged out (TICKET-033). */
   readonly savingFavorite = this.route.snapshot.queryParamMap.get('reason') === 'favorite';
+
+  /**
+   * The "Demo logins" box (TICKET-041): whatever the API lists - nothing on
+   * a deployment without demo data, or while the request is still out.
+   */
+  readonly demoLogins = toSignal(this.auth.demoLogins(), { initialValue: [] as DemoLogin[] });
+
+  /** Fill the form with a demo login; the visitor still presses Log in. */
+  useDemoLogin(login: DemoLogin): void {
+    this.form.setValue({ email: login.email, password: login.password });
+    this.error.set(null);
+  }
 
   submit(): void {
     if (this.form.invalid || this.submitting()) {

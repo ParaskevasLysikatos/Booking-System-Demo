@@ -172,6 +172,37 @@ describe('AuthService', () => {
       expect(storage.getRefresh()).toBeNull();
     });
   });
+
+  describe('demoLogins() (TICKET-041)', () => {
+    it('returns the listed logins', () => {
+      setup();
+      let result: unknown;
+      auth.demoLogins().subscribe((l) => (result = l));
+      const req = http.expectOne(`${AUTH_URL}/demo-logins/`);
+      expect(req.request.method).toBe('GET');
+      req.flush({ logins: [{ role: 'admin', email: 'admin@demo.com', password: 'admin123' }] });
+      expect(result).toEqual([{ role: 'admin', email: 'admin@demo.com', password: 'admin123' }]);
+    });
+
+    it('any failure is just an empty list (never an error)', () => {
+      setup();
+      let result: unknown;
+      let failed = false;
+      auth.demoLogins().subscribe({ next: (l) => (result = l), error: () => (failed = true) });
+      http.expectOne(`${AUTH_URL}/demo-logins/`).flush('nope', { status: 404, statusText: 'Not Found' });
+      expect(result).toEqual([]);
+      expect(failed).toBe(false);
+    });
+
+    it('sends no token, even when logged in (a public endpoint)', () => {
+      setup();
+      storage.setTokens(tokenExpiringIn(1800), tokenExpiringIn(86400));
+      auth.demoLogins().subscribe();
+      const req = http.expectOne(`${AUTH_URL}/demo-logins/`);
+      expect(req.request.headers.has('Authorization')).toBe(false);
+      req.flush({ logins: [] });
+    });
+  });
 });
 
 describe('safeReturnUrl', () => {

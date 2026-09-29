@@ -62,6 +62,33 @@
           }
         </button>
       </form>
+
+      @if (demoLogins().length) {
+        <section class="demo-logins" aria-labelledby="demo-logins-title">
+          <h2 id="demo-logins-title"><mat-icon>key</mat-icon> Demo logins</h2>
+          <ul>
+            @for (login of demoLogins(); track login.role) {
+              <li>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  (click)="useDemoLogin(login)"
+                  [attr.aria-label]="'Fill in the ' + login.role + ' demo login'"
+                >
+                  <mat-icon>{{ login.role === 'admin' ? 'admin_panel_settings' : 'person' }}</mat-icon>
+                  {{ login.role === 'admin' ? 'Admin' : 'Guest' }}
+                </button>
+                <span class="creds">
+                  <span><code>{{ login.email }}</code> / <code>{{ login.password }}</code></span>
+                  @if (login.role === 'guest' && (login.count ?? 0) > 1) {
+                    <small>any up to {{ login.last_email }}</small>
+                  }
+                </span>
+              </li>
+            }
+          </ul>
+        </section>
+      }
     </mat-card-content>
 
     <mat-card-actions class="switch">

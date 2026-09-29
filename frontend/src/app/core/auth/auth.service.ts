@@ -1,10 +1,10 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, finalize, firstValueFrom, map, shareReplay, tap, throwError } from 'rxjs';
+import { Observable, catchError, finalize, firstValueFrom, map, of, shareReplay, tap, throwError } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { AuthResponse, AuthUser, LoginRequest, RegisterRequest } from './auth.models';
+import { AuthResponse, AuthUser, DemoLogin, LoginRequest, RegisterRequest } from './auth.models';
 import { isTokenExpired } from './jwt';
 import { TokenStorage } from './token-storage';
 
@@ -71,6 +71,18 @@ export class AuthService {
     return this.http
       .post<AuthResponse>(`${AUTH_URL}/login/`, credentials)
       .pipe(map((res) => this.startSession(res)));
+  }
+
+  /**
+   * The seeded demo logins for the login page's hint (TICKET-041). Optional
+   * by nature: any failure (server asleep and timing out, an old backend
+   * without the endpoint) just means no hint - never an error on the page.
+   */
+  demoLogins(): Observable<DemoLogin[]> {
+    return this.http.get<{ logins: DemoLogin[] }>(`${AUTH_URL}/demo-logins/`).pipe(
+      map((res) => res.logins ?? []),
+      catchError(() => of([])),
+    );
   }
 
   /** Register returns tokens too, so the new user is logged in straight away. */

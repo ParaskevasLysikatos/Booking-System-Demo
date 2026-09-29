@@ -6,7 +6,12 @@ import { environment } from '../../../environments/environment';
 import { AUTH_URL, AuthService } from './auth.service';
 
 /** Endpoints that must never carry (or react to) the access token. */
-const PUBLIC_AUTH_ENDPOINTS = [`${AUTH_URL}/login/`, `${AUTH_URL}/register/`, `${AUTH_URL}/refresh/`];
+const PUBLIC_AUTH_ENDPOINTS = [
+  `${AUTH_URL}/login/`,
+  `${AUTH_URL}/register/`,
+  `${AUTH_URL}/refresh/`,
+  `${AUTH_URL}/demo-logins/`, // TICKET-041, the login page's demo logins
+];
 
 function isOurApi(url: string): boolean {
   return url.startsWith(`${environment.apiUrl}/`);
@@ -21,7 +26,7 @@ function withToken(req: HttpRequest<unknown>, token: string): HttpRequest<unknow
  *
  * 1. Requests to our API (and only our API - a token never leaks to a
  *    third-party URL) get `Authorization: Bearer <access>`. login/,
- *    register/ and refresh/ are left untouched.
+ *    register/, refresh/ and demo-logins/ are left untouched.
  * 2. If the API answers 401 and we hold a refresh token, refresh ONCE and
  *    replay the original request with the new access token. Concurrent
  *    401s share one refresh call (AuthService.refreshAccessToken).
