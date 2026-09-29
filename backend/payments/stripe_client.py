@@ -24,13 +24,16 @@ def payments_enabled():
     return bool(settings.PAYMENTS_ENABLED and settings.STRIPE_SECRET_KEY)
 
 
+# TICKET-044: Stripe test keys. A live key (sk_live_ / rk_live_) never matches.
+TEST_KEY_PREFIXES = ("sk_test_", "rk_test_")
+
+
 def is_test_mode():
-    """Returns True if the Stripe key is a test key (starts with sk_test_ or rk_test_).
-    False if it's a live key or payments are disabled."""
-    if not settings.STRIPE_SECRET_KEY:
-        return False
-    key = settings.STRIPE_SECRET_KEY
-    return key.startswith("sk_test_") or key.startswith("rk_test_")
+    """True only when online payment is on *and* the key is a Stripe test
+    key - worked out here from the key's prefix; the key itself never leaves
+    the server. False for a live key and when payments are off, so the
+    "use card 4242..." hint can never reach a real guest (TICKET-044)."""
+    return payments_enabled() and settings.STRIPE_SECRET_KEY.startswith(TEST_KEY_PREFIXES)
 
 
 def get_client() -> stripe.StripeClient:

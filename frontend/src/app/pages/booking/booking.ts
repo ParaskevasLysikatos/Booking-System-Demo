@@ -27,6 +27,7 @@ import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { clockTime } from '../../core/payments/countdown';
 import { PaymentService } from '../../core/payments/payment.service';
 import { BookingSummary } from '../../shared/booking-summary';
+import { TestCardHintComponent } from '../../shared/test-card-hint';
 import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
 import { provideStepperI18n } from '../../core/i18n/stepper-i18n';
 import { formatDate } from '../../core/i18n/format';
@@ -60,6 +61,7 @@ function humanize(message: string): string {
     BookingSummary,
     ReactiveFormsModule,
     RouterLink,
+    TestCardHintComponent,
     MatButtonModule,
     MatDatepickerModule,
     MatFormFieldModule,
@@ -156,7 +158,6 @@ export class BookingFormPage {
   /** Only for wording before booking; what happens after is decided by the booking's own `payment`. */
   readonly paymentsConfig = toSignal(this.payments.config(), { initialValue: null });
   readonly paymentsOn = computed(() => this.paymentsConfig()?.enabled === true);
-  readonly isTestMode = computed(() => this.paymentsConfig()?.test_mode === true);
   readonly holdMinutes = computed(() => this.paymentsConfig()?.hold_minutes ?? 30);
 
   // --- submitting ---------------------------------------------------------

@@ -27,22 +27,7 @@
 .error { margin: 16px 0 0; color: var(--mat-sys-error); }
 .danger { color: var(--mat-sys-error); }
 
-.test-hint {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
-  margin: 16px 0;
-  border-radius: 4px;
-  background: var(--mat-sys-primary-container);
-  color: var(--mat-sys-on-primary-container);
-  font-size: 13px;
-  line-height: 1.4;
-  max-width: 520px;
-  margin-left: auto;
-  margin-right: auto;
-  mat-icon { font-size: 18px; width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
-}
+.test-hint { text-align: left; } // TICKET-044 hint next to Pay now
 
 .message {
   display: flex;

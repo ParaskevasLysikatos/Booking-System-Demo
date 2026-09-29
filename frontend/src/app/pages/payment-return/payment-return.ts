@@ -1,6 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
@@ -17,6 +16,7 @@ import { clockSignal, clockTime, formatRemaining, remainingMs } from '../../core
 import { guestRefundText, refundView } from '../../core/payments/payment-labels';
 import { PaymentService } from '../../core/payments/payment.service';
 import { BookingSummary } from '../../shared/booking-summary';
+import { TestCardHintComponent } from '../../shared/test-card-hint';
 import { CancelBookingDialog } from '../my-bookings/cancel-dialog';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { translate } from '../../core/i18n/translation.service';
@@ -49,7 +49,7 @@ export type ReturnPhase =
  */
 @Component({
   selector: 'app-payment-return',
-  imports: [BookingSummary, MatButtonModule, MatIconModule, MatProgressSpinnerModule, RouterLink, TranslatePipe],
+  imports: [BookingSummary, MatButtonModule, MatIconModule, MatProgressSpinnerModule, RouterLink, TestCardHintComponent, TranslatePipe],
   templateUrl: './payment-return.html',
   styleUrl: './payment-return.scss',
 })
@@ -70,9 +70,6 @@ export class PaymentReturnPage {
   readonly booking = signal<Booking | null>(null);
   private readonly phase = signal<ReturnPhase>('loading');
   readonly busy = signal<'pay' | 'cancel' | null>(null);
-  
-  readonly paymentsConfig = toSignal(this.payments.config(), { initialValue: null });
-  readonly isTestMode = computed(() => this.paymentsConfig()?.test_mode === true);
   readonly actionError = signal<string | null>(null);
 
   private readonly clock = clockSignal();

@@ -34,6 +34,11 @@ The language is part of the idempotency key (a Greek attempt is
 in the same language repeats it exactly; a retry after switching language
 is a different request under a different key. Once a session exists, "Pay
 now" reuses it as it is, in the language it was created in.
+
+Test-card hint (TICKET-044): with a Stripe *test* key the page also shows
+"Demo payment - use card 4242..." above the Pay button (`custom_text`), in
+the page's language. It depends only on the server's key, not on the
+request, so it doesn't change what the idempotency key stands for.
 """
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -98,12 +103,13 @@ CHECKOUT_LOCALES = {"en": "en", "el": "el"}
 GREEK_WEEKDAYS = ["Δευ", "Τρί", "Τετ", "Πέμ", "Παρ", "Σάβ", "Κυρ"]
 GREEK_MONTHS = ["Ιαν", "Φεβ", "Μαρ", "Απρ", "Μαΐ", "Ιουν", "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ"]
 
-# Test mode payment hints for demo visitors (TICKET-044)
+# TICKET-044: shown on Stripe's page above the Pay button, in test mode only
+# (Checkout `custom_text.submit.message`). Same wording as the app's hint.
 TEST_CARD_HINTS = {
-    "en": "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC",
-    "el": "Δοκιμαστική πληρωμή - χρησιμοποιήστε κάρτα 4242 4242 4242 4242, οποιαδήποτε μελλοντική ημερομηνία λήξης, οποιοδήποτε CVC",
+    "en": "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC.",
+    "el": "Δοκιμαστική πληρωμή - χρησιμοποιήστε την κάρτα 4242 4242 4242 4242, "
+          "οποιαδήποτε μελλοντική ημερομηνία λήξης και οποιοδήποτε CVC.",
 }
-
 
 
 def checkout_language():
@@ -189,7 +195,9 @@ def session_params(booking, payment, language="en"):
     }
     if booking.guest.email:
         params["customer_email"] = booking.guest.email
-    # Add test card hint for demo visitors in test mode
+    # TICKET-044: the test-card hint on Stripe's page. Depends only on the
+    # server's key (fixed per deployment), so the request stays fixed by its
+    # idempotency key; with a live key there is no custom_text at all.
     if is_test_mode():
         params["custom_text"] = {
             "submit": {

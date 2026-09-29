@@ -132,15 +132,10 @@
                     <mat-icon>lock</mat-icon>
                     <span [innerHTML]="'booking.payPolicy' | t: { total: total() ?? '', minutes: holdMinutes() }"></span>
                   </p>
+                  <app-test-card-hint />
                 } @else {
                   <p class="note" [innerHTML]="'booking.pendingNote' | t"></p>
                 }
-              }
-              @if (isTestMode()) {
-                <p class="test-hint">
-                  <mat-icon>info</mat-icon>
-                  <span>{{ 'testMode.testCardHint' | t }}</span>
-                </p>
               }
               <div class="step-actions">
                 <button mat-button type="button" matStepperPrevious [disabled]="submitting()">{{ 'booking.back' | t }}</button>

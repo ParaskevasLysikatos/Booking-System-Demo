@@ -983,14 +983,22 @@ class PaymentsConfigTests(APITestCase):
     @override_settings(**PAYMENTS_ON)
     def test_on(self):
         res = self.client.get(reverse("payments-config"))
-        self.assertEqual(res.json(), {"enabled": True, "hold_minutes": 30, "currency": "eur"})
+        self.assertEqual(res.json(), {"enabled": True, "test_mode": True, "hold_minutes": 30, "currency": "eur"})
         self.assertNotIn("rk_test", res.content.decode())  # never leaks a key
+
+    @override_settings(**{**PAYMENTS_ON, "STRIPE_SECRET_KEY": "sk_live_dummy"})
+    def test_live_key_is_not_test_mode(self):
+        """TICKET-044: with a live key the app's test-card hint disappears by itself."""
+        res = self.client.get(reverse("payments-config"))
+        self.assertEqual(res.json()["test_mode"], False)
+        self.assertNotIn("sk_live", res.content.decode())
 
     @override_settings(PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY="")
     def test_off_and_public(self):
         res = self.client.get(reverse("payments-config"))  # no login needed
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.json()["enabled"])
+        self.assertFalse(res.json()["test_mode"])
 
 
 # --------------------------------------------------------------------------
@@ -1481,59 +1489,75 @@ class SyncRefundsCommandTests(PaidBookingFixtures, APITestCase):
         self.assertIn("couldn't ask Stripe", err)
 
 
-class StripeClientTests(SimpleTestCase):
-    """Tests for stripe_client module functions (TICKET-044)."""
+# --------------------------------------------------------------------------
+# TICKET-044: test-card hint (test mode only)
+# --------------------------------------------------------------------------
 
-    def test_payments_disabled_when_no_key(self):
-        """payments_enabled() returns False when STRIPE_SECRET_KEY is not set."""
-        with override_settings(PAYMENTS_ENABLED=True, STRIPE_SECRET_KEY=""):
-            from .stripe_client import payments_enabled
-            self.assertFalse(payments_enabled())
+from .stripe_client import is_test_mode  # noqa: E402
 
-    def test_payments_disabled_when_feature_off(self):
-        """payments_enabled() returns False when PAYMENTS_ENABLED is False."""
-        with override_settings(PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY="sk_test_123"):
-            from .stripe_client import payments_enabled
-            self.assertFalse(payments_enabled())
 
-    def test_payments_enabled_with_test_key(self):
-        """payments_enabled() returns True when both PAYMENTS_ENABLED and STRIPE_SECRET_KEY are set."""
-        with override_settings(PAYMENTS_ENABLED=True, STRIPE_SECRET_KEY="sk_test_123"):
-            from .stripe_client import payments_enabled
-            self.assertTrue(payments_enabled())
+class TestModeTests(SimpleTestCase):
+    """TICKET-044: `test_mode` is true only for a Stripe test key with
+    payments switched on - worked out from the key's prefix."""
 
-    def test_is_test_mode_with_sk_test_key(self):
-        """is_test_mode() returns True for sk_test_ prefixed keys."""
-        with override_settings(STRIPE_SECRET_KEY="sk_test_1234567890abcdef"):
-            from .stripe_client import is_test_mode
-            self.assertTrue(is_test_mode())
+    def check(self, key, expected, enabled=True):
+        with override_settings(PAYMENTS_ENABLED=enabled, STRIPE_SECRET_KEY=key):
+            self.assertIs(is_test_mode(), expected, key)
 
-    def test_is_test_mode_with_rk_test_key(self):
-        """is_test_mode() returns True for rk_test_ prefixed keys (restricted keys)."""
-        with override_settings(STRIPE_SECRET_KEY="rk_test_1234567890abcdef"):
-            from .stripe_client import is_test_mode
-            self.assertTrue(is_test_mode())
+    def test_test_keys(self):
+        self.check("sk_test_123", True)
+        self.check("rk_test_123", True)  # restricted test key
 
-    def test_is_test_mode_with_live_key(self):
-        """is_test_mode() returns False for live keys (sk_live_ or rk_live_)."""
-        with override_settings(STRIPE_SECRET_KEY="sk_live_1234567890abcdef"):
-            from .stripe_client import is_test_mode
-            self.assertFalse(is_test_mode())
+    def test_live_keys(self):
+        self.check("sk_live_123", False)
+        self.check("rk_live_123", False)
 
-    def test_is_test_mode_with_live_restricted_key(self):
-        """is_test_mode() returns False for live restricted keys (rk_live_)."""
-        with override_settings(STRIPE_SECRET_KEY="rk_live_1234567890abcdef"):
-            from .stripe_client import is_test_mode
-            self.assertFalse(is_test_mode())
+    def test_missing_key(self):
+        self.check("", False)
+        self.check(None, False)
 
-    def test_is_test_mode_with_no_key(self):
-        """is_test_mode() returns False when STRIPE_SECRET_KEY is not set."""
-        with override_settings(STRIPE_SECRET_KEY=""):
-            from .stripe_client import is_test_mode
-            self.assertFalse(is_test_mode())
+    def test_payments_off(self):
+        self.check("sk_test_123", False, enabled=False)
 
-    def test_is_test_mode_with_none_key(self):
-        """is_test_mode() returns False when STRIPE_SECRET_KEY is None."""
-        with override_settings(STRIPE_SECRET_KEY=None):
-            from .stripe_client import is_test_mode
-            self.assertFalse(is_test_mode())
+    def test_prefix_only_at_the_start(self):
+        self.check("sk_live_sk_test_123", False)
+
+
+@override_settings(**PAYMENTS_ON)
+class CheckoutTestCardHintTests(CheckoutFixtures, APITestCase):
+    """TICKET-044: the hint on Stripe's own page (`custom_text.submit.message`),
+    in the page's language, test mode only."""
+
+    def message(self, **headers):
+        booking, _ = self.book_via_api()
+        res = self.client.post(checkout_url(booking.pk), **headers)
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        params, _ = self.create_kwargs()
+        return params.get("custom_text", {}).get("submit", {}).get("message")
+
+    def test_english(self):
+        self.assertEqual(
+            self.message(),
+            "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC.",
+        )
+
+    def test_greek(self):
+        message = self.message(HTTP_ACCEPT_LANGUAGE="el")
+        self.assertTrue(message.startswith("Δοκιμαστική πληρωμή"), message)
+        self.assertIn("4242 4242 4242 4242", message)
+
+    @override_settings(STRIPE_SECRET_KEY="rk_live_dummy")
+    def test_no_hint_with_a_live_key(self):
+        booking, _ = self.book_via_api()
+        self.client.post(checkout_url(booking.pk))
+        params, _ = self.create_kwargs()
+        self.assertNotIn("custom_text", params)
+
+    def test_retry_sends_the_identical_request(self):
+        """The hint doesn't break the fixed request: same key, same params."""
+        booking, _ = self.book_via_api()
+        self.sessions.create.side_effect = [stripe.APIConnectionError("network down"), fake_session()]
+        self.client.post(checkout_url(booking.pk))
+        self.client.post(checkout_url(booking.pk))
+        (first, second) = self.sessions.create.call_args_list
+        self.assertEqual(first.kwargs, second.kwargs)

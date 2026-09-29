@@ -8,7 +8,7 @@ from django.conf import settings
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import StripeEvent
-from .stripe_client import payments_enabled, webhook_secret, is_test_mode
+from .stripe_client import is_test_mode, payments_enabled, webhook_secret
 from .webhooks import HANDLED_EVENTS, handle_event
 
 logger = logging.getLogger(__name__)

@@ -11,6 +11,7 @@ import { BOOKINGS_URL } from '../../core/bookings/booking.service';
 import { addDays, toIsoDate, todayLocal } from '../../core/dates';
 import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { PaymentStatus } from '../../core/payments/payment.models';
+import { PAYMENTS_URL } from '../../core/payments/payment.service';
 import { POLL_EVERY_MS, POLL_TIMES, PaymentReturnPage, phaseFor } from './payment-return';
 import { Title } from '@angular/platform-browser';
 
@@ -228,52 +229,49 @@ describe('PaymentReturnPage', () => {
     expect(TestBed.inject(Title).getTitle()).toBe('Η κράτηση επιβεβαιώθηκε · Booking System Demo');
     localStorage.clear();
   });
-});
 
+  describe('test card hint (TICKET-044)', () => {
+    const configReq = (testMode: boolean) =>
+      http.expectOne(`${PAYMENTS_URL}config/`).flush({ enabled: true, test_mode: testMode, hold_minutes: 30, currency: 'eur' });
 
-  it('test mode: isTestMode is false when test_mode is false', async () => {
-    const page = await open('');
-    expect(page.isTestMode()).toBe(false);
+    it('test mode: shown next to Pay now', async () => {
+      await open('?cancelled=1');
+      getReq().flush(booking('pending', 'open'));
+      await settle();
+      configReq(true);
+      await settle();
+      const hint = (harness.routeNativeElement as HTMLElement).querySelector('app-test-card-hint')!;
+      expect(hint.textContent).toContain('Demo payment - use card 4242 4242 4242 4242');
+      expect(hint.nextElementSibling!.textContent).toContain('Pay now €182');
+    });
+
+    it('not shown once there is nothing to pay (paid, cancelled, time ran out)', async () => {
+      await open('?session_id=cs_test_1');
+      getReq().flush(booking('confirmed', 'paid'));
+      await settle();
+      http.expectNone(`${PAYMENTS_URL}config/`); // the hint isn't even created
+      expect(text()).not.toContain('4242');
+    });
+
+    it('no hint with a live key', async () => {
+      await open('?cancelled=1');
+      getReq().flush(booking('pending', 'open'));
+      await settle();
+      configReq(false);
+      await settle();
+      expect(text()).toContain('Pay now €182');
+      expect(text()).not.toContain('4242');
+    });
+
+    it('in Greek', async () => {
+      localStorage.setItem('bsd.lang', 'el');
+      await open('?cancelled=1');
+      getReq().flush(booking('pending', 'open'));
+      await settle();
+      configReq(true);
+      await settle();
+      expect(text()).toContain('Δοκιμαστική πληρωμή - χρησιμοποιήστε την κάρτα 4242 4242 4242 4242');
+      localStorage.clear();
+    });
   });
-
-  it('test mode: isTestMode is true when test_mode is true in payments config', async () => {
-    const page = await open('');
-    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
-    expect(page.isTestMode()).toBe(true);
-  });
-
-  it('test mode: test card hint displays after booking summary when in test mode', async () => {
-    const page = await open('');
-    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
-    getReq().flush(booking('pending', 'open'));
-    await settle();
-    expect(text()).toContain('Test payment - use card 4242 4242 4242 4242');
-    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
-    expect(hint).toBeTruthy();
-  });
-
-  it('test mode: test card hint does not display when not in test mode', async () => {
-    const page = await open('');
-    page.paymentsConfig.set({ enabled: true, test_mode: false, hold_minutes: 30, currency: 'eur' });
-    getReq().flush(booking('pending', 'open'));
-    await settle();
-    expect(text()).not.toContain('Test payment - use card 4242');
-    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
-    expect(hint).toBeFalsy();
-  });
-
-  it('test mode (Greek): test card hint displays in Greek when in test mode', async () => {
-    localStorage.setItem('bsd.lang', 'el');
-    const page = await open('');
-    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
-    getReq().flush(booking('pending', 'open'));
-    await settle();
-    const el = text();
-    expect(el).toContain('Δοκιμαστική πληρωμή');
-    expect(el).toContain('4242 4242 4242 4242');
-    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
-    expect(hint).toBeTruthy();
-    localStorage.clear();
-  });
-});
 });

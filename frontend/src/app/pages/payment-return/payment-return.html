@@ -84,11 +84,8 @@
 
         <app-booking-summary class="summary" [booking]="b" />
 
-        @if (isTestMode()) {
-          <p class="test-hint">
-            <mat-icon>info</mat-icon>
-            <span>{{ 'testMode.testCardHint' | t }}</span>
-          </p>
+        @if (view() === 'unpaid' && b.payment?.can_pay) {
+          <app-test-card-hint class="test-hint" />
         }
 
         <div class="actions">

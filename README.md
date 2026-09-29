@@ -267,7 +267,7 @@ backend/
     admin.py           Read-only Payment / StripeEvent lists (dev-only DB inspection)
     tests.py           Model, settings-check, hold, checkout and webhook tests (Stripe mocked, real signatures)
     migrations/        0001 creates the payments and stripe events tables; 0002 makes the session optional until checkout; 0003 adds the `cancelled` payment status
-    (views.py also serves GET /api/payments/config/ - public: enabled, hold minutes, currency)
+    (views.py also serves GET /api/payments/config/ - public: enabled, test_mode, hold minutes, currency)
   notifications/       Booking emails (TICKET-030) - see "Emails"
     models.py          BookingEmail - the outbox: one row per (booking, kind), status pending/sending/sent/failed/skipped
     outbox.py          enqueue() inside the booking's transaction; send_email() after commit (claim -> send -> record)
@@ -329,6 +329,7 @@ frontend/
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
     shared/favorite-button.ts           The heart: a toggle button (overlay on card photos, or "Save/Saved" in a header) - TICKET-033
+    shared/test-card-hint.ts            "Demo payment - use card 4242…" + copy button, only in Stripe test mode - TICKET-044
     shared/map/                         The map used everywhere (Leaflet + softened OpenStreetMap, price tags, clusters, areas, pop-ups), lazy-loaded - TICKET-034
     core/favorites/                     FavoriteService: save/remove, the heart state per place, logged-out -> login -> save - TICKET-033
     core/reviews/                       ReviewService (a property's reviews page by page) + review models - TICKET-032
@@ -4542,33 +4543,64 @@ Optional settings (defaults shown): `STRIPE_CHECKOUT_HOLD_MINUTES=30`
 `STRIPE_WEBHOOK_SECRET` (Render only - locally the `stripe-cli` service
 provides it through `STRIPE_WEBHOOK_SECRET_FILE`).
 
-### Test mode detection (TICKET-044)
+### Test-card hint (TICKET-044)
 
-When the backend is in test mode (i.e., `STRIPE_SECRET_KEY` starts with 
-`sk_test_` or `rk_test_`), the system detects this and displays helpful 
-hints to demo visitors:
+So a visitor trying the hosted demo knows which card to type on Stripe's
+page without reading this README. The hint is shown **only in Stripe test
+mode** and disappears by itself with a live key, so it can never reach a
+real guest.
 
-**Frontend:**
-- The payment config endpoint (`GET /api/payments/config/`) includes a 
-  `test_mode: boolean` flag, which the Angular app uses to detect test mode.
-- When test mode is active, the booking form shows a **Test card hint** on 
-  Step 2 (review) telling guests which card to use: 
-  > "Test payment - use card 4242 4242 4242 4242, any future expiry date, any CVC"
-- The payment return page also displays the test card hint after the booking 
-  summary, so guests have the card number visible when they're paying.
-- Hints are **bilingual** (English/Greek) - guests see the message in their 
-  chosen language.
+**How test mode is decided (server).** `payments/stripe_client.py`
+`is_test_mode()` is true only when payments are on **and**
+`STRIPE_SECRET_KEY` starts with `sk_test_` or `rk_test_`. A live key
+(`sk_live_` / `rk_live_`), no key, or `PAYMENTS_ENABLED=False` → false.
+Only the yes/no leaves the server, as `test_mode` in
+`GET /api/payments/config/` - never the key.
 
-**Backend:**
-- `is_test_mode()` function in `payments/stripe_client.py` detects test keys.
-- `payments_config()` view endpoint returns the flag to the frontend.
-- Stripe Checkout sessions also include the test card hint in the custom text 
-  area (`custom_text.submit.message`), so it appears on Stripe's hosted 
-  payment page too.
+**Where the guest sees it.**
 
-This means demo visitors don't need to check the README—they see the test 
-card number where they need it: on the booking form, the payment return page, 
-and Stripe's own payment page.
+| Place | When | What |
+| --- | --- | --- |
+| Booking form, step 2 | Under "You'll pay … on Stripe's payment page" | "Demo payment - use card **4242 4242 4242 4242**, any future expiry date, any CVC." + a copy button |
+| Payment page after "Payment not completed" | Only while the booking can still be paid, right above **Pay now** (not on paid / cancelled / timed-out pages) | the same |
+| Stripe's own payment page | Above Stripe's Pay button (Checkout `custom_text.submit.message`) | the same sentence, in the page's language |
+
+- The app's hint is one shared component, `shared/test-card-hint.ts`
+  (`<app-test-card-hint />`). It reads the (cached) payments config
+  itself, so the page only decides *where* it goes; the component
+  decides *whether* it shows. A failed config load → no hint.
+- **Copy button:** copies the bare number `4242424242424242` (Angular CDK
+  `Clipboard`), the icon turns into a ✓ for 2 s, and screen readers hear
+  "Card number copied" (a polite live region). The button's label is
+  "Copy card number"; the info icon is `aria-hidden`.
+- **Both languages:** `testCard.hint` / `copy` / `copied` in `en.json` and
+  `el.json`; on Stripe's page the Greek or English sentence follows the
+  page's language (`TEST_CARD_HINTS` in `payments/services.py`).
+- **Stripe's page and the fixed request:** `custom_text` depends only on
+  the server's key (fixed per deployment), not on the request, so the
+  checkout request is still fully fixed by its idempotency key - a retry
+  sends Stripe exactly the same request (tested).
+- **Decisions (29 Sep):** only the success card (no "More test cards"
+  toggle with the decline / 3-D Secure cards - keeps the demo simple);
+  the hint is also shown on Stripe's own page, since that's where the card
+  is typed.
+
+**Tests.** Backend: `TestModeTests` (test / restricted-test / live /
+restricted-live / missing / `None` key, payments off, prefix only at the
+start), `PaymentsConfigTests` (`test_mode` true with the test key, false
+with a live key and when off, the key never in the response),
+`CheckoutTestCardHintTests` (English and Greek message on Stripe's page,
+no `custom_text` with a live key, a retry sends the identical request).
+Frontend: `shared/test-card-hint.spec.ts` (shown / hidden / failed
+config, bold number, copy + "copied" + reset, failed copy, Greek), and
+placement tests in `booking.spec.ts` (under the payment policy, not with a
+live key, Greek) and `payment-return.spec.ts` (next to Pay now, not once
+paid, not with a live key, Greek).
+
+**Checked in headless Chrome** against the real API with a test key, at
+1280 and 390 px: the hint under the payment policy in step 2 and above
+Pay now on the "not completed" page, English and Greek, the copy button
+announces "Card number copied", no sideways scroll.
 
 ### Safety checks at startup (`payments/checks.py`)
 
@@ -4820,7 +4852,9 @@ guest could then **pay for a cancelled booking**. So `PATCH
 
 ### `GET /api/payments/config/`
 
-Public, no login: `{"enabled": true, "hold_minutes": 30, "currency": "eur"}`.
+Public, no login: `{"enabled": true, "test_mode": true, "hold_minutes": 30, "currency": "eur"}`.
+`test_mode` (TICKET-044) is true only with payments on and a Stripe test
+key; it switches the test-card hint on (see "Test-card hint").
 The booking form uses it only for **wording before a booking exists**
 ("Confirm and pay", "held for 30 minutes"). What actually happens after
 booking is decided by the booking's own `payment` block, so a stale or
@@ -5120,9 +5154,10 @@ service arrives with the Docker step.)*
 | --- | --- | --- | --- | --- | --- |
 | CFG-01 | With no `STRIPE_SECRET_KEY`, payments are **off** and booking works exactly as before | Empty the key, restart, book | `GET /api/payments/config/` → `enabled: false`; booking `payment: null`; form says "Confirm booking"; "Waiting for the host to confirm" | `HoldAtBookingTests.test_payments_off_means_no_hold`, `PaymentsConfigTests.test_off_and_public`, booking.spec "classic confirmation screen" | |
 | CFG-02 | Wrong or dangerous keys stop the app at startup | Put `sk_live_…` / `pk_…` / `whsec_…` in `STRIPE_SECRET_KEY`; `manage.py check` | errors `payments.E002` / `E001` / `E003`; a hold outside 30-1440 min → `E004`; full `sk_test_` key → warning `W001`; no webhook secret → warning `W002` | `StripeSettingsCheckTests` | |
-| CFG-03 | The config endpoint is public and never exposes a key | `GET /api/payments/config/` logged out | `{"enabled", "hold_minutes", "currency"}` only | `PaymentsConfigTests` | |
+| CFG-03 | The config endpoint is public and never exposes a key | `GET /api/payments/config/` logged out | `{"enabled", "test_mode", "hold_minutes", "currency"}` only | `PaymentsConfigTests` | |
 | CFG-04 | Guests always pay in **euros** (Adaptive Pricing off), so the checked amount is exact | Inspect the Stripe request | `adaptive_pricing.enabled = false`; currency `eur` | `CheckoutEndpointTests.test_creates_session_with_exact_request` | |
 | CFG-05 | **We are the seller**: Managed Payments (Stripe as merchant of record - digital products only, stays aren't eligible, +3.5% fee, adds tax) is always off for our sessions, whatever the account default | Inspect the Stripe request; pay with 4242 | `managed_payments.enabled = false`; the charged total equals the booking price | `CheckoutEndpointTests.test_creates_session_with_exact_request` | ✓ |
+| CFG-06 | The test-card hint shows **only in test mode** (TICKET-044) | Test key vs `sk_live_…` / payments off; open step 2, the "not completed" page and Stripe's page | test key: "Demo payment - use card 4242…" in all three places (both languages); live key / off: `test_mode: false`, no hint, no `custom_text` | `TestModeTests`, `PaymentsConfigTests`, `CheckoutTestCardHintTests`, test-card-hint.spec | |
 
 ### 2. Booking and the 30-minute hold
 
@@ -7294,8 +7329,11 @@ recruiters the **hosted link** to try afterwards.
 - [x] TICKET-038 (English / Greek) is done - checked locally and on
       Render (29 Sep). To show it: the **EN / ΕΛ** pill in the toolbar; a
       first visit is always English.
-- [ ] TICKET-044 (test-card hint) and TICKET-045 (admin closed dates)
-      are done
+- [x] TICKET-044 (test-card hint) is done (29 Sep). To show it: in
+      step 2 of a booking, "Demo payment - use card 4242 4242 4242 4242…"
+      with a copy button - the same line is on Stripe's page. It only
+      appears with a Stripe test key.
+- [ ] TICKET-045 (admin closed dates) is done
 - [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -7658,9 +7696,11 @@ messages in Greek"; step 7 (Stripe's payment page in the app's language:
 `locale` plus a Greek line item, the language in the idempotency key, "Pay
 now" keeps the page's language) is done; see "Two languages → Stripe's
 payment page"; step 8 (the final check in both languages, locally and on
-Render, in Chrome) is done; see "Two languages → Final check". Next,
-before the meetup: TICKET-044 (a test-card hint shown only in Stripe test
-mode) and TICKET-045 (the admin closes dates of a property); then
+Render, in Chrome) is done; see "Two languages → Final check". TICKET-044
+(the test-card hint: "Demo payment - use card 4242…" with a copy button in
+step 2, above Pay now and on Stripe's own page, only with a Stripe test
+key) is done; see "Payments → Test-card hint". Next, before the meetup:
+TICKET-045 (the admin closes dates of a property); then
 TICKET-039 (final redeploy + smoke test); a suggestion for later, not
 planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see
 TICKETS.md); after the

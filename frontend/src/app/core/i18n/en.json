@@ -914,8 +914,9 @@
     "shownDone": "Review shown again.",
     "changeFailed": "Couldn't change this review."
   },
-  "testMode": {
-    "testCardHint": "Test payment - use card 4242 4242 4242 4242, any future expiry date, any CVC",
-    "testModeLabel": "Test mode"
+  "testCard": {
+    "hint": "Demo payment - use card <strong>4242 4242 4242 4242</strong>, any future expiry date, any CVC.",
+    "copy": "Copy card number",
+    "copied": "Card number copied"
   }
 }

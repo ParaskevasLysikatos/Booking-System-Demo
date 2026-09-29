@@ -181,7 +181,7 @@ describe('BookingFormPage with online payments', () => {
     await harness.fixture.whenStable();
   }
 
-  async function ready(enabled = true): Promise<BookingFormPage> {
+  async function ready(enabled = true, testMode = false): Promise<BookingFormPage> {
     localStorage.clear();
     redirectTo = vi.fn();
     TestBed.configureTestingModule({
@@ -195,7 +195,7 @@ describe('BookingFormPage with online payments', () => {
     http = TestBed.inject(HttpTestingController);
     harness = await RouterTestingHarness.create();
     const page = await harness.navigateByUrl(`/booking/5?check_in=${day(10)}&check_out=${day(12)}&guests=2`, BookingFormPage);
-    http.expectOne(`${PAYMENTS_URL}config/`).flush({ enabled, hold_minutes: 30, currency: 'eur' });
+    http.expectOne(`${PAYMENTS_URL}config/`).flush({ enabled, test_mode: testMode, hold_minutes: 30, currency: 'eur' });
     http.expectOne((r) => r.url === `${PROPERTIES_URL}5/` && !r.params.has('check_in')).flush(property());
     await settle();
     http.expectOne((r) => r.url === `${PROPERTIES_URL}5/` && r.params.has('check_in'))
@@ -289,52 +289,30 @@ describe('BookingFormPage with online payments', () => {
     const bold = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('.policy strong')].map((b) => b.textContent!.replace(/[\u00a0\u202f]/g, ' '));
     expect(bold).toEqual([expect.stringMatching(/^[Α-Ωά-ώ]{3} \d+ [Α-Ωά-ώ]{3}, 15:00$/), '182 €']);
   });
-});
 
-
-  it('test mode: isTestMode is false when test_mode is false', async () => {
-    const page = await ready();
-    expect(page.isTestMode()).toBe(false);
-  });
-
-  it('test mode: isTestMode is true when test_mode is true in payments config', async () => {
-    const page = await ready();
-    // Mock the paymentsConfig to include test_mode: true
-    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
-    expect(page.isTestMode()).toBe(true);
-  });
-
-  it('test mode: test card hint displays in Step 2 when in test mode', async () => {
-    const page = await ready();
-    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
+  it('test mode (TICKET-044): step 2 shows the test card right under the payment policy', async () => {
+    const page = await ready(true, true);
     page.stepper()!.next();
     await settle();
-    expect(text()).toContain('Test payment - use card 4242 4242 4242 4242');
-    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
-    expect(hint).toBeTruthy();
+    const root = harness.routeNativeElement as HTMLElement;
+    const hint = root.querySelector('app-test-card-hint')!;
+    expect(hint.textContent).toContain('Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC.');
+    expect(hint.previousElementSibling!.textContent).toContain("You'll pay €182 securely on Stripe's payment page");
+    expect(hint.querySelector('button[aria-label="Copy card number"]')).toBeTruthy();
   });
 
-  it('test mode: test card hint does not display when not in test mode', async () => {
-    const page = await ready();
-    page.paymentsConfig.set({ enabled: true, test_mode: false, hold_minutes: 30, currency: 'eur' });
+  it('no test card with a live key', async () => {
+    const page = await ready(true, false);
     page.stepper()!.next();
     await settle();
-    expect(text()).not.toContain('Test payment - use card 4242');
-    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
-    expect(hint).toBeFalsy();
+    expect(text()).not.toContain('4242');
   });
 
-  it('test mode (Greek): test card hint displays in Greek when in test mode', async () => {
-    const page = await ready();
+  it('test mode in Greek (TICKET-044)', async () => {
+    const page = await ready(true, true);
     TestBed.inject(TranslationService).setLang('el');
-    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
     page.stepper()!.next();
     await settle();
-    const el = text();
-    expect(el).toContain('Δοκιμαστική πληρωμή');
-    expect(el).toContain('4242 4242 4242 4242');
-    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
-    expect(hint).toBeTruthy();
+    expect(text()).toContain('Δοκιμαστική πληρωμή - χρησιμοποιήστε την κάρτα 4242 4242 4242 4242');
   });
-});
 });
