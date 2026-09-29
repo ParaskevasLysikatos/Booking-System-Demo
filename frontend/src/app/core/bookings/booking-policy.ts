@@ -1,3 +1,5 @@
+import { formatDate, formatTime } from '../i18n/format';
+
 /**
  * Booking rules the UI needs *before* a booking exists. These mirror the
  * backend settings (backend/config/settings.py): BOOKING_CHECK_IN_TIME and
@@ -17,9 +19,7 @@ export function cancelDeadline(checkIn: Date): Date {
   return new Date(checkInMoment(checkIn).getTime() - GUEST_CANCELLATION_HOURS * 3_600_000);
 }
 
-/** "Wed 28 Oct, 15:00" */
+/** "Wed 28 Oct, 15:00" / "Τετ 28 Οκτ, 15:00" */
 export function formatDeadline(date: Date): string {
-  const day = date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  return `${day}, ${time}`;
+  return `${formatDate(date, 'weekdayDayMonth')}, ${formatTime(date)}`;
 }

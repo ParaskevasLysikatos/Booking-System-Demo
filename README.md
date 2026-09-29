@@ -98,7 +98,9 @@ dictionaries (`en.json` / `el.json`), a small `TranslationService` and a `t`
 pipe. Tab titles, Material's own texts (paginator, date pickers, stepper)
 and the date pickers' month/day names follow the language, and every API
 call says `Accept-Language`. The toolbar is translated; the pages come in
-steps 3-5. See "Two languages (English / Greek, TICKET-038)".
+steps 3-5. Step 2 is done - every date, time, price, rating and percentage
+follows the language ("Τετ 10 Μαρ 2027", "1.234,50 €", "4,7", "12,5%"). See
+"Two languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -286,7 +288,7 @@ frontend/
     core/api-health.service.ts          Wraps the /api/health/ call (used by the footer status dot)
     core/server-wake.ts                 ServerWakeService + interceptor: notices when the sleeping API is slow to answer
     core/api-errors.ts                  DRF error response -> per-field + general messages for forms
-    core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting
+    core/dates.ts / core/money.ts       Local YYYY-MM-DD helpers (no UTC shift); euro price formatting in the chosen language
     core/properties/                    PropertyService (active-only list + get(id, dates)), params builder, models,
                                         availability.ts (BookedNights: [check_in, check_out) rules),
                                         stay-rules.ts (shared stay validation messages + picker date filter)
@@ -305,7 +307,8 @@ frontend/
     core/i18n/                          English / Greek (TICKET-038): en.json + el.json (the texts), TranslationService
                                         (language signal, t(), remembered in localStorage), the `t` pipe, PageTitle (translated
                                         tab titles), languageInterceptor (Accept-Language), per-page Material texts
-                                        (provideLocalizedDatepicker / providePaginatorI18n / provideStepperI18n)
+                                        (provideLocalizedDatepicker / providePaginatorI18n / provideStepperI18n),
+                                        locale.ts (the language signal) + format.ts (dates, times, numbers, % per language)
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
     shared/star-rating.ts               Read-only ★★★★½ stars (one labelled image for screen readers) - TICKET-032
@@ -6157,7 +6160,7 @@ build or site.
 1. The foundation: dictionaries, `TranslationService`, the `t` pipe, the
    switch, tab titles, Material's texts, `Accept-Language` - **done**.
 2. Dates and money in the chosen language (`el-GR`: "Τετ 10 Μαρ 2027",
-   "364,00 €").
+   "364,00 €") - **done**.
 3. Guest pages, part 1 (listings, property page, booking form, login,
    register, ...).
 4. Guest pages, part 2 (My bookings, dialogs, Saved, payment screens,
@@ -6207,6 +6210,69 @@ build or site.
 - **The switch** (`layout/toolbar/`): a small two-option pill, "EN" and
   "ΕΛ" (each labelled with its language's own name for screen readers,
   `aria-pressed` on the chosen one), always visible - on phones too.
+
+### Dates and money (step 2)
+
+Every date, time, price, rating and percentage in the app now follows the
+language:
+
+| What | English | Greek |
+|---|---|---|
+| Stay dates (booking, My bookings, summary) | Wed, 10 Mar 2027 | Τετ 10 Μαρ 2027 |
+| "Booked on", reviews list, refund dates | 10 Mar 2027 | 10 Μαρ 2027 |
+| Cancel deadline | Wed 28 Oct, 15:00 | Τετ 28 Οκτ, 15:00 |
+| Payment hold ("until 14:32") | 14:32 | 14:32 (24-hour, not "02:32 μ.μ.") |
+| Calendar month titles, review months | March 2027 | Μάρτιος 2027 |
+| Prices | €91, €1,234.50 | 91 €, 1.234,50 € |
+| Ratings | 4.7 | 4,7 |
+| Occupancy, point changes | 12.5%, ▲ 2.5 pts | 12,5%, ▲ 2,5 pts |
+| Dashboard ranges | 15 Aug – 14 Sep 2026 | 15 Αυγ – 14 Σεπ 2026 |
+| Revenue chart axis | €1.5k | 1,5k € |
+
+How it works:
+
+- **`core/i18n/locale.ts`** holds the chosen language as a module-level
+  signal. `TranslationService` owns it (reads the saved choice, switches
+  it), but plain helper functions can read it too, without being
+  injectable. Anything that calls them from a template or a `computed()`
+  follows a switch by itself - no reload, no extra code per page.
+- **`core/i18n/format.ts`**:
+  - `formatDate(value, style)` with named styles (`full`, `medium`,
+    `dayMonth`, `weekdayDayMonth`, `monthYear`, `month`, `monthShort`,
+    `day`, `time`)
+  - `formatTime`, `formatNumber(value, decimals)`, `formatPercent(rate,
+    decimals)`
+  - The API's `YYYY-MM-DD` values are read as local dates, so they never
+    shift a day in Greece's UTC+2/+3. An unreadable value gives `''`
+    instead of "Invalid Date".
+  - Formatters are built once per language and style, then reused.
+- **`core/money.ts:formatPrice`** keeps `en-IE` for English (unchanged:
+  "€1,234.50") and uses `el-GR` for Greek ("1.234,50 €").
+- **Times are 24-hour in both languages.** `el-GR` would otherwise say
+  "03:05 μ.μ.", so the `time` style sets `hourCycle: 'h23'`.
+- **Month names:** in Greek, `month` alone is the genitive ("Αυγούστου"),
+  which fits "έναντι Αυγούστου" ("vs August") on the dashboard. `monthYear`
+  is the nominative ("Αύγουστος 2026").
+- **The revenue chart's axis** stays short in Greek ("1,5k €", not Intl's
+  "1,5 χιλ. €"), so it still fits a phone.
+- **Not changed on purpose:** map coordinates (always `40.632500`) and the
+  price sent to the API (`91.50`) keep a dot - they are data, not display.
+
+The words around these values ("for 4 nights", "vs", "pts") are still
+English. They are translated with their pages in steps 3-5.
+
+Tests (10 new, **453 frontend tests**):
+- `format.spec.ts`: every date style in both languages; local `YYYY-MM-DD`
+  vs timestamps; invalid → `''`; 24-hour times; money, numbers and
+  percentages; the cancel deadline; dashboard ranges, month names and
+  point changes; the chart's axis and bucket titles.
+- `property-card.spec.ts`: price, stay total and rating switch to "91,50 €",
+  "366 €" and "4,5" at once.
+- `availability-calendar.spec.ts`: the month titles become "Φεβρουάριος
+  2027", "Μάρτιος 2027" without re-creating the calendar.
+
+The 443 existing tests pass unchanged, so English output is the same as
+before. The initial bundle is 610 kB (+0.1 kB).
 
 ### Material's own texts, per page
 
@@ -7094,9 +7160,11 @@ foundation: `en.json` / `el.json`, `TranslationService`, the `t` pipe, the
 EN / ΕΛ switch remembered per browser, translated tab titles, Material's
 paginator / date picker / stepper texts and a date adapter that follow the
 language, `Accept-Language` on API calls, the toolbar in Greek) is done;
-see "Two languages (English / Greek, TICKET-038)". Next: step 2 (dates and
-money in the chosen language), then the pages (steps 3-5), the backend in
-Greek (step 6), Stripe's page language (step 7) and the final check (step
-8); then TICKET-039 (final redeploy + smoke test); after the
+see "Two languages (English / Greek, TICKET-038)"; step 2 (every date,
+time, price, rating and percentage in the chosen language, through
+`core/i18n/format.ts` and `formatPrice`, which read the language signal) is
+done; see "Two languages → Dates and money". Next: the pages (steps 3-5),
+the backend in Greek (step 6), Stripe's page language (step 7) and the
+final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").

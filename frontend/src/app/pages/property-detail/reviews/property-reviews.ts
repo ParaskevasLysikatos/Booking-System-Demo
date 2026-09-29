@@ -8,6 +8,8 @@ import { BehaviorSubject, catchError, combineLatest, distinctUntilChanged, map, 
 import { RatingSummary, Review, ReviewPage } from '../../../core/reviews/review.models';
 import { ReviewService } from '../../../core/reviews/review.service';
 import { StarRatingComponent } from '../../../shared/star-rating';
+import { formatDate } from '../../../core/i18n/format';
+import { formatNumber } from '../../../core/i18n/format';
 
 type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ok'; page: ReviewPage };
 
@@ -27,6 +29,8 @@ type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ok'; p
   styleUrl: './property-reviews.scss',
 })
 export class PropertyReviewsComponent {
+  /** In the chosen language (TICKET-038). */
+  protected readonly formatNumber = formatNumber;
   private readonly reviewsApi = inject(ReviewService);
 
   readonly propertyId = input.required<number>();
@@ -103,7 +107,7 @@ export class PropertyReviewsComponent {
 
   /** "September 2026" - reviews show the month, like most booking sites. */
   month(iso: string): string {
-    return new Date(iso).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    return formatDate(iso, 'monthYear');
   }
 
   initial(name: string): string {

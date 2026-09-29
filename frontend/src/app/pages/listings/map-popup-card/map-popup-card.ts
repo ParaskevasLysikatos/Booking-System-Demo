@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { formatPrice } from '../../../core/money';
 import { MapPin } from '../../../core/properties/property.models';
 import { FavoriteButtonComponent } from '../../../shared/favorite-button';
+import { formatNumber } from '../../../core/i18n/format';
 
 /**
  * The card that opens when a price tag on the listings map is clicked
@@ -30,7 +31,7 @@ import { FavoriteButtonComponent } from '../../../shared/favorite-button';
           <span class="title">{{ pin().title }}</span>
           <span class="rating" [attr.aria-label]="pin().rating_avg ? pin().rating_avg + ' out of 5' : 'No reviews yet'">
             @if (pin().rating_avg; as avg) {
-              <mat-icon aria-hidden="true">star</mat-icon>{{ avg.toFixed(1) }}
+              <mat-icon aria-hidden="true">star</mat-icon>{{ formatNumber(avg, 1) }}
               <span class="muted">({{ pin().review_count }})</span>
             } @else {
               <span class="new">New</span>
@@ -68,6 +69,8 @@ import { FavoriteButtonComponent } from '../../../shared/favorite-button';
   `,
 })
 export class MapPopupCardComponent {
+  /** In the chosen language (TICKET-038). */
+  protected readonly formatNumber = formatNumber;
   readonly pin = input.required<MapPin>();
   /** Nights of the searched stay, if dates were picked. */
   readonly nights = input<number | null>(null);

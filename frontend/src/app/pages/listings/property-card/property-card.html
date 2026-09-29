@@ -41,7 +41,7 @@
       <h3 class="title">{{ property().title }}</h3>
       <span class="rating" [attr.aria-label]="property().rating_avg ? property().rating_avg + ' out of 5' : 'No reviews yet'">
         @if (property().rating_avg; as avg) {
-          <mat-icon>star</mat-icon> {{ avg.toFixed(1) }} <span class="muted">({{ property().review_count }})</span>
+          <mat-icon>star</mat-icon> {{ formatNumber(avg, 1) }} <span class="muted">({{ property().review_count }})</span>
         } @else {
           <span class="new">New</span>
         }

@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import { PropertyStats } from '../../../core/admin/admin-stats.models';
 import { formatPrice } from '../../../core/money';
+import { formatPercent } from '../../../core/i18n/format';
 
 /** Per-property table under the dashboard cards: nights, occupancy meter, revenue, expected. */
 @Component({
@@ -83,6 +84,6 @@ export class PropertyBreakdownComponent {
   }
 
   pct(rate: number | null): string {
-    return rate === null ? '–' : `${(rate * 100).toFixed(rate * 100 >= 10 || rate === 0 ? 0 : 1)}%`;
+    return rate === null ? '–' : formatPercent(rate, rate * 100 >= 10 || rate === 0 ? 0 : 1);
   }
 }

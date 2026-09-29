@@ -31,6 +31,7 @@ import { formatPrice } from '../../../core/money';
 import { PropertyBreakdownComponent } from './property-breakdown';
 import { RevenueChartComponent } from './revenue-chart';
 import { provideLocalizedDatepicker } from '../../../core/i18n/datepicker-i18n';
+import { formatPercent } from '../../../core/i18n/format';
 
 type DashState =
   | { status: 'loading' }
@@ -74,7 +75,7 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
     revenue: formatPrice(cur.revenue.confirmed),
     revenueExpected: expected > 0 ? formatPrice(expected) : null,
     revenueDelta: prev ? percentDelta(Number(cur.revenue.confirmed), Number(prev.revenue.confirmed)) : null,
-    occupancyPct: rate === null ? '–' : `${(rate * 100).toFixed(1)}%`,
+    occupancyPct: rate === null ? '–' : formatPercent(rate, 1),
     occupancyWidth: (rate ?? 0) * 100,
     occupancyDetail:
       `${cur.occupancy.booked_nights} of ${cur.occupancy.available_nights} nights booked · ` +

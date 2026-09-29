@@ -27,6 +27,7 @@ import { ReviewDialog, ReviewDialogData } from '../../shared/review-dialog';
 import { StarRatingComponent } from '../../shared/star-rating';
 import { CancelBookingDialog } from './cancel-dialog';
 import { providePaginatorI18n } from '../../core/i18n/paginator-i18n';
+import { formatDate } from '../../core/i18n/format';
 
 export type BookingsTab = 'upcoming' | 'past' | 'cancelled';
 
@@ -218,11 +219,11 @@ export class MyBookingsPage {
   // --- display helpers ----------------------------------------------------
 
   date(iso: string): string {
-    return parseIsoDate(iso)!.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'full');
   }
 
   bookedOn(iso: string): string {
-    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'medium');
   }
 
   deadline(iso: string): string {

@@ -28,6 +28,7 @@ import { clockTime } from '../../../core/payments/countdown';
 import { paymentLabel, refundView } from '../../../core/payments/payment-labels';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
+import { formatDate } from '../../../core/i18n/format';
 
 export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled';
 
@@ -257,7 +258,7 @@ export class AdminBookingsPage {
   }
 
   date(iso: string, year = false): string {
-    return parseIsoDate(iso)!.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}) });
+    return formatDate(iso, year ? 'medium' : 'dayMonth');
   }
 
   range(b: Booking): string {
@@ -265,7 +266,7 @@ export class AdminBookingsPage {
   }
 
   bookedOn(iso: string): string {
-    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'medium');
   }
 
   isOngoing(b: Booking): boolean {

@@ -21,6 +21,7 @@ import { DEFAULT_PAGE_SIZE, Paginated } from '../../../core/properties/property.
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 import { StarRatingComponent } from '../../../shared/star-rating';
 import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
+import { formatDate } from '../../../core/i18n/format';
 
 export interface AdminReviewsUrlQuery {
   visibility: ReviewVisibility;
@@ -198,7 +199,7 @@ export class AdminReviewsPage {
   }
 
   date(iso: string): string {
-    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'medium');
   }
 
   private toApi(q: AdminReviewsUrlQuery): AdminReviewQuery {

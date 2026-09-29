@@ -30,6 +30,7 @@ import { PaymentService } from '../../core/payments/payment.service';
 import { BookingSummary } from '../../shared/booking-summary';
 import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
 import { provideStepperI18n } from '../../core/i18n/stepper-i18n';
+import { formatDate } from '../../core/i18n/format';
 
 type LoadStatus = 'loading' | 'ok' | 'unavailable' | 'error';
 export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'error';
@@ -318,7 +319,6 @@ export class BookingFormPage {
 
   formatPrice = formatPrice;
   dateText(iso: string | Date): string {
-    const d = typeof iso === 'string' ? parseIsoDate(iso)! : iso;
-    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'full');
   }
 }

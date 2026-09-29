@@ -1,5 +1,8 @@
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
+
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 import { BookedNights } from '../../../core/properties/availability';
 import { AvailabilityCalendarComponent, DateSelection } from './availability-calendar';
@@ -56,5 +59,13 @@ describe('AvailabilityCalendarComponent', () => {
     expect(el.textContent).toContain('March 2027');
     cmp.clear();
     expect(emitted.at(-1)).toEqual({ start: null, end: null });
+  });
+  it('month titles follow the language, without re-creating the calendar (TICKET-038)', async () => {
+    localStorage.clear();
+    const { el } = create(d(2), d(3));
+    TestBed.inject(TranslationService).setLang('el');
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect([...el.querySelectorAll('.month h4')].map((h) => h.textContent!.trim())).toEqual(['Φεβρουάριος 2027', 'Μάρτιος 2027']);
+    localStorage.clear();
   });
 });

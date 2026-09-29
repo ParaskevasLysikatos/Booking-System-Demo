@@ -1,6 +1,7 @@
 import { Signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { interval, map } from 'rxjs';
+import { formatTime } from '../i18n/format';
 
 /**
  * The current time as a signal, updated every second - one per page, shared
@@ -28,7 +29,7 @@ export function formatRemaining(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
-/** "14:32" in local time. */
+/** "14:32" in local time (24-hour in both languages). */
 export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return formatTime(iso);
 }

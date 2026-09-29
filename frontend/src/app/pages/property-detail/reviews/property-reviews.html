@@ -20,7 +20,7 @@
       @if (s.review_count && s.rating_avg !== null) {
         <div class="summary">
           <div class="score">
-            <span class="avg">{{ s.rating_avg.toFixed(1) }}</span>
+            <span class="avg">{{ formatNumber(s.rating_avg, 1) }}</span>
             <app-star-rating [rating]="s.rating_avg" [size]="20" />
             <span class="count">{{ s.review_count }} {{ s.review_count === 1 ? 'review' : 'reviews' }}</span>
           </div>

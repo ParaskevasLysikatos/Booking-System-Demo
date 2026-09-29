@@ -1,9 +1,11 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { FAVORITES_URL } from '../../../core/favorites/favorite.service';
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 import { PropertySummary } from '../../../core/properties/property.models';
 import { amenityLabel } from '../../../core/amenities';
@@ -107,5 +109,16 @@ describe('PropertyCardComponent', () => {
       expect(req.request.method).toBe('DELETE');
       req.flush(null, { status: 204, statusText: 'No Content' });
     });
+  });
+  it('price, stay total and rating switch to Greek formats at once (TICKET-038)', async () => {
+    localStorage.clear();
+    const el = render({ price_per_night: '91.50' }, 4);
+    TestBed.inject(TranslationService).setLang('el');
+    await TestBed.inject(ApplicationRef).whenStable();
+    const plain = (s: string) => s.replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ').trim();
+    expect(plain(el.querySelector('.price')!.textContent!)).toContain('91,50 €');
+    expect(plain(el.textContent!)).toContain('366 €');
+    expect(plain(el.querySelector('.rating')!.textContent!)).toContain('4,5 (2)');
+    localStorage.clear();
   });
 });

@@ -1,9 +1,13 @@
 import { DOCUMENT } from '@angular/common';
-import { Injectable, computed, inject, isDevMode, signal } from '@angular/core';
+import { Injectable, OnDestroy, Signal, computed, inject, isDevMode } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 
 import el from './el.json';
 import en from './en.json';
+import { DEFAULT_LANG, LOCALES, Lang, currentLang, setCurrentLang } from './locale';
+
+export { DEFAULT_LANG, LOCALES } from './locale';
+export type { Lang } from './locale';
 
 /**
  * Two-language support (TICKET-038): English and Greek, switched at runtime
@@ -20,8 +24,6 @@ import en from './en.json';
  * - plurals: a key whose value is `{ "one": "...", "other": "..." }` picks the
  *   form with `Intl.PluralRules` for the `count` param (`{count} nights`).
  */
-export type Lang = 'en' | 'el';
-
 /** The toggle's order. */
 export const LANGUAGES: readonly Lang[] = ['en', 'el'];
 
@@ -29,11 +31,7 @@ export const LANGUAGES: readonly Lang[] = ['en', 'el'];
 export const LANGUAGE_SHORT: Record<Lang, string> = { en: 'EN', el: 'ΕΛ' };
 export const LANGUAGE_NAMES: Record<Lang, string> = { en: 'English', el: 'Ελληνικά' };
 
-/** The `Intl` locale for dates and numbers in each language. */
-export const LOCALES: Record<Lang, string> = { en: 'en-GB', el: 'el-GR' };
-
-/** First visit: always English (decision for TICKET-038); the toggle's choice is remembered. */
-export const DEFAULT_LANG: Lang = 'en';
+/** First visit: always English (`DEFAULT_LANG`, decision for TICKET-038); the toggle's choice is remembered. */
 export const LANG_STORAGE_KEY = 'bsd.lang';
 
 export type TParams = Record<string, string | number>;
@@ -94,15 +92,18 @@ function storeLang(lang: Lang): void {
 }
 
 @Injectable({ providedIn: 'root' })
-export class TranslationService {
+export class TranslationService implements OnDestroy {
   private readonly document = inject(DOCUMENT);
-  private readonly current = signal<Lang>(readStoredLang() ?? DEFAULT_LANG);
   private readonly changes$ = new Subject<Lang>();
 
-  /** The chosen language. Templates and `computed()`s that read it follow a switch. */
-  readonly lang = this.current.asReadonly();
-  /** `Intl` locale for dates and money: `en-GB` / `el-GR`. */
-  readonly locale = computed(() => LOCALES[this.current()]);
+  /**
+   * The chosen language. Templates and `computed()`s that read it follow a
+   * switch. (The signal itself lives in `locale.ts`, so plain formatting
+   * helpers can read it too.)
+   */
+  readonly lang: Signal<Lang> = computed(() => currentLang());
+  /** `Intl` locale for dates and numbers: `en-GB` / `el-GR`. */
+  readonly locale = computed(() => LOCALES[currentLang()]);
   /**
    * Emits after every switch - for code outside the signal world (Material's
    * intl classes, the date adapter, the page title).
@@ -110,12 +111,18 @@ export class TranslationService {
   readonly changes: Observable<Lang> = this.changes$.asObservable();
 
   constructor() {
-    this.document.documentElement.lang = this.current();
+    setCurrentLang(readStoredLang() ?? DEFAULT_LANG);
+    this.document.documentElement.lang = currentLang();
+  }
+
+  /** Only happens in tests (a new TestBed): the next one starts from English again. */
+  ngOnDestroy(): void {
+    setCurrentLang(DEFAULT_LANG);
   }
 
   setLang(lang: Lang): void {
-    if (lang === this.current()) return;
-    this.current.set(lang);
+    if (lang === currentLang()) return;
+    setCurrentLang(lang);
     storeLang(lang);
     this.document.documentElement.lang = lang;
     this.changes$.next(lang);
@@ -128,7 +135,7 @@ export class TranslationService {
    * re-runs on a switch.
    */
   t(key: string, params?: TParams): string {
-    const lang = this.current();
+    const lang = currentLang();
     const text = resolve(DICTIONARIES[lang], key, LOCALES[lang], params) ?? resolve(DICTIONARIES.en, key, LOCALES.en, params);
     if (text !== undefined) return text;
     if (isDevMode()) console.warn(`[i18n] missing text for "${key}"`);

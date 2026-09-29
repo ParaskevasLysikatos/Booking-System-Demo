@@ -5,6 +5,8 @@
  */
 import { addDays, nightsBetween, parseIsoDate } from '../dates';
 import { formatPrice } from '../money';
+import { formatDate, formatNumber } from '../i18n/format';
+import { currentLang } from '../i18n/locale';
 import { RevenueBucket, RevenueSeries, SeriesGranularity } from './admin-stats.models';
 
 // --- y axis -------------------------------------------------------------
@@ -25,15 +27,21 @@ export function niceTicks(max: number, target = 5): number[] {
   return ticks;
 }
 
-/** Axis money: €0, €80, €500, €1.5k, €12k, €1.2M - short enough for a narrow axis. */
+/**
+ * Axis money, short enough for a narrow axis: €0, €80, €500, €1.5k, €12k,
+ * €1.2M - in Greek 0 €, 1,5k €, 1,2M € (decimal comma, € after; kept to "k"/"M"
+ * rather than Intl's "1,5 χιλ. €", which is too wide for a phone's axis).
+ */
 export function compactEuro(value: number): string {
-  if (value >= 1_000_000) return `€${trim(value / 1_000_000)}M`;
-  if (value >= 1_000) return `€${trim(value / 1_000)}k`;
-  return `€${trim(value)}`;
+  const [n, unit] = value >= 1_000_000 ? [value / 1_000_000, 'M'] : value >= 1_000 ? [value / 1_000, 'k'] : [value, ''];
+  const amount = `${trim(n)}${unit}`;
+  return currentLang() === 'el' ? `${amount} €` : `€${amount}`;
 }
 
+/** At most one decimal, in the chosen language: 1.5 -> "1.5" / "1,5"; 2 -> "2". */
 function trim(v: number): string {
-  return String(Math.round(v * 10) / 10);
+  const rounded = Math.round(v * 10) / 10;
+  return formatNumber(rounded, Number.isInteger(rounded) ? 0 : 1).replace(/\s/g, '');
 }
 
 function round2(v: number): number {
@@ -42,11 +50,9 @@ function round2(v: number): number {
 
 // --- labels -------------------------------------------------------------
 
-const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }); // "6 Oct"
-const DAY_YEAR = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const WEEKDAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-const MONTH = new Intl.DateTimeFormat('en-GB', { month: 'short' }); // "Oct"
-const MONTH_YEAR = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' });
+// Dates in the chosen language (TICKET-038): core/i18n/format.ts styles
+// dayMonth "6 Oct", medium "6 Oct 2026", full "Tue, 6 Oct 2026",
+// monthShort "Oct", monthYear "October 2026".
 
 export const GRANULARITY_TEXT: Record<SeriesGranularity, string> = { day: 'By day', week: 'By week', month: 'By month' };
 
@@ -58,14 +64,14 @@ export const GRANULARITY_TEXT: Record<SeriesGranularity, string> = { day: 'By da
 export function bucketTitle(b: RevenueBucket, granularity: SeriesGranularity): string {
   const from = parseIsoDate(b.from)!;
   const to = parseIsoDate(b.to)!;
-  if (granularity === 'day') return WEEKDAY.format(from);
+  if (granularity === 'day') return formatDate(from, 'full');
   const full = granularity === 'week' ? b.nights === 7 : from.getDate() === 1 && addDays(to, 1).getDate() === 1;
-  if (granularity === 'month' && full) return MONTH_YEAR.format(from);
+  if (granularity === 'month' && full) return formatDate(from, 'monthYear');
   const sameMonth = from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear();
   const range =
     b.from === b.to
-      ? DAY_YEAR.format(from)
-      : `${sameMonth ? from.getDate() : DAY.format(from)} – ${DAY_YEAR.format(to)}`;
+      ? formatDate(from, 'medium')
+      : `${sameMonth ? from.getDate() : formatDate(from, 'dayMonth')} – ${formatDate(to, 'medium')}`;
   return full ? range : `${range} (partial ${granularity})`;
 }
 
@@ -80,10 +86,10 @@ export function axisLabel(b: RevenueBucket, prev: RevenueBucket | null, granular
   const before = prev ? parseIsoDate(prev.from)! : null;
   if (granularity === 'month') {
     const newYear = !before || before.getFullYear() !== from.getFullYear();
-    return { text: MONTH.format(from), sub: newYear ? String(from.getFullYear()) : null };
+    return { text: formatDate(from, 'monthShort'), sub: newYear ? String(from.getFullYear()) : null };
   }
   const newMonth = !before || before.getMonth() !== from.getMonth();
-  return { text: String(from.getDate()), sub: newMonth ? MONTH.format(from) : null };
+  return { text: String(from.getDate()), sub: newMonth ? formatDate(from, 'monthShort') : null };
 }
 
 // --- geometry -----------------------------------------------------------

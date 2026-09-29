@@ -9,6 +9,7 @@ import { FavoriteService } from '../../../core/favorites/favorite.service';
 import { formatPrice } from '../../../core/money';
 import { PropertySummary } from '../../../core/properties/property.models';
 import { FavoriteButtonComponent } from '../../../shared/favorite-button';
+import { formatNumber } from '../../../core/i18n/format';
 
 @Component({
   selector: 'app-property-card',
@@ -17,6 +18,8 @@ import { FavoriteButtonComponent } from '../../../shared/favorite-button';
   styleUrl: './property-card.scss',
 })
 export class PropertyCardComponent {
+  /** In the chosen language (TICKET-038). */
+  protected readonly formatNumber = formatNumber;
   readonly property = input.required<PropertySummary>();
   /** Nights of the searched stay, if dates were picked - shows the stay total. */
   readonly nights = input<number | null>(null);

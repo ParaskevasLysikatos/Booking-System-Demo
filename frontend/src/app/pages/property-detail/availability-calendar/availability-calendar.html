@@ -22,7 +22,7 @@
     <!-- Re-created on every month change (tracked by month), so startAt always applies. -->
     @for (m of months(); track m.getTime(); let second = $index) {
       <div class="month" [class.second]="second === 1">
-        <h4>{{ m.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) }}</h4>
+        <h4>{{ formatDate(m, 'monthYear') }}</h4>
         <mat-calendar
           [headerComponent]="header"
           [startAt]="m"

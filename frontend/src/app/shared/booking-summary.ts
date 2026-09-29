@@ -3,8 +3,8 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { formatDeadline, GUEST_CANCELLATION_HOURS } from '../core/bookings/booking-policy';
 import { Booking } from '../core/bookings/booking.models';
-import { parseIsoDate } from '../core/dates';
 import { formatPrice } from '../core/money';
+import { formatDate } from '../core/i18n/format';
 
 /**
  * The booking summary card shown after booking - on the booking form's
@@ -66,6 +66,6 @@ export class BookingSummary {
   readonly deadline = computed(() => formatDeadline(new Date(this.booking().cancel_deadline)));
 
   date(iso: string): string {
-    return parseIsoDate(iso)!.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'full');
   }
 }

@@ -1,4 +1,5 @@
 import { addDays, nightsBetween, parseIsoDate, todayLocal, toIsoDate } from '../dates';
+import { formatDate, formatNumber } from '../i18n/format';
 
 /** Dashboard period presets (TICKET-023). */
 export type PeriodPreset = 'this-month' | 'last-month' | 'next-month' | 'next-30' | 'last-12' | 'custom';
@@ -60,7 +61,7 @@ export function previousPeriod(from: Date, to: Date): { from: Date; to: Date; la
   if (wholeMonth(from, to)) {
     const prevFrom = monthStart(from.getFullYear(), from.getMonth() - 1);
     const prevTo = monthEnd(prevFrom.getFullYear(), prevFrom.getMonth());
-    return { from: prevFrom, to: prevTo, label: `vs ${prevFrom.toLocaleDateString('en-GB', { month: 'long' })}` };
+    return { from: prevFrom, to: prevTo, label: `vs ${formatDate(prevFrom, 'month')}` };
   }
   const days = periodLength(from, to);
   const prevTo = addDays(from, -1);
@@ -89,8 +90,8 @@ export function periodQueryParams(p: Period): Record<string, string | null> {
 export function formatRange(from: Date, to: Date): string {
   const sameYear = from.getFullYear() === to.getFullYear();
   const sameMonth = sameYear && from.getMonth() === to.getMonth();
-  const end = to.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  const start = from.toLocaleDateString('en-GB', sameMonth ? { day: 'numeric' } : sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+  const end = formatDate(to, 'medium');
+  const start = formatDate(from, sameMonth ? 'day' : sameYear ? 'dayMonth' : 'medium');
   return `${start} – ${end}`;
 }
 
@@ -120,5 +121,5 @@ export function pointsDelta(current: number | null, previous: number | null): De
   const pts = (current - previous) * 100;
   if (Math.abs(pts) < 0.05) return { text: 'No change', good: null, direction: 'flat' };
   const up = pts > 0;
-  return { text: `${up ? '▲' : '▼'} ${Math.abs(pts).toFixed(1)} pts`, good: up, direction: up ? 'up' : 'down' };
+  return { text: `${up ? '▲' : '▼'} ${formatNumber(Math.abs(pts), 1)} pts`, good: up, direction: up ? 'up' : 'down' };
 }

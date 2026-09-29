@@ -5,6 +5,7 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { BookedNights } from '../../../core/properties/availability';
 import { stayDateFilter } from '../../../core/properties/stay-rules';
+import { formatDate } from '../../../core/i18n/format';
 
 export interface DateSelection {
   start: Date | null;
@@ -31,6 +32,8 @@ const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth()
   styleUrl: './availability-calendar.scss',
 })
 export class AvailabilityCalendarComponent {
+  /** In the chosen language (TICKET-038). */
+  protected readonly formatDate = formatDate;
   readonly booked = input.required<BookedNights>();
   readonly start = input<Date | null>(null);
   readonly end = input<Date | null>(null);

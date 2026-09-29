@@ -22,6 +22,7 @@ import { formatPrice } from '../../../core/money';
 import { Paginated, PropertyOrdering, PropertySummary } from '../../../core/properties/property.models';
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
+import { formatNumber } from '../../../core/i18n/format';
 
 export interface AdminListQuery {
   status: PropertyStatusFilter;
@@ -160,7 +161,7 @@ export class AdminPropertyListPage {
   }
 
   rating(p: PropertySummary): string {
-    return p.rating_avg ? `★ ${p.rating_avg.toFixed(1)} (${p.review_count})` : 'New';
+    return p.rating_avg ? `★ ${formatNumber(p.rating_avg, 1)} (${p.review_count})` : 'New';
   }
 
   private run(p: PropertySummary, request: Observable<unknown>, success: string): void {

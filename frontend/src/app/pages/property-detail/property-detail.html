@@ -43,7 +43,7 @@
             @if (headerRating().avg; as avg) {
               @let count = headerRating().count;
               <a class="rating-link" href="#reviews" (click)="goToReviews($event)">
-                <mat-icon class="star">star</mat-icon>{{ avg.toFixed(1) }} · {{ count }} {{ count === 1 ? 'review' : 'reviews' }}
+                <mat-icon class="star">star</mat-icon>{{ formatNumber(avg, 1) }} · {{ count }} {{ count === 1 ? 'review' : 'reviews' }}
               </a>
             } @else {
               <span class="new">New</span>

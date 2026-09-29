@@ -1,5 +1,6 @@
 import { Booking } from '../bookings/booking.models';
 import { formatPrice } from '../money';
+import { formatDate } from '../i18n/format';
 
 export type PaymentTone = 'ok' | 'wait' | 'bad' | 'muted';
 
@@ -88,5 +89,5 @@ export function refundDue(b: Booking): boolean {
 }
 
 function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDate(iso, 'medium');
 }

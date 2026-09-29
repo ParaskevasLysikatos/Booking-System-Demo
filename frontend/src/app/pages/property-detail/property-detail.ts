@@ -42,6 +42,7 @@ import { GalleryComponent } from './gallery/gallery';
 import { PropertyLocationComponent } from './location/property-location';
 import { PropertyReviewsComponent } from './reviews/property-reviews';
 import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
+import { formatNumber } from '../../core/i18n/format';
 
 type DetailState =
   | { status: 'loading' }
@@ -74,6 +75,8 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
   styleUrl: './property-detail.scss',
 })
 export class PropertyDetailPage {
+  /** In the chosen language (TICKET-038). */
+  protected readonly formatNumber = formatNumber;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly properties = inject(PropertyService);

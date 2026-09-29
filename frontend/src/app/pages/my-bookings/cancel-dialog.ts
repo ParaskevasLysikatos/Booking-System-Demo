@@ -4,8 +4,8 @@ import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 
 import { Booking } from '../../core/bookings/booking.models';
-import { parseIsoDate } from '../../core/dates';
 import { formatPrice } from '../../core/money';
+import { formatDate } from '../../core/i18n/format';
 
 /** "Cancel your stay at …?" - closes with `true` to cancel, anything else keeps it. */
 @Component({
@@ -43,10 +43,15 @@ import { formatPrice } from '../../core/money';
 })
 export class CancelBookingDialog {
   readonly b = inject<Booking>(MAT_DIALOG_DATA);
-  readonly total = formatPrice(this.b.total_price);
-  readonly paid = formatPrice(this.b.payment?.amount ?? this.b.total_price);
+  // Getters, not fields: formatPrice follows the language (TICKET-038).
+  get total(): string {
+    return formatPrice(this.b.total_price);
+  }
+  get paid(): string {
+    return formatPrice(this.b.payment?.amount ?? this.b.total_price);
+  }
 
   date(iso: string): string {
-    return parseIsoDate(iso)!.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDate(iso, 'medium');
   }
 }
