@@ -6285,6 +6285,21 @@ Simple on purpose, so they're easy to type at the meetup table:
   or triggers a token refresh. Styles in `pages/auth-page.scss`
   (`.demo-logins`, wraps on phones). 10 Vitest tests (`login.spec.ts`,
   `auth.service.spec.ts`).
+- **Final check (29 Sep):**
+  - **Local** (after `seed_demo_data --clear`, output above): the old
+    browser session of a deleted `guest_*` account ended by itself
+    ("Your session expired"); the box showed both logins; **Guest** +
+    Log in → `guest1@demo.com` with upcoming/pending bookings, one "Leave
+    a review" and six rated stays under Past, and a Saved page with the
+    retired place; **Admin** + Log in → the admin dashboard with the new
+    data; Django Admin (`/admin/`) accepted `admin` / `admin123`.
+  - **Render:** the one-off re-seed ran on the first deploy after step 2
+    (new property ids, S3 seed photos, 4-5 reviews each) and not again on
+    the next four; `/api/auth/demo-logins/` lists both logins (so the
+    server itself confirmed the passwords); the hosted login page shows
+    the box and each button fills the right values; at phone widths
+    (375/320 px) the logins wrap under their buttons without overflow.
+  - Tests: backend 492, frontend 414, production build OK.
 - **Before TICKET-041** the seeder made `guest_<n>_<fakename>@example.com`
   / `DemoPass123!` guests and an `admin_demo` / `AdminPass123!` admin.
   `--clear` removes those too, so re-seeding never leaves both sets behind.
@@ -6567,12 +6582,15 @@ recruiters the **hosted link** to try afterwards.
 
 ### Before leaving home
 
-- [ ] TICKET-041 (simple demo logins) and TICKET-039 (final redeploy +
-      smoke test) are done
+- [x] TICKET-041 (simple demo logins) is done - locally re-seeded and
+      live on Render (29 Sep)
+- [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
       The footer dot is green ("API & database connected"). Log in once as
-      the admin and once as a guest.
+      the admin and once as a guest - the login page's **Demo logins** box
+      fills either one in a click (`admin@demo.com` / `admin123`,
+      `guest1@demo.com` ... `guest10@demo.com` / `guest123`).
 - [ ] The QR code is ready: `docs/booking-demo-qr.png`, on your phone or
       printed. It opens https://booking-demo-g4aw.onrender.com.
 
@@ -6897,9 +6915,15 @@ with `manage.py upload_seed_photos` and picked by property type; 4-8
 reviews per property backed by ended, confirmed stays (~25% stars only),
 plus one unreviewed recent stay per guest; TICKET-042's short "Placed at
 …" labels; see "Seed photos in S3", "Seeding demo data" and "Demo data:
-final check (TICKET-037)". The hosted (Render) database still has its
-picsum photos and old reviews until the one-off re-seed in TICKET-041.
-Next: TICKET-041 (simple demo logins + that re-seed), TICKET-038 (English
-/ Greek), then TICKET-039 (final redeploy + smoke test); after the
+final check (TICKET-037)". **TICKET-041 (simple demo logins) is done:**
+`admin@demo.com` / `admin123` and `guest1@demo.com` ... `guest10@demo.com`
+/ `guest123`, kept in `backend/core/demo_accounts.py`; `--clear` also
+removes the old-style accounts; a self-limiting one-off re-seed
+(`--replace-old-demo` in `build.sh`) replaced the hosted data once, with
+the S3 seed photos and the new reviews; `GET /api/auth/demo-logins/` feeds
+a "Demo logins" box on the login page that fills the form in one click;
+see "Seeding demo data → Demo logins" and "Deploying to Render → One-off
+re-seed". Next: TICKET-038 (English / Greek), then TICKET-039 (final
+redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").
