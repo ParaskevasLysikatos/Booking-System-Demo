@@ -796,6 +796,13 @@ test, always last).
     - The editor is also a **validator** (`uploading`), so the form can't be saved mid-upload ("Wait for the photo uploads to finish, then save."); a failed photo doesn't block saving.
     - 28 new tests (4 resize maths, 11 service incl. form field order / no Authorization / abort, 13 editor incl. a real reactive form); **403 frontend tests** pass; production build clean, initial bundle unchanged (601 kB / 147 kB).
     - README: new "Admin properties → Photo uploads (TICKET-036 step 2)"; layout, status and next steps updated.
+  - Step 3 code done (`c6d8358`):
+    - `uploads/signals.py`: `post_delete` on `PropertyImage` (form replacing the photo set, Django Admin row or property delete) → after commit, delete the S3 object only if it's **our own upload** (`key_from_url`: exact `property-images/YYYY/MM/<32 hex>.<ext>` under the configured base; pasted/stock/other-bucket URLs never touched) and **no row still uses the URL** (kept photos are re-created in the same transaction; a URL shared with another property stays). Rolled-back saves delete nothing; retiring keeps photos; failures only logged (3 s/5 s timeouts, 2 attempts).
+    - Not covered on purpose: photos uploaded in a form that's then discarded stay unused in the bucket (a clean-up would need `s3:ListBucket`).
+    - `render.yaml`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `AWS_S3_REGION` (`sync: false` - add by hand on the existing service).
+    - README: new "Photo uploads: setting up S3" (region, Block Public Access policy options, public-read bucket policy for `property-images/*`, CORS for localhost:4200 + the Render site, inline IAM policy `s3:PutObject` + `s3:DeleteObject` on `property-images/*` only, access key, `.env`, Render, troubleshooting table); "Removed photos are deleted from S3"; status and next steps.
+    - 12 new tests (S3 client mocked); **436 backend tests** pass on Postgres.
+  - Remaining: the owner sets up the IAM user / bucket policy / CORS and adds the four values to `.env` and Render → final check with the real bucket (local + Render) → done.
 
 - [ ] **TICKET-042** — Shorter "Placed at …" labels in the admin Find on map
   - Priority: P2 · Depends on: TICKET-034 · Small; can be folded into TICKET-037 (UI polish pass)
