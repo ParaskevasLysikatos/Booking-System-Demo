@@ -24,6 +24,15 @@ def payments_enabled():
     return bool(settings.PAYMENTS_ENABLED and settings.STRIPE_SECRET_KEY)
 
 
+def is_test_mode():
+    """Returns True if the Stripe key is a test key (starts with sk_test_ or rk_test_).
+    False if it's a live key or payments are disabled."""
+    if not settings.STRIPE_SECRET_KEY:
+        return False
+    key = settings.STRIPE_SECRET_KEY
+    return key.startswith("sk_test_") or key.startswith("rk_test_")
+
+
 def get_client() -> stripe.StripeClient:
     if not payments_enabled():
         raise PaymentsDisabled()

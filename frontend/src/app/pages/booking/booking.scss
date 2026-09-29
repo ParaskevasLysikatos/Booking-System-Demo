@@ -78,6 +78,20 @@ dd { margin: 0; text-align: right; }
 
 .note { margin: 8px 0 0; font-size: 12px; color: var(--mat-sys-on-surface-variant); }
 
+.test-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  margin: 16px 0;
+  border-radius: 4px;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  font-size: 13px;
+  line-height: 1.4;
+  mat-icon { font-size: 18px; width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+}
+
 .pill {
   padding: 1px 8px;
   border-radius: 999px;

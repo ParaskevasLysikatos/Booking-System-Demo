@@ -290,3 +290,51 @@ describe('BookingFormPage with online payments', () => {
     expect(bold).toEqual([expect.stringMatching(/^[Α-Ωά-ώ]{3} \d+ [Α-Ωά-ώ]{3}, 15:00$/), '182 €']);
   });
 });
+
+
+  it('test mode: isTestMode is false when test_mode is false', async () => {
+    const page = await ready();
+    expect(page.isTestMode()).toBe(false);
+  });
+
+  it('test mode: isTestMode is true when test_mode is true in payments config', async () => {
+    const page = await ready();
+    // Mock the paymentsConfig to include test_mode: true
+    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
+    expect(page.isTestMode()).toBe(true);
+  });
+
+  it('test mode: test card hint displays in Step 2 when in test mode', async () => {
+    const page = await ready();
+    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
+    page.stepper()!.next();
+    await settle();
+    expect(text()).toContain('Test payment - use card 4242 4242 4242 4242');
+    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
+    expect(hint).toBeTruthy();
+  });
+
+  it('test mode: test card hint does not display when not in test mode', async () => {
+    const page = await ready();
+    page.paymentsConfig.set({ enabled: true, test_mode: false, hold_minutes: 30, currency: 'eur' });
+    page.stepper()!.next();
+    await settle();
+    expect(text()).not.toContain('Test payment - use card 4242');
+    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
+    expect(hint).toBeFalsy();
+  });
+
+  it('test mode (Greek): test card hint displays in Greek when in test mode', async () => {
+    const page = await ready();
+    TestBed.inject(TranslationService).setLang('el');
+    page.paymentsConfig.set({ enabled: true, test_mode: true, hold_minutes: 30, currency: 'eur' });
+    page.stepper()!.next();
+    await settle();
+    const el = text();
+    expect(el).toContain('Δοκιμαστική πληρωμή');
+    expect(el).toContain('4242 4242 4242 4242');
+    const hint = (harness.routeNativeElement as HTMLElement).querySelector('.test-hint');
+    expect(hint).toBeTruthy();
+  });
+});
+});

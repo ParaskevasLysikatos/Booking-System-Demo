@@ -4542,6 +4542,34 @@ Optional settings (defaults shown): `STRIPE_CHECKOUT_HOLD_MINUTES=30`
 `STRIPE_WEBHOOK_SECRET` (Render only - locally the `stripe-cli` service
 provides it through `STRIPE_WEBHOOK_SECRET_FILE`).
 
+### Test mode detection (TICKET-044)
+
+When the backend is in test mode (i.e., `STRIPE_SECRET_KEY` starts with 
+`sk_test_` or `rk_test_`), the system detects this and displays helpful 
+hints to demo visitors:
+
+**Frontend:**
+- The payment config endpoint (`GET /api/payments/config/`) includes a 
+  `test_mode: boolean` flag, which the Angular app uses to detect test mode.
+- When test mode is active, the booking form shows a **Test card hint** on 
+  Step 2 (review) telling guests which card to use: 
+  > "Test payment - use card 4242 4242 4242 4242, any future expiry date, any CVC"
+- The payment return page also displays the test card hint after the booking 
+  summary, so guests have the card number visible when they're paying.
+- Hints are **bilingual** (English/Greek) - guests see the message in their 
+  chosen language.
+
+**Backend:**
+- `is_test_mode()` function in `payments/stripe_client.py` detects test keys.
+- `payments_config()` view endpoint returns the flag to the frontend.
+- Stripe Checkout sessions also include the test card hint in the custom text 
+  area (`custom_text.submit.message`), so it appears on Stripe's hosted 
+  payment page too.
+
+This means demo visitors don't need to check the README—they see the test 
+card number where they need it: on the booking form, the payment return page, 
+and Stripe's own payment page.
+
 ### Safety checks at startup (`payments/checks.py`)
 
 Django system checks run on `manage.py check`, `runserver` and `migrate` -

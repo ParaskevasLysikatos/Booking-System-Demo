@@ -34,6 +34,7 @@ export interface PaymentSummary {
 /** GET /api/payments/config/ - public, no secrets. */
 export interface PaymentsConfig {
   enabled: boolean;
+  test_mode: boolean;
   hold_minutes: number;
   currency: string;
 }
@@ -44,4 +45,4 @@ export interface CheckoutResponse {
   expires_at: string;
 }
 
-export const PAYMENTS_OFF: PaymentsConfig = { enabled: false, hold_minutes: 30, currency: 'eur' };
+export const PAYMENTS_OFF: PaymentsConfig = { enabled: false, test_mode: false, hold_minutes: 30, currency: 'eur' };

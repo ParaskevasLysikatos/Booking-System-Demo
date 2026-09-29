@@ -1479,3 +1479,61 @@ class SyncRefundsCommandTests(PaidBookingFixtures, APITestCase):
         out, err = self.run_command()
         self.assertIn("1 problem(s)", out)
         self.assertIn("couldn't ask Stripe", err)
+
+
+class StripeClientTests(SimpleTestCase):
+    """Tests for stripe_client module functions (TICKET-044)."""
+
+    def test_payments_disabled_when_no_key(self):
+        """payments_enabled() returns False when STRIPE_SECRET_KEY is not set."""
+        with override_settings(PAYMENTS_ENABLED=True, STRIPE_SECRET_KEY=""):
+            from .stripe_client import payments_enabled
+            self.assertFalse(payments_enabled())
+
+    def test_payments_disabled_when_feature_off(self):
+        """payments_enabled() returns False when PAYMENTS_ENABLED is False."""
+        with override_settings(PAYMENTS_ENABLED=False, STRIPE_SECRET_KEY="sk_test_123"):
+            from .stripe_client import payments_enabled
+            self.assertFalse(payments_enabled())
+
+    def test_payments_enabled_with_test_key(self):
+        """payments_enabled() returns True when both PAYMENTS_ENABLED and STRIPE_SECRET_KEY are set."""
+        with override_settings(PAYMENTS_ENABLED=True, STRIPE_SECRET_KEY="sk_test_123"):
+            from .stripe_client import payments_enabled
+            self.assertTrue(payments_enabled())
+
+    def test_is_test_mode_with_sk_test_key(self):
+        """is_test_mode() returns True for sk_test_ prefixed keys."""
+        with override_settings(STRIPE_SECRET_KEY="sk_test_1234567890abcdef"):
+            from .stripe_client import is_test_mode
+            self.assertTrue(is_test_mode())
+
+    def test_is_test_mode_with_rk_test_key(self):
+        """is_test_mode() returns True for rk_test_ prefixed keys (restricted keys)."""
+        with override_settings(STRIPE_SECRET_KEY="rk_test_1234567890abcdef"):
+            from .stripe_client import is_test_mode
+            self.assertTrue(is_test_mode())
+
+    def test_is_test_mode_with_live_key(self):
+        """is_test_mode() returns False for live keys (sk_live_ or rk_live_)."""
+        with override_settings(STRIPE_SECRET_KEY="sk_live_1234567890abcdef"):
+            from .stripe_client import is_test_mode
+            self.assertFalse(is_test_mode())
+
+    def test_is_test_mode_with_live_restricted_key(self):
+        """is_test_mode() returns False for live restricted keys (rk_live_)."""
+        with override_settings(STRIPE_SECRET_KEY="rk_live_1234567890abcdef"):
+            from .stripe_client import is_test_mode
+            self.assertFalse(is_test_mode())
+
+    def test_is_test_mode_with_no_key(self):
+        """is_test_mode() returns False when STRIPE_SECRET_KEY is not set."""
+        with override_settings(STRIPE_SECRET_KEY=""):
+            from .stripe_client import is_test_mode
+            self.assertFalse(is_test_mode())
+
+    def test_is_test_mode_with_none_key(self):
+        """is_test_mode() returns False when STRIPE_SECRET_KEY is None."""
+        with override_settings(STRIPE_SECRET_KEY=None):
+            from .stripe_client import is_test_mode
+            self.assertFalse(is_test_mode())

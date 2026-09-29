@@ -136,6 +136,12 @@
                   <p class="note" [innerHTML]="'booking.pendingNote' | t"></p>
                 }
               }
+              @if (isTestMode()) {
+                <p class="test-hint">
+                  <mat-icon>info</mat-icon>
+                  <span>{{ 'testMode.testCardHint' | t }}</span>
+                </p>
+              }
               <div class="step-actions">
                 <button mat-button type="button" matStepperPrevious [disabled]="submitting()">{{ 'booking.back' | t }}</button>
                 <button mat-flat-button type="button" class="confirm" (click)="confirm()" [disabled]="submitting() || !tripReady()">

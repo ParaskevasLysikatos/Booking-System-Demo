@@ -48,7 +48,7 @@ from bookings.models import Booking
 from notifications.outbox import booking_cancelled, reason_for_payment_status
 
 from .models import Payment
-from .stripe_client import PaymentsDisabled, get_client
+from .stripe_client import PaymentsDisabled, get_client, is_test_mode
 from .webhooks import apply_session_state
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,13 @@ CHECKOUT_LOCALES = {"en": "en", "el": "el"}
 # "Τετ 10 Μαρ 2027") - Django's own Greek abbreviations differ ("Μάρ").
 GREEK_WEEKDAYS = ["Δευ", "Τρί", "Τετ", "Πέμ", "Παρ", "Σάβ", "Κυρ"]
 GREEK_MONTHS = ["Ιαν", "Φεβ", "Μαρ", "Απρ", "Μαΐ", "Ιουν", "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ"]
+
+# Test mode payment hints for demo visitors (TICKET-044)
+TEST_CARD_HINTS = {
+    "en": "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC",
+    "el": "Δοκιμαστική πληρωμή - χρησιμοποιήστε κάρτα 4242 4242 4242 4242, οποιαδήποτε μελλοντική ημερομηνία λήξης, οποιοδήποτε CVC",
+}
+
 
 
 def checkout_language():
@@ -182,6 +189,13 @@ def session_params(booking, payment, language="en"):
     }
     if booking.guest.email:
         params["customer_email"] = booking.guest.email
+    # Add test card hint for demo visitors in test mode
+    if is_test_mode():
+        params["custom_text"] = {
+            "submit": {
+                "message": TEST_CARD_HINTS[language],
+            },
+        }
     return params
 
 

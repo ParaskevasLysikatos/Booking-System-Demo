@@ -84,6 +84,13 @@
 
         <app-booking-summary class="summary" [booking]="b" />
 
+        @if (isTestMode()) {
+          <p class="test-hint">
+            <mat-icon>info</mat-icon>
+            <span>{{ 'testMode.testCardHint' | t }}</span>
+          </p>
+        }
+
         <div class="actions">
           @if (view() === 'unpaid' && b.payment?.can_pay) {
             <button mat-flat-button type="button" (click)="payNow()" [disabled]="busy() !== null">

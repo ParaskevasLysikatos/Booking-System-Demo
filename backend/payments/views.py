@@ -8,7 +8,7 @@ from django.conf import settings
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import StripeEvent
-from .stripe_client import payments_enabled, webhook_secret
+from .stripe_client import payments_enabled, webhook_secret, is_test_mode
 from .webhooks import HANDLED_EVENTS, handle_event
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ def payments_config(request):
     exists. No secrets here (the secret key never leaves the server)."""
     return JsonResponse({
         "enabled": payments_enabled(),
+        "test_mode": is_test_mode(),
         "hold_minutes": settings.STRIPE_CHECKOUT_HOLD_MINUTES,
         "currency": settings.PAYMENTS_CURRENCY,
     })

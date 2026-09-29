@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
@@ -69,6 +70,9 @@ export class PaymentReturnPage {
   readonly booking = signal<Booking | null>(null);
   private readonly phase = signal<ReturnPhase>('loading');
   readonly busy = signal<'pay' | 'cancel' | null>(null);
+  
+  readonly paymentsConfig = toSignal(this.payments.config(), { initialValue: null });
+  readonly isTestMode = computed(() => this.paymentsConfig()?.test_mode === true);
   readonly actionError = signal<string | null>(null);
 
   private readonly clock = clockSignal();
