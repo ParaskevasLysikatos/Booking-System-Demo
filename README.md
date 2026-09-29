@@ -541,6 +541,7 @@ All under `/api/auth/` (`backend/accounts/urls.py`):
 | `POST /api/auth/login/` | none | `email`, `password` | `200` - `{access, refresh, user}`; `401` on bad credentials |
 | `POST /api/auth/refresh/` | none | `refresh` | `200` - `{access}` (a fresh access token); `401` if the refresh token is invalid/expired |
 | `GET /api/auth/me/` | Bearer | - | `200` - the current user with their **current** role; `401` without a valid token |
+| `GET /api/auth/demo-logins/` | none | - | `200` - `{logins: [...]}`, the seeded demo logins for the login page's hint (TICKET-041); `[]` without demo data. See "Seeding demo data → Demo logins" |
 
 The `user` object (same shape everywhere, `accounts/serializers.py:UserSerializer`):
 
@@ -6247,6 +6248,31 @@ Simple on purpose, so they're easy to type at the meetup table:
   domain - to change that, set `DEMO_EMAIL_DOMAIN`). The admin's own mail
   keeps going to `BOOKING_ALERT_EMAILS` as before. To see the guest emails
   yourself, sign up with your own address.
+- **`GET /api/auth/demo-logins/`** (public, no auth - a stale token is
+  ignored like on login) serves them to the login page's "Demo logins"
+  box, so the page can never show values the seeder didn't use:
+
+  ```json
+  {"logins": [
+    {"role": "guest", "email": "guest1@demo.com", "password": "guest123",
+     "count": 10, "last_email": "guest10@demo.com"},
+    {"role": "admin", "email": "admin@demo.com", "password": "admin123"}
+  ]}
+  ```
+
+  Only accounts that **exist, are active and still have the seeded
+  password** are listed (the admin must also still be an app admin): a
+  database without demo data - a real deployment - returns `[]` and the
+  login page shows no box, and **changing the demo admin's password in
+  Django Admin hides the admin login** (the way to lock the hosted copy
+  down). The guest entry is the lowest-numbered active demo guest, with
+  how many there are. `check_password()` is deliberately slow (about
+  0.35 s each), so its answer is cached per account and stored password
+  hash (`core/demo_accounts.py:_password_still_works`, Django's default
+  in-memory cache): the first call after a (re)start takes about 0.75 s,
+  later ones about 5 ms, and a changed password gets a new cache key, so
+  it counts at once. The values are public anyway (they're in this README).
+  8 tests in `accounts/tests.py` (`DemoLoginsTests`).
 - **Before TICKET-041** the seeder made `guest_<n>_<fakename>@example.com`
   / `DemoPass123!` guests and an `admin_demo` / `AdminPass123!` admin.
   `--clear` removes those too, so re-seeding never leaves both sets behind.

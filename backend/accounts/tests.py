@@ -238,3 +238,91 @@ class AdminPermissionTests(APITestCase):
             self.assertFalse(perm.has_permission(self._request(method), None))
             self.assertFalse(perm.has_permission(self._request(method, self.guest), None))
             self.assertTrue(perm.has_permission(self._request(method, self.admin), None))
+
+
+class DemoLoginsTests(APITestCase):
+    """TICKET-041: GET /api/auth/demo-logins/ lists the seeded demo logins
+    for the login page - only accounts that exist, are active and still have
+    the seeded password."""
+
+    url = reverse("auth-demo-logins")
+
+    def make_guest(self, number, password="guest123"):
+        email = f"guest{number}@demo.com"
+        return User.objects.create_user(email, email, password)
+
+    def make_admin(self, password="admin123"):
+        return User.objects.create_superuser("admin", "admin@demo.com", password)
+
+    def logins(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        return {login["role"]: login for login in resp.data["logins"]}
+
+    def test_empty_without_demo_accounts(self):
+        User.objects.create_user("maria@example.com", "maria@example.com", STRONG_PASSWORD)
+        self.assertEqual(self.client.get(self.url).data, {"logins": []})
+
+    def test_lists_the_guest_range_and_the_admin(self):
+        for n in (1, 2, 10):
+            self.make_guest(n)
+        self.make_admin()
+        logins = self.logins()
+        self.assertEqual(
+            logins["guest"],
+            {"role": "guest", "email": "guest1@demo.com", "password": "guest123",
+             "count": 3, "last_email": "guest10@demo.com"},  # numeric order, not "guest10" < "guest2"
+        )
+        self.assertEqual(logins["admin"], {"role": "admin", "email": "admin@demo.com", "password": "admin123"})
+        self.assertEqual([l["role"] for l in self.client.get(self.url).data["logins"]], ["guest", "admin"])
+
+    def test_public_even_with_a_stale_token(self):
+        self.make_admin()
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer not-a-real-token")
+        self.assertIn("admin", self.logins())
+
+    def test_a_changed_password_hides_that_login(self):
+        admin = self.make_admin()
+        self.make_guest(1)
+        self.assertIn("admin", self.logins())  # cached as OK...
+        admin.set_password("S3cure-Booking-Pass!")  # ...then locked down in Django Admin
+        admin.save()
+        logins = self.logins()
+        self.assertNotIn("admin", logins)
+        self.assertIn("guest", logins)
+
+    def test_inactive_or_demoted_admin_is_hidden(self):
+        admin = self.make_admin()
+        admin.is_active = False
+        admin.save()
+        self.assertNotIn("admin", self.logins())
+        admin.is_active = True
+        admin.is_superuser = admin.is_staff = False
+        admin.save()
+        admin.profile.role = Profile.Role.GUEST
+        admin.profile.save()
+        self.assertNotIn("admin", self.logins())
+
+    def test_an_owner_superuser_called_admin_is_not_listed(self):
+        User.objects.create_superuser("admin", "owner@gmail.com", "admin123")
+        self.assertEqual(self.logins(), {})
+
+    def test_uses_the_lowest_remaining_guest(self):
+        self.make_guest(2)
+        self.make_guest(3)
+        self.make_guest(1, password="changed-Pass-123")  # guest1 changed its password
+        # guest1 no longer works -> no guest entry at all (the hint would be wrong)
+        self.assertNotIn("guest", self.logins())
+        User.objects.get(username="guest1@demo.com").delete()
+        self.assertEqual(self.logins()["guest"]["email"], "guest2@demo.com")
+        self.assertEqual(self.logins()["guest"]["count"], 2)
+
+    def test_the_listed_logins_really_log_in(self):
+        self.make_guest(1)
+        self.make_admin()
+        for login in self.logins().values():
+            with self.subTest(login["role"]):
+                resp = self.client.post(
+                    reverse("auth-login"), {"email": login["email"], "password": login["password"]}, format="json"
+                )
+                self.assertEqual(resp.status_code, status.HTTP_200_OK)

@@ -1,7 +1,9 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from core.demo_accounts import demo_logins
 from .serializers import (
     EmailTokenObtainPairSerializer,
     RegisterSerializer,
@@ -50,3 +52,17 @@ class MeView(generics.RetrieveAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class DemoLoginsView(APIView):
+    """GET /api/auth/demo-logins/ - the seeded demo logins (TICKET-041) for
+    the login page's "Demo logins" box: {"logins": [{role, email, password,
+    ...}]}. Public on purpose (the values are in the README anyway); only
+    accounts that exist and still have the seeded password are listed, so
+    it's an empty list without demo data. See core/demo_accounts.py."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []  # same reasoning as RegisterView
+
+    def get(self, request):
+        return Response({"logins": demo_logins()})
