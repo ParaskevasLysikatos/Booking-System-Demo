@@ -10,6 +10,8 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { GeocodeService, PRECISION_LABELS } from '../../../core/admin/geocode.service';
 import { MapComponent } from '../../../shared/map/map';
 import { LatLng, MapMarker } from '../../../shared/map/map-markers';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 /** The form control's value: the exact map position, or null while unset. */
 export type MapPosition = LatLng | null;
@@ -41,18 +43,18 @@ type SearchState =
  */
 @Component({
   selector: 'app-location-picker',
-  imports: [MapComponent, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule],
+  imports: [MapComponent, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule, TranslatePipe],
   providers: [{ provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => LocationPickerComponent), multi: true }],
   template: `
     <div class="find">
       <mat-form-field appearance="outline" subscriptSizing="dynamic">
-        <mat-label>Find address</mat-label>
+        <mat-label>{{ 'geocode.find' | t }}</mat-label>
         <!-- A plain value binding, not ngModel: this sits inside the page's reactive form. -->
         <input
           matInput
           [value]="address()"
           (input)="typeAddress($any($event.target).value)"
-          placeholder="e.g. Tsimiski 45, Thessaloniki"
+          [placeholder]="'geocode.placeholder' | t"
           maxlength="200"
           (keydown.enter)="$event.preventDefault(); find()"
           [disabled]="disabled()"
@@ -60,7 +62,7 @@ type SearchState =
       </mat-form-field>
       <button mat-stroked-button type="button" (click)="find()" [disabled]="disabled() || search().status === 'searching' || address().trim().length < 2">
         @if (search().status === 'searching') { <mat-spinner diameter="18" /> } @else { <mat-icon>travel_explore</mat-icon> }
-        Find on map
+        {{ 'geocode.findOnMap' | t }}
       </button>
     </div>
 
@@ -68,18 +70,20 @@ type SearchState =
       @switch (search().status) {
         @case ('found') {
           <mat-icon class="ok">check_circle</mat-icon>
-          <span>Placed at <strong [attr.title]="$any(search()).full">{{ $any(search()).label }}</strong> ({{ $any(search()).precision }}). Drag the pin to fine-tune.</span>
+          <!-- The place name comes from OpenStreetMap: plain text, never [innerHTML]. -->
+          <span>{{ 'geocode.placedBefore' | t }} <strong [attr.title]="$any(search()).full">{{ $any(search()).label }}</strong>{{
+            'geocode.placedAfter' | t: { precision: precisionText($any(search()).precision) } }}</span>
         }
         @case ('none') {
           <mat-icon class="warn">help</mat-icon>
-          <span>No place in Greece matched "{{ $any(search()).query }}". Try a street and town, or click the map.</span>
+          <span>{{ 'geocode.noMatch' | t: { query: $any(search()).query } }}</span>
         }
         @case ('error') {
           <mat-icon class="warn">cloud_off</mat-icon><span>{{ $any(search()).message }}</span>
         }
         @default {
           @if (!value()) {
-            <mat-icon>ads_click</mat-icon><span>Find the address, or click the map to place the pin.</span>
+            <mat-icon>ads_click</mat-icon><span>{{ 'geocode.hint' | t }}</span>
           }
         }
       }
@@ -87,7 +91,7 @@ type SearchState =
 
     <app-map
       class="map"
-      ariaLabel="Map position of this property - click to place the pin, drag it to adjust"
+      [ariaLabel]="'geocode.mapLabel' | t"
       [markers]="markers()"
       [cluster]="false"
       [fitToMarkers]="autoFit()"
@@ -101,7 +105,7 @@ type SearchState =
       @if (value(); as v) {
         <mat-icon>place</mat-icon>{{ v.lat.toFixed(6) }}, {{ v.lng.toFixed(6) }}
       } @else {
-        No position yet.
+        {{ 'geocode.noPosition' | t }}
       }
     </p>
   `,
@@ -122,6 +126,11 @@ type SearchState =
   `,
 })
 export class LocationPickerComponent implements ControlValueAccessor {
+  /** "street" -> "street" / "οδός" (TICKET-038); an unknown precision is shown as the API sent it. */
+  protected precisionText(precision: string): string {
+    return precision in PRECISION_LABELS ? translate(`geocode.precision.${precision}`) : precision;
+  }
+
   /** The form's Location text - pre-fills the address box until the admin types there. */
   readonly locationText = input('');
 
@@ -138,7 +147,7 @@ export class LocationPickerComponent implements ControlValueAccessor {
 
   readonly markers = computed<MapMarker[]>(() => {
     const v = this.value();
-    return v ? [{ id: 'position', lat: v.lat, lng: v.lng, title: 'Map position (drag to move)', draggable: !this.disabled() }] : [];
+    return v ? [{ id: 'position', lat: v.lat, lng: v.lng, title: translate('geocode.pinTitle'), draggable: !this.disabled() }] : [];
   });
 
   private onChange: (v: MapPosition) => void = () => {};
@@ -205,7 +214,7 @@ export class LocationPickerComponent implements ControlValueAccessor {
           status: 'found',
           label: best.short_label || best.label,
           full: best.label,
-          precision: PRECISION_LABELS[best.precision] ?? best.precision,
+          precision: best.precision, // shown with precisionText() in the chosen language
         });
       },
       error: (err: unknown) => this.search.set({ status: 'error', message: searchErrorMessage(err) }),
@@ -215,9 +224,9 @@ export class LocationPickerComponent implements ControlValueAccessor {
 
 function searchErrorMessage(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
-    if (err.status === 429) return 'Too many searches in a row - wait a minute, or click the map instead.';
+    if (err.status === 429) return translate('geocode.err.tooMany');
     if (err.status === 503 && typeof err.error?.detail === 'string') return err.error.detail;
-    if (err.status === 0) return "Can't reach the server - click the map to place the pin instead.";
+    if (err.status === 0) return translate('geocode.err.offline');
   }
-  return "Map search isn't available right now. Try again in a moment, or place the pin on the map.";
+  return translate('geocode.err.unavailable');
 }

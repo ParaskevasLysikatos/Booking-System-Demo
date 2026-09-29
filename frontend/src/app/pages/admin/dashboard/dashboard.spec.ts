@@ -8,6 +8,8 @@ import { AdminStats } from '../../../core/admin/admin-stats.models';
 import { ADMIN_STATS_URL } from '../../../core/admin/admin-stats.service';
 import { DAILY } from '../../../core/admin/revenue-chart.testing';
 import { AdminDashboardPage, buildCards } from './dashboard';
+import { setCurrentLang } from '../../../core/i18n/locale';
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 const stats = (overrides: Partial<AdminStats> = {}): AdminStats => ({
   period: { from: '2026-09-01', to: '2026-09-30', nights: 30 },
@@ -61,6 +63,21 @@ describe('buildCards', () => {
     expect(c.revenueDelta).toBeNull();
     expect(c.revenueExpected).toBeNull();
     expect(c.empty).toBe(true);
+  });
+
+  it('in Greek (TICKET-038): money, %, points and the occupancy line', () => {
+    setCurrentLang('el');
+    try {
+      const prev = stats({ occupancy: { rate: 0.2, booked_nights: 6, pending_nights: 0, available_nights: 30, active_properties: 3 } });
+      const c = buildCards(stats(), prev);
+      const plain = (s: string | null | undefined) => (s ?? '').replace(/[\u00a0\u202f]/g, ' ');
+      expect(plain(c.revenue)).toBe('626,67 €');
+      expect(plain(c.occupancyPct)).toBe('26,7%');
+      expect(c.occupancyDelta?.text).toBe('▲ 6,7 μον.');
+      expect(c.occupancyDetail).toBe('8 από 30 νύχτες κρατημένες · 3 ενεργά καταλύματα');
+    } finally {
+      setCurrentLang('en');
+    }
   });
 });
 
@@ -152,5 +169,26 @@ describe('AdminDashboardPage', () => {
     calls().forEach((c) => c.flush(empty));
     harness.detectChanges();
     expect(text()).toContain('No bookings in this period.');
+  });
+
+  it('in Greek (TICKET-038): presets, cards, chart and table', async () => {
+    await open('/admin/dashboard?period=custom&from=2026-07-10&to=2026-08-08');
+    TestBed.inject(TranslationService).setLang('el');
+    const [current, previous] = calls();
+    current.flush(stats());
+    previous.flush(stats({ revenue: { confirmed: '500.00', pending: '0.00' } }));
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('Πίνακας ελέγχου');
+    expect(el).toContain('10 Ιουλ – 8 Αυγ 2026 · 30 νύχτες');
+    expect(el).toContain('▲ 25% έναντι των προηγούμενων 30 ημερών');
+    expect(el).toContain('Αυτός ο μήνας');
+    expect(el).toContain('+ 300 € αναμενόμενα από κρατήσεις σε αναμονή');
+    expect(el).toContain('5 επιβεβαιωμένες');
+    expect(el).toContain('4 νέες κρατήσεις έγιναν σε αυτή την περίοδο');
+    expect(el).toContain('Έσοδα ανά χρονικό διάστημα');
+    expect(el).toContain('Ανά κατάλυμα · ταξινόμηση κατά έσοδα');
+    expect(el).toContain('GammaΑποσυρμένο');
   });
 });

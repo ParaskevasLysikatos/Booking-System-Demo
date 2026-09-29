@@ -9,6 +9,7 @@ import { PropertyDetail } from '../../../core/properties/property.models';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
 import { MapLoader } from '../../../shared/map/map-loader';
 import { PropertyFormPage, flattenMessages } from './property-form';
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 const detail = (): PropertyDetail => ({
   id: 5, title: 'Harbour Loft', location: 'Chania, Greece', price_per_night: '91.50', capacity: 3,
@@ -148,5 +149,22 @@ describe('PropertyFormPage', () => {
     const page = await open('/admin/properties/999/edit');
     http.expectOne(`${PROPERTIES_URL}999/`).flush({ detail: 'Not found.' }, { status: 404, statusText: 'Not Found' });
     expect(page.status()).toBe('notFound');
+  });
+
+  it('in Greek (TICKET-038): headings and the form\'s own messages', async () => {
+    const page = await open('/admin/properties/new');
+    TestBed.inject(TranslationService).setLang('el');
+    page.save();
+    http.expectNone(PROPERTIES_URL);
+    expect(page.error()).toBe('Διορθώστε τα επισημασμένα πεδία.');
+    expect(page.controlError('title')).toBe('Υποχρεωτικό.');
+    expect(page.controlError('position')).toBe('Ορίστε τη θέση στον χάρτη: βρείτε τη διεύθυνση ή κάντε κλικ στον χάρτη.');
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+    const el = (harness.routeNativeElement as HTMLElement).textContent!;
+    expect(el).toContain('Νέο κατάλυμα');
+    expect(el).toContain('Θέση στον χάρτη');
+    expect(el).toContain('Δημιουργία καταλύματος');
+    expect(el).toContain('Θέα στη θάλασσα'); // the amenities checklist
   });
 });

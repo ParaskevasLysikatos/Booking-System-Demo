@@ -1,5 +1,6 @@
 import { addDays, nightsBetween, parseIsoDate, todayLocal, toIsoDate } from '../dates';
 import { formatDate, formatNumber } from '../i18n/format';
+import { translate } from '../i18n/translation.service';
 
 /** Dashboard period presets (TICKET-023). */
 export type PeriodPreset = 'this-month' | 'last-month' | 'next-month' | 'next-30' | 'last-12' | 'custom';
@@ -13,11 +14,12 @@ export interface Period {
 export const MAX_PERIOD_DAYS = 366; // same limit as the API
 
 export const PRESETS: { key: Exclude<PeriodPreset, 'custom'>; label: string }[] = [
-  { key: 'this-month', label: 'This month' },
-  { key: 'last-month', label: 'Last month' },
-  { key: 'next-month', label: 'Next month' },
-  { key: 'next-30', label: 'Next 30 days' },
-  { key: 'last-12', label: 'Last 12 months' },
+  // `label` is a dictionary key (TICKET-038).
+  { key: 'this-month', label: 'periods.thisMonth' },
+  { key: 'last-month', label: 'periods.lastMonth' },
+  { key: 'next-month', label: 'periods.nextMonth' },
+  { key: 'next-30', label: 'periods.next30' },
+  { key: 'last-12', label: 'periods.last12' },
 ];
 
 const monthStart = (y: number, m: number) => new Date(y, m, 1);
@@ -61,11 +63,11 @@ export function previousPeriod(from: Date, to: Date): { from: Date; to: Date; la
   if (wholeMonth(from, to)) {
     const prevFrom = monthStart(from.getFullYear(), from.getMonth() - 1);
     const prevTo = monthEnd(prevFrom.getFullYear(), prevFrom.getMonth());
-    return { from: prevFrom, to: prevTo, label: `vs ${formatDate(prevFrom, 'month')}` };
+    return { from: prevFrom, to: prevTo, label: translate('periods.vsMonth', { month: formatDate(prevFrom, 'month') }) };
   }
   const days = periodLength(from, to);
   const prevTo = addDays(from, -1);
-  return { from: addDays(prevTo, -(days - 1)), to: prevTo, label: `vs previous ${days} days` };
+  return { from: addDays(prevTo, -(days - 1)), to: prevTo, label: translate('periods.vsPrevious', { days }) };
 }
 
 /** URL <-> period. Bad or missing params fall back to "This month". */
@@ -108,9 +110,9 @@ export interface Delta {
 /** Relative change in % (revenue, bookings, avg rate). `upIsGood` flips for e.g. cancellations. */
 export function percentDelta(current: number, previous: number, upIsGood = true): Delta | null {
   if (previous === 0 && current === 0) return null; // nothing to compare
-  if (previous === 0) return { text: 'New', good: upIsGood, direction: 'new' };
+  if (previous === 0) return { text: translate('periods.new'), good: upIsGood, direction: 'new' };
   const pct = ((current - previous) / previous) * 100;
-  if (Math.abs(pct) < 0.5) return { text: 'No change', good: null, direction: 'flat' };
+  if (Math.abs(pct) < 0.5) return { text: translate('periods.noChange'), good: null, direction: 'flat' };
   const up = pct > 0;
   return { text: `${up ? '▲' : '▼'} ${Math.round(Math.abs(pct))}%`, good: up === upIsGood, direction: up ? 'up' : 'down' };
 }
@@ -119,7 +121,7 @@ export function percentDelta(current: number, previous: number, upIsGood = true)
 export function pointsDelta(current: number | null, previous: number | null): Delta | null {
   if (current === null || previous === null) return null;
   const pts = (current - previous) * 100;
-  if (Math.abs(pts) < 0.05) return { text: 'No change', good: null, direction: 'flat' };
+  if (Math.abs(pts) < 0.05) return { text: translate('periods.noChange'), good: null, direction: 'flat' };
   const up = pts > 0;
-  return { text: `${up ? '▲' : '▼'} ${formatNumber(Math.abs(pts), 1)} pts`, good: up, direction: up ? 'up' : 'down' };
+  return { text: `${up ? '▲' : '▼'} ${translate('periods.pts', { value: formatNumber(Math.abs(pts), 1) })}`, good: up, direction: up ? 'up' : 'down' };
 }

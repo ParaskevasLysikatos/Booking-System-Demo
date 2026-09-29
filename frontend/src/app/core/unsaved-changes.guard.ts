@@ -4,6 +4,7 @@ import { CanDeactivateFn } from '@angular/router';
 import { map } from 'rxjs';
 
 import { ConfirmDialog, ConfirmDialogData } from '../shared/confirm-dialog';
+import { translate } from './i18n/translation.service';
 
 export interface HasUnsavedChanges {
   hasUnsavedChanges(): boolean;
@@ -19,10 +20,10 @@ export const unsavedChangesGuard: CanDeactivateFn<HasUnsavedChanges> = (componen
   return inject(MatDialog)
     .open<ConfirmDialog, ConfirmDialogData, boolean>(ConfirmDialog, {
       data: {
-        title: 'Discard unsaved changes?',
-        message: "You have changes that haven't been saved. If you leave now, they'll be lost.",
-        confirmLabel: 'Discard changes',
-        cancelLabel: 'Keep editing',
+        title: translate('admin.unsaved.title'),
+        message: translate('admin.unsaved.message'),
+        confirmLabel: translate('admin.unsaved.discard'),
+        cancelLabel: translate('admin.unsaved.keep'),
         danger: true,
       },
       width: '440px',

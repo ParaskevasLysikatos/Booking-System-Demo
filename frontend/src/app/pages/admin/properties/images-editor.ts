@@ -23,6 +23,8 @@ import { Subscription } from 'rxjs';
 import { PropertyImageInput } from '../../../core/admin/admin-properties.service';
 import { MAX_PHOTO_SIDE } from '../../../core/admin/image-resize';
 import { PhotoUploadService } from '../../../core/admin/photo-upload.service';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 const URL_PATTERN = /^https?:\/\/\S+$/i;
 
@@ -62,6 +64,7 @@ export interface UploadItem {
     MatInputModule,
     MatProgressBarModule,
     MatTooltipModule,
+    TranslatePipe,
   ],
   providers: [
     { provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => ImagesEditorComponent), multi: true },
@@ -134,11 +137,11 @@ export class ImagesEditorComponent implements ControlValueAccessor, Validator, O
     const value = this.url.value.trim();
     if (!value) return;
     if (!URL_PATTERN.test(value)) {
-      this.addError.set('Enter a full image URL starting with http:// or https://');
+      this.addError.set(translate('photos.err.badUrl'));
       return;
     }
     if (this.images().some((i) => i.image === value)) {
-      this.addError.set('That photo is already in the list.');
+      this.addError.set(translate('photos.err.duplicate'));
       return;
     }
     this.addError.set(null);
@@ -193,7 +196,7 @@ export class ImagesEditorComponent implements ControlValueAccessor, Validator, O
     const photos = list.filter((f) => f.type.startsWith('image/'));
     const skipped = list.filter((f) => !f.type.startsWith('image/'));
     this.addError.set(
-      skipped.length ? `Not a photo, skipped: ${skipped.map((f) => f.name).join(', ')}` : null,
+      skipped.length ? translate('photos.err.skipped', { names: skipped.map((f) => f.name).join(', ') }) : null,
     );
     if (!photos.length) return;
     const items = photos.map(
@@ -252,7 +255,7 @@ export class ImagesEditorComponent implements ControlValueAccessor, Validator, O
       },
       error: (err: unknown) => {
         this.running.delete(item.id);
-        const message = err instanceof Error ? err.message : 'Uploading failed. Try again.';
+        const message = err instanceof Error ? err.message : translate('photos.err.failed');
         this.patch(item.id, { state: 'failed', error: message });
         this.pump();
       },

@@ -10,6 +10,7 @@ import { of } from 'rxjs';
 import { ADMIN_REVIEWS_URL, AdminReview } from '../../../core/admin/admin-reviews.service';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
 import { AdminReviewsPage, parseAdminReviewsQuery } from './admin-reviews';
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 const review = (id: number, overrides: Partial<AdminReview> = {}): AdminReview => ({
   id, property: { id: 5, title: 'Harbour Loft' }, rating: 2, comment: 'Noisy street at night.', author_name: 'Maria K.',
@@ -158,5 +159,19 @@ describe('AdminReviewsPage', () => {
     listReq().flush(page([]));
     await settle();
     expect(text()).toContain('No reviews yet.');
+  });
+
+  it('in Greek (TICKET-038): count, chips, buttons and labels', async () => {
+    await open();
+    TestBed.inject(TranslationService).setLang('el');
+    listReq().flush(page([review(1), review(2, { is_hidden: true, rating: 1, comment: '' })]));
+    await settle();
+    expect(text()).toContain('2 κριτικές');
+    expect(text()).toContain('Χωρίς σχόλιο');
+    const rows = el().querySelectorAll('tr.mat-mdc-row');
+    expect(rows[0].textContent).toContain('Ορατή');
+    expect(rows[0].textContent).toContain('Απόκρυψη');
+    expect(rows[1].textContent).toContain('Κρυφή');
+    expect(el().querySelector('[aria-label="1 στα 5 αστέρια"]')).toBeTruthy();
   });
 });

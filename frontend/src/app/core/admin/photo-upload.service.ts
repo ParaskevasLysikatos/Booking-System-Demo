@@ -5,6 +5,7 @@ import { Observable, catchError, defer, filter, from, map, of, shareReplay, swit
 import { environment } from '../../../environments/environment';
 import { parseApiErrors } from '../api-errors';
 import { ImageResizer, UnreadablePhotoError } from './image-resize';
+import { translate } from '../i18n/translation.service';
 
 export const UPLOADS_CONFIG_URL = `${environment.apiUrl}/admin/uploads/config/`;
 export const UPLOADS_PRESIGN_URL = `${environment.apiUrl}/admin/uploads/presign/`;
@@ -60,7 +61,7 @@ export class PhotoUploadService {
 
   upload(file: File): Observable<UploadProgress> {
     if (file.size > MAX_ORIGINAL_BYTES) {
-      return throwError(() => new Error('This photo is too large to process (over 40 MB).'));
+      return throwError(() => new Error(translate('photos.err.tooLargeToProcess')));
     }
     return defer(() => from(this.resizer.resize(file))).pipe(
       switchMap((photo) =>
@@ -112,22 +113,22 @@ export function uploadErrorMessage(err: unknown): string {
     const cause = err.reason;
     if (cause instanceof HttpErrorResponse) {
       if (cause.status === 0) {
-        return "Couldn't reach the photo storage. Check your connection (or the bucket's CORS setup) and try again.";
+        return translate('photos.err.storageUnreachable');
       }
       const code = s3ErrorCode(cause.error);
-      if (code === 'EntityTooLarge') return 'This photo is too large, even after resizing.';
-      if (code === 'AccessDenied' && /expired/i.test(String(cause.error))) return 'The upload took too long. Try again.';
-      if (code === 'AccessDenied') return 'The photo storage refused the upload (access denied). Check the bucket setup.';
+      if (code === 'EntityTooLarge') return translate('photos.err.tooLarge');
+      if (code === 'AccessDenied' && /expired/i.test(String(cause.error))) return translate('photos.err.tooSlow');
+      if (code === 'AccessDenied') return translate('photos.err.denied');
     }
-    return 'The photo storage refused the upload. Try again.';
+    return translate('photos.err.refused');
   }
   if (err instanceof HttpErrorResponse) {
-    if (err.status === 0) return "Couldn't reach the server. Check your connection and try again.";
-    if (err.status === 429) return 'Too many uploads at once. Wait a minute and try again.';
+    if (err.status === 0) return translate('photos.err.serverUnreachable');
+    if (err.status === 429) return translate('photos.err.tooMany');
     const parsed = parseApiErrors(err);
     // e.g. {"size": ["Photos can be at most 10 MB."]} or {"detail": "Photo uploads are switched off. …"}
     const first = parsed.general ?? Object.values(parsed.fields)[0]?.[0];
-    return first ?? 'Uploading failed. Try again, or paste an image URL.';
+    return first ?? translate('photos.err.failedOrPaste');
   }
-  return err instanceof Error && err.message ? err.message : 'Uploading failed. Try again.';
+  return err instanceof Error && err.message ? err.message : translate('photos.err.failed');
 }

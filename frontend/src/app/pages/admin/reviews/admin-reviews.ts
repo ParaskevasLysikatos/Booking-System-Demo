@@ -22,6 +22,8 @@ import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog
 import { StarRatingComponent } from '../../../shared/star-rating';
 import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
 import { formatDate } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 export interface AdminReviewsUrlQuery {
   visibility: ReviewVisibility;
@@ -69,6 +71,7 @@ type ListState = { status: 'loading' } | { status: 'ok'; data: Paginated<AdminRe
     MatSelectModule,
     MatTableModule,
     StarRatingComponent,
+    TranslatePipe,
   ],
   templateUrl: './admin-reviews.html',
   providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
@@ -160,20 +163,20 @@ export class AdminReviewsPage {
   toggleHidden(r: AdminReview): void {
     if (this.busy() !== null) return;
     const hide = !r.is_hidden;
-    const who = `${r.author_name}'s ${r.rating}-star review of ${r.property.title}`;
+    const who = translate('adminReviews.who', { name: r.author_name, rating: r.rating, title: r.property.title });
     const data: ConfirmDialogData = hide
       ? {
-          title: 'Hide this review?',
-          message: `${who} will no longer be shown to guests or counted in the property's rating. Nothing is deleted - you can show it again any time.`,
-          confirmLabel: 'Hide review',
-          cancelLabel: 'Keep visible',
+          title: translate('adminReviews.hideDialog.title'),
+          message: translate('adminReviews.hideDialog.message', { who }),
+          confirmLabel: translate('adminReviews.hideDialog.confirm'),
+          cancelLabel: translate('adminReviews.hideDialog.keep'),
           danger: true,
         }
       : {
-          title: 'Show this review again?',
-          message: `${who} will be shown under the property again and counted in its rating.`,
-          confirmLabel: 'Show review',
-          cancelLabel: 'Keep hidden',
+          title: translate('adminReviews.showDialog.title'),
+          message: translate('adminReviews.showDialog.message', { who }),
+          confirmLabel: translate('adminReviews.showDialog.confirm'),
+          cancelLabel: translate('adminReviews.showDialog.keep'),
         };
     this.dialog
       .open<ConfirmDialog, ConfirmDialogData, boolean>(ConfirmDialog, { data, width: '480px' })
@@ -184,14 +187,14 @@ export class AdminReviewsPage {
         this.reviews.setHidden(r.id, hide).subscribe({
           next: () => {
             this.busy.set(null);
-            this.snackBar.open(hide ? 'Review hidden from guests.' : 'Review shown again.', 'OK', { duration: 4000 });
+            this.snackBar.open(translate(hide ? 'adminReviews.hiddenDone' : 'adminReviews.shownDone'), translate('common.ok'), { duration: 4000 });
             this.refresh$.next();
           },
           error: (err) => {
             this.busy.set(null);
             const parsed = parseApiErrors(err);
             const message = parsed.general ?? Object.values(parsed.fields).flat().join(' ');
-            this.snackBar.open(message || "Couldn't change this review.", 'OK', { duration: 7000 });
+            this.snackBar.open(message || translate('adminReviews.changeFailed'), translate('common.ok'), { duration: 7000 });
             this.refresh$.next();
           },
         });

@@ -1,52 +1,52 @@
-<h1>Bookings</h1>
+<h1>{{ 'admin.nav.bookings' | t }}</h1>
 
 <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="selectTab($event)" animationDuration="0ms" mat-stretch-tabs="false">
   @for (t of tabs; track t.key) {
-    <mat-tab [label]="t.label" />
+    <mat-tab [label]="t.label | t" />
   }
 </mat-tab-group>
 
 <div class="filters">
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search">
     <mat-icon matIconPrefix>search</mat-icon>
-    <mat-label>Search guest email or property</mat-label>
+    <mat-label>{{ 'adminBookings.search' | t }}</mat-label>
     <input matInput [formControl]="search" />
   </mat-form-field>
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="prop">
-    <mat-label>Property</mat-label>
+    <mat-label>{{ 'dashboard.breakdown.property' | t }}</mat-label>
     <mat-select [value]="query().property" (selectionChange)="setProperty($event.value)">
-      <mat-option [value]="null">All properties</mat-option>
+      <mat-option [value]="null">{{ 'adminBookings.allProperties' | t }}</mat-option>
       @for (p of propertyOptions(); track p.id) {
-        <mat-option [value]="p.id">{{ p.title }}{{ p.active ? '' : ' (retired)' }}</mat-option>
+        <mat-option [value]="p.id">{{ p.title }}{{ p.active ? '' : ('adminBookings.retiredSuffix' | t) }}</mat-option>
       }
     </mat-select>
   </mat-form-field>
 
   @if (query().tab !== 'cancelled') {
-    <mat-slide-toggle [checked]="query().pendingOnly" (change)="setPendingOnly($event.checked)">Pending only</mat-slide-toggle>
+    <mat-slide-toggle [checked]="query().pendingOnly" (change)="setPendingOnly($event.checked)">{{ 'adminBookings.pendingOnly' | t }}</mat-slide-toggle>
   }
 </div>
 
 @switch (state().status) {
   @case ('loading') {
-    <div class="skeleton" aria-busy="true" aria-label="Loading bookings">
+    <div class="skeleton" aria-busy="true" [attr.aria-label]="'myBookings.loading' | t">
       @for (i of [1, 2, 3, 4, 5]; track i) { <div class="row"></div> }
     </div>
   }
   @case ('error') {
     <div class="message" role="alert">
       <mat-icon>cloud_off</mat-icon>
-      <p>Couldn't load the bookings.</p>
-      <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      <p>{{ 'adminBookings.loadFailed' | t }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
     </div>
   }
   @case ('ok') {
     @let d = data()!;
     @if (d.count === 0) {
-      <div class="message"><mat-icon>event_note</mat-icon><p>No bookings match.</p></div>
+      <div class="message"><mat-icon>event_note</mat-icon><p>{{ 'adminBookings.noMatch' | t }}</p></div>
     } @else {
-      <p class="count">{{ d.count }} {{ d.count === 1 ? 'booking' : 'bookings' }}</p>
+      <p class="count">{{ 'adminBookings.count' | t: { count: d.count } }}</p>
       <div class="table-wrap">
         <!-- Tablets and phones: each row renders as a card (CSS only, TICKET-031). -->
         <table mat-table [dataSource]="d.results">
@@ -55,76 +55,76 @@
             <td mat-cell *matCellDef="let b" class="num ref">{{ b.id }}</td>
           </ng-container>
           <ng-container matColumnDef="guest">
-            <th mat-header-cell *matHeaderCellDef>Guest</th>
-            <td mat-cell *matCellDef="let b" data-label="Guest" [attr.title]="b.guest_email">{{ b.guest_email }}</td>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminBookings.col.guest' | t }}</th>
+            <td mat-cell *matCellDef="let b" [attr.data-label]="'adminBookings.col.guest' | t" [attr.title]="b.guest_email">{{ b.guest_email }}</td>
           </ng-container>
           <ng-container matColumnDef="property">
-            <th mat-header-cell *matHeaderCellDef>Property</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'dashboard.breakdown.property' | t }}</th>
             <td mat-cell *matCellDef="let b" class="property"><a [routerLink]="['/admin/properties', b.property.id, 'edit']">{{ b.property.title }}</a></td>
           </ng-container>
           <ng-container matColumnDef="dates">
-            <th mat-header-cell *matHeaderCellDef>Stay</th>
-            <td mat-cell *matCellDef="let b" data-label="Stay">
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminBookings.col.stay' | t }}</th>
+            <td mat-cell *matCellDef="let b" [attr.data-label]="'adminBookings.col.stay' | t">
               <span>
-                {{ range(b) }} <span class="muted">· {{ b.nights }}n</span>
-                @if (isOngoing(b)) { <span class="chip ongoing">Staying now</span> }
+                {{ range(b) }} <span class="muted">· {{ 'adminBookings.nightsShort' | t: { count: b.nights } }}</span>
+                @if (isOngoing(b)) { <span class="chip ongoing">{{ 'myBookings.stayingNow' | t }}</span> }
               </span>
             </td>
           </ng-container>
           <ng-container matColumnDef="guests">
-            <th mat-header-cell *matHeaderCellDef class="num">Guests</th>
-            <td mat-cell *matCellDef="let b" class="num" data-label="Guests">{{ b.guests }}</td>
+            <th mat-header-cell *matHeaderCellDef class="num">{{ 'adminBookings.col.guests' | t }}</th>
+            <td mat-cell *matCellDef="let b" class="num" [attr.data-label]="'adminBookings.col.guests' | t">{{ b.guests }}</td>
           </ng-container>
           <ng-container matColumnDef="total">
-            <th mat-header-cell *matHeaderCellDef class="num">Total</th>
-            <td mat-cell *matCellDef="let b" class="num" data-label="Total">{{ formatPrice(b.total_price) }}</td>
+            <th mat-header-cell *matHeaderCellDef class="num">{{ 'adminBookings.col.total' | t }}</th>
+            <td mat-cell *matCellDef="let b" class="num" [attr.data-label]="'adminBookings.col.total' | t">{{ formatPrice(b.total_price) }}</td>
           </ng-container>
           <ng-container matColumnDef="status">
-            <th mat-header-cell *matHeaderCellDef>Status</th>
-            <td mat-cell *matCellDef="let b" class="status"><span class="chip" [class]="b.status">{{ label(b.status) }}</span></td>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminBookings.col.status' | t }}</th>
+            <td mat-cell *matCellDef="let b" class="status"><span class="chip" [class]="b.status">{{ 'status.' + b.status | t }}</span></td>
           </ng-container>
           <ng-container matColumnDef="payment">
-            <th mat-header-cell *matHeaderCellDef>Payment</th>
-            <td mat-cell *matCellDef="let b" data-label="Payment">
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminBookings.col.payment' | t }}</th>
+            <td mat-cell *matCellDef="let b" [attr.data-label]="'adminBookings.col.payment' | t">
               <div>
                 @if (paymentLabel(b); as pl) {
                   <span class="chip pay" [class]="pl.tone">{{ pl.text }}</span>
                   @if (b.payment.status === 'open' && b.status === 'pending') {
-                    <span class="muted"> until {{ clockTime(b.payment.expires_at) }}</span>
+                    <span class="muted">&ngsp;{{ 'adminBookings.until' | t: { time: clockTime(b.payment.expires_at) } }}</span>
                   }
                   @if (refundView(b); as r) {
                     @if (r.kind === 'failed' && r.reason) {
                       <div class="refund-note reason" [matTooltip]="r.reason">{{ r.reason }}</div>
                     } @else if (r.kind === 'refunded' && r.refundedOn) {
-                      <div class="refund-note">{{ r.amount }} on {{ r.refundedOn }}</div>
+                      <div class="refund-note">{{ 'adminBookings.refundedOn' | t: { amount: r.amount, date: r.refundedOn } }}</div>
                     }
                   }
                 } @else {
-                  <span class="muted" matTooltip="No online payment (seeded, or booked while payments were off)">—</span>
+                  <span class="muted" [matTooltip]="'adminBookings.noOnlinePayment' | t">—</span>
                 }
               </div>
             </td>
           </ng-container>
           <ng-container matColumnDef="booked">
-            <th mat-header-cell *matHeaderCellDef>Booked</th>
-            <td mat-cell *matCellDef="let b" class="muted" data-label="Booked">{{ bookedOn(b.created_at) }}</td>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminBookings.col.booked' | t }}</th>
+            <td mat-cell *matCellDef="let b" class="muted" [attr.data-label]="'adminBookings.col.booked' | t">{{ bookedOn(b.created_at) }}</td>
           </ng-container>
           <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">Actions</span></th>
+            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">{{ 'adminBookings.col.actions' | t }}</span></th>
             <td mat-cell *matCellDef="let b" class="actions">
               @if (b.status === 'pending') {
                 <button mat-stroked-button type="button" class="confirm" (click)="confirmBooking(b)" [disabled]="busy() !== null">
-                  <mat-icon>check</mat-icon>Confirm
+                  <mat-icon>check</mat-icon>{{ 'adminBookings.confirm' | t }}
                 </button>
               }
               @if (b.payment?.can_refund) {
                 <button mat-stroked-button type="button" class="refund" (click)="refundNow(b)" [disabled]="busy() !== null">
-                  <mat-icon>currency_exchange</mat-icon>Refund now
+                  <mat-icon>currency_exchange</mat-icon>{{ 'adminBookings.refundNow' | t }}
                 </button>
               }
               @if (b.status !== 'cancelled') {
                 <button mat-icon-button type="button" class="cancel" (click)="cancelBooking(b)" [disabled]="busy() !== null"
-                        matTooltip="Cancel booking" [attr.aria-label]="'Cancel booking #' + b.id">
+                        [matTooltip]="'myBookings.cancel' | t" [attr.aria-label]="'adminBookings.cancelAria' | t: { id: b.id }">
                   <mat-icon>event_busy</mat-icon>
                 </button>
               }
@@ -135,7 +135,7 @@
         </table>
       </div>
       @if (d.count > pageSize) {
-        <mat-paginator [length]="d.count" [pageIndex]="query().page - 1" [pageSize]="pageSize" [hidePageSize]="true" (page)="onPage($event)" aria-label="Choose page" />
+        <mat-paginator [length]="d.count" [pageIndex]="query().page - 1" [pageSize]="pageSize" [hidePageSize]="true" (page)="onPage($event)" [attr.aria-label]="'adminBookings.pages' | t" />
       }
     }
   }

@@ -12,6 +12,7 @@ import { BOOKINGS_URL } from '../../../core/bookings/booking.service';
 import { addDays, toIsoDate, todayLocal } from '../../../core/dates';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
 import { AdminBookingsPage, parseAdminBookingsQuery, toApiQuery } from './admin-bookings';
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 const day = (n: number) => toIsoDate(addDays(todayLocal(), n));
 const booking = (id: number, overrides: Partial<Booking> = {}): Booking => ({
@@ -311,5 +312,23 @@ describe('AdminBookingsPage', () => {
     x.payment = { ...x.payment!, refund: { ...pendingRefund, status: 'refunded', refunded_at: '2026-09-27T10:00:00Z' } };
     cmp.cancelBooking(x);
     expect(dialogMessage()).toContain('has already been refunded');
+  });
+
+  it('in Greek (TICKET-038): table, chips and the confirm dialog', async () => {
+    const cmp = await open();
+    TestBed.inject(TranslationService).setLang('el');
+    listReq().flush(page([paid(1, 'pending', 'open')]));
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('Κρατήσεις');
+    expect(el).toContain('1 κράτηση');
+    expect(el).toContain('Αναμένεται πληρωμή');
+    expect(el).toContain('έως τις 14:32');
+    expect(el).toContain('Σε αναμονή');
+    answer = false; // only look at the dialog's text
+    cmp.confirmBooking(paid(1, 'pending', 'open'));
+    expect(dialogMessage()).toContain('Ο επισκέπτης δεν έχει πληρώσει ακόμη online');
+    expect(dialogMessage()).toContain('2 επισκέπτες');
   });
 });

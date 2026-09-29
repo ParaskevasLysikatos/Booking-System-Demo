@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { translate } from '../i18n/translation.service';
 
 /** Longest side of an uploaded photo (TICKET-036). 1600 px is sharp on the
  * detail page's gallery and lightbox, and ~200-400 KB as WebP. */
@@ -23,7 +24,7 @@ export function fitWithin(width: number, height: number, max = MAX_PHOTO_SIDE): 
 
 export class UnreadablePhotoError extends Error {
   constructor() {
-    super("Couldn't read this photo. Use a JPEG, PNG or WebP image.");
+    super(translate('photos.err.unreadable'));
   }
 }
 

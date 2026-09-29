@@ -1,4 +1,9 @@
-import { DICTIONARIES, Dictionary, LANGUAGES } from './translation.service';
+import el from './el.json';
+import en from './en.json';
+import { Dictionary, LANGUAGES, Lang } from './translation.service';
+
+// Read the files themselves (in the app, el.json is a lazy chunk).
+const FILES: Record<Lang, Dictionary> = { en, el };
 
 /** Every text in a dictionary as `path -> text` (plural forms are `key.one`, `key.other`). */
 function flatten(dict: Dictionary, prefix = ''): Map<string, string> {
@@ -16,8 +21,8 @@ function placeholders(text: string): string[] {
 }
 
 describe('en.json / el.json (TICKET-038)', () => {
-  const en = flatten(DICTIONARIES.en);
-  const el = flatten(DICTIONARIES.el);
+  const en = flatten(FILES.en);
+  const el = flatten(FILES.el);
 
   it('have exactly the same keys - no missing Greek, no leftovers', () => {
     const missingInGreek = [...en.keys()].filter((k) => !el.has(k));
@@ -39,7 +44,7 @@ describe('en.json / el.json (TICKET-038)', () => {
 
   it('have no empty texts', () => {
     for (const lang of LANGUAGES) {
-      const empty = [...flatten(DICTIONARIES[lang])].filter(([, text]) => !text.trim()).map(([k]) => k);
+      const empty = [...flatten(FILES[lang])].filter(([, text]) => !text.trim()).map(([k]) => k);
       expect(empty, lang).toEqual([]);
     }
   });
@@ -47,7 +52,7 @@ describe('en.json / el.json (TICKET-038)', () => {
   it('give every plural an "other" form', () => {
     const pluralForms = /\.(zero|one|two|few|many|other)$/;
     for (const lang of LANGUAGES) {
-      const dict = flatten(DICTIONARIES[lang]);
+      const dict = flatten(FILES[lang]);
       const plurals = new Set([...dict.keys()].filter((k) => pluralForms.test(k)).map((k) => k.replace(pluralForms, '')));
       const withoutOther = [...plurals].filter((p) => !dict.has(`${p}.other`));
       expect(withoutOther, lang).toEqual([]);

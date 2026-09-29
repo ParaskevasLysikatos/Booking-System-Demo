@@ -524,5 +524,394 @@
     "offline": "Can't reach the server. Check your connection and try again.",
     "server": "Server error. Please try again in a moment.",
     "request": "Request failed."
+  },
+  "admin": {
+    "heading": "Admin",
+    "nav": {
+      "dashboard": "Dashboard",
+      "properties": "Properties",
+      "bookings": "Bookings",
+      "reviews": "Reviews",
+      "pendingBadge": {
+        "one": "{count} pending booking",
+        "other": "{count} pending bookings"
+      },
+      "backToSite": "Back to site"
+    },
+    "unsaved": {
+      "title": "Discard unsaved changes?",
+      "message": "You have changes that haven't been saved. If you leave now, they'll be lost.",
+      "discard": "Discard changes",
+      "keep": "Keep editing"
+    }
+  },
+  "periods": {
+    "thisMonth": "This month",
+    "lastMonth": "Last month",
+    "nextMonth": "Next month",
+    "next30": "Next 30 days",
+    "last12": "Last 12 months",
+    "vsMonth": "vs {month}",
+    "vsPrevious": "vs previous {days} days",
+    "new": "New",
+    "noChange": "No change",
+    "pts": "{value} pts"
+  },
+  "dashboard": {
+    "range": "{range} · {nights}",
+    "changesShown": "· changes shown {label}",
+    "period": "Period",
+    "custom": "Custom…",
+    "customRange": "Custom range (max {days} days)",
+    "from": "From",
+    "to": "To",
+    "loading": "Loading stats",
+    "loadFailed": "Couldn't load the stats.",
+    "noBookings": "No bookings in this period.",
+    "revenue": "Revenue",
+    "expectedFromPending": "+ {amount} expected from pending bookings",
+    "confirmedOnly": "Confirmed stays only · nights inside the period",
+    "occupancy": "Occupancy",
+    "occupancyMeter": "{pct} of available nights booked",
+    "occupancyDetail": "{booked} of {available} nights booked · {properties}",
+    "activeProperties": {
+      "one": "{count} active property",
+      "other": "{count} active properties"
+    },
+    "pendingNights": {
+      "one": "+ {count} night pending confirmation",
+      "other": "+ {count} nights pending confirmation"
+    },
+    "stays": "Stays in period",
+    "confirmedN": "{count} confirmed",
+    "pendingN": "{count} pending",
+    "cancelledN": "{count} cancelled",
+    "created": {
+      "one": "{count} new booking made in this period",
+      "other": "{count} new bookings made in this period"
+    },
+    "adr": "Avg. revenue per booked night",
+    "adrSub": "Confirmed revenue ÷ confirmed nights",
+    "better": " (better)",
+    "worse": " (worse)",
+    "breakdown": {
+      "caption": "By property · sorted by revenue",
+      "property": "Property",
+      "nights": "Booked nights",
+      "expected": "Expected",
+      "retired": "Retired",
+      "occupied": "{pct} occupied"
+    }
+  },
+  "chart": {
+    "title": "Revenue over time",
+    "by": {
+      "day": "By day",
+      "week": "By week",
+      "month": "By month"
+    },
+    "sub": "{granularity} · nights inside the period",
+    "showAs": "Show revenue as",
+    "chart": "Chart",
+    "table": "Table",
+    "legendRevenue": "Revenue (confirmed)",
+    "legendExpected": "Expected (pending)",
+    "keysHint": "Use the arrow keys to move between bars.",
+    "today": "Today",
+    "empty": "No revenue in this period",
+    "ttRevenue": "<strong>{amount}</strong> revenue",
+    "ttExpected": "<strong>{amount}</strong> expected",
+    "bookedNights": {
+      "one": "{count} booked night",
+      "other": "{count} booked nights"
+    },
+    "pendingSuffix": "· {count} pending",
+    "scrollNote": "Scroll sideways to see the whole period, or use the Table.",
+    "caption": "Revenue over time, {granularity}",
+    "period": "Period",
+    "pendingNights": "Pending nights",
+    "total": "Total",
+    "partial": {
+      "week": "{range} (partial week)",
+      "month": "{range} (partial month)"
+    },
+    "aria": {
+      "revenue": "{amount} revenue",
+      "expected": "{amount} expected",
+      "pending": "{count} pending"
+    },
+    "unit": {
+      "day": "day",
+      "week": "week",
+      "month": "month"
+    },
+    "summaryEmpty": "Revenue by {unit}: no revenue in this period.",
+    "summary": "Revenue by {unit}, {bars} bars: {revenue} confirmed",
+    "summaryExpected": " and {amount} expected",
+    "summaryHighest": ". Highest: {title}, {amount}."
+  },
+  "adminBookings": {
+    "search": "Search guest email or property",
+    "allProperties": "All properties",
+    "retiredSuffix": " (retired)",
+    "pendingOnly": "Pending only",
+    "loadFailed": "Couldn't load the bookings.",
+    "noMatch": "No bookings match.",
+    "count": {
+      "one": "{count} booking",
+      "other": "{count} bookings"
+    },
+    "col": {
+      "guest": "Guest",
+      "stay": "Stay",
+      "guests": "Guests",
+      "total": "Total",
+      "status": "Status",
+      "payment": "Payment",
+      "booked": "Booked",
+      "actions": "Actions"
+    },
+    "nightsShort": "{count}n",
+    "until": "until {time}",
+    "refundedOn": "{amount} on {date}",
+    "noOnlinePayment": "No online payment (seeded, or booked while payments were off)",
+    "confirm": "Confirm",
+    "refundNow": "Refund now",
+    "cancelAria": "Cancel booking #{id}",
+    "pages": "Choose page",
+    "guestFor": "the guest",
+    "guestName": "the guest",
+    "notNow": "Not now",
+    "confirmDialog": {
+      "title": "Confirm booking #{id}?",
+      "message": "{title}, {range} for {guest} ({guests}, {total}). The guest will see it as Confirmed.{unpaid}",
+      "unpaid": " The guest hasn't paid online yet: confirming closes their payment page, so the payment is waived (e.g. they pay you another way)."
+    },
+    "confirmed": "Booking #{id} confirmed.",
+    "cancelDialog": {
+      "title": "Cancel booking #{id}?",
+      "message": "{title}, {range} for {guest}. The dates will be released and this can't be undone. {note}"
+    },
+    "refundDialog": {
+      "title": "Refund booking #{id}?",
+      "message": "Stripe will refund the full {amount} to the card {guest} paid with. It can never be refunded twice.{last}"
+    },
+    "lastFailed": " The last attempt failed: {reason}",
+    "unknownReason": "unknown reason",
+    "outcome": {
+      "refundSent": "Booking #{id} cancelled - refund of {amount} sent to Stripe.",
+      "refundFailed": "Booking #{id} cancelled, but the refund failed: {reason} Use Refund now to retry.",
+      "refundOnlyFailed": "The refund for booking #{id} failed: {reason}",
+      "refundOnlySent": "Refund of {amount} for booking #{id} sent to Stripe."
+    },
+    "note": {
+      "alreadyRefunded": "The guest's payment of {amount} has already been refunded.",
+      "willRefund": "The guest paid {amount} online - it's refunded in full to their card automatically.",
+      "closePage": "The guest's open payment page will be closed first, so they can't pay for a cancelled booking.",
+      "nothing": "No online payment was taken, so there is nothing to refund."
+    }
+  },
+  "adminProps": {
+    "new": "New property",
+    "status": "Status",
+    "all": "All",
+    "active": "Active",
+    "retired": "Retired",
+    "filter": {
+      "active": "Active",
+      "retired": "Retired"
+    },
+    "search": "Search title or location",
+    "loading": "Loading properties",
+    "loadFailed": "Couldn't load the properties.",
+    "noMatch": "No properties match.",
+    "add": "Add a property",
+    "count": {
+      "one": "{count} property",
+      "other": "{count} properties"
+    },
+    "col": {
+      "photo": "Photo",
+      "title": "Title",
+      "location": "Location",
+      "price": "€/night",
+      "sleeps": "Sleeps",
+      "rating": "Rating",
+      "savedBy": "Saved by"
+    },
+    "cardMeta": "{price} / night · {sleeps} · {rating} · {saved}",
+    "savedBy": {
+      "one": "Saved by {count} guest",
+      "other": "Saved by {count} guests"
+    },
+    "edit": "Edit",
+    "editAria": "Edit {title}",
+    "moreAria": "More actions for {title}",
+    "viewPublic": "View public page",
+    "retire": "Retire…",
+    "reactivate": "Reactivate",
+    "retireDialog": {
+      "title": "Retire \"{title}\"?",
+      "message": "It will be hidden from guests and can't be booked any more. Existing bookings, reviews and stats are kept, and you can reactivate it at any time.",
+      "confirm": "Retire property"
+    },
+    "retiredDone": "\"{title}\" retired - hidden from guests.",
+    "reactivated": "\"{title}\" is active again."
+  },
+  "adminForm": {
+    "pageNew": "New property · Admin",
+    "pageEdit": "Edit property · Admin",
+    "pageEditTitle": "Edit {title} · Admin",
+    "allProperties": "All properties",
+    "notFound": "This property doesn't exist.",
+    "backToProperties": "Back to properties",
+    "loadFailed": "Couldn't load this property.",
+    "headingNew": "New property",
+    "headingEdit": "Edit {title}",
+    "details": "Details",
+    "title": "Title",
+    "titlePlaceholder": "e.g. Harbour Loft",
+    "location": "Location",
+    "locationPlaceholder": "e.g. Chania, Greece",
+    "description": "Description",
+    "price": "Price per night",
+    "capacity": "Sleeps (guests)",
+    "activeOn": "Active - visible and bookable",
+    "activeOff": "Retired - hidden from guests",
+    "mapPosition": "Map position",
+    "mapHint": "Guests see a ~500 m area around it, never the exact spot. Only admins see the pin.",
+    "amenities": "Amenities",
+    "photos": "Photos",
+    "create": "Create property",
+    "saveChanges": "Save changes",
+    "fixFields": "Please fix the highlighted fields.",
+    "saved": "Saved \"{title}\".",
+    "err": {
+      "uploading": "Wait for the photo uploads to finish, then save.",
+      "positionRequired": "Set the map position: find the address or click the map.",
+      "required": "Required.",
+      "priceMin": "Must be more than €0.",
+      "min": "Must be at least 1.",
+      "max": "Too large.",
+      "maxlength": "At most {count} characters.",
+      "pattern": "Whole number only.",
+      "invalid": "Invalid value.",
+      "offline": "Can't reach the server. Your changes are still here - try again.",
+      "saveFailed": "Saving failed. Please try again."
+    }
+  },
+  "amenityPicker": {
+    "group": "Amenities",
+    "other": "Other amenity",
+    "otherPlaceholder": "e.g. Hot tub",
+    "add": "Add",
+    "others": "Other amenities",
+    "remove": "Remove {label}"
+  },
+  "photos": {
+    "dragHere": "Drag photos here, or",
+    "upload": "Upload photos",
+    "dropHint": "JPEG, PNG or WebP · resized to {size} px before uploading",
+    "orPaste": "Or paste a photo URL",
+    "url": "Photo URL",
+    "add": "Add photo",
+    "uploads": "Photo uploads",
+    "waiting": "Waiting…",
+    "uploadingAria": "Uploading {name}",
+    "preparing": "Preparing…",
+    "uploadingPct": "Uploading {percent}%",
+    "retryAria": "Try uploading {name} again",
+    "dismiss": "Dismiss",
+    "dismissAria": "Dismiss {name}",
+    "cancelUpload": "Cancel upload",
+    "cancelAria": "Cancel uploading {name}",
+    "reorderHint": "Drag to reorder · ★ marks the cover photo shown on cards.",
+    "drag": "Drag to reorder",
+    "notImage": "This URL didn't load an image",
+    "checkUrl": "Couldn't load this image - check the URL.",
+    "cover": "Cover photo",
+    "makeCover": "Make cover photo",
+    "remove": "Remove",
+    "removeAria": "Remove photo",
+    "empty": "No photos yet - add at least one so the listing looks good.",
+    "err": {
+      "badUrl": "Enter a full image URL starting with http:// or https://",
+      "duplicate": "That photo is already in the list.",
+      "skipped": "Not a photo, skipped: {names}",
+      "failed": "Uploading failed. Try again.",
+      "tooLargeToProcess": "This photo is too large to process (over 40 MB).",
+      "storageUnreachable": "Couldn't reach the photo storage. Check your connection (or the bucket's CORS setup) and try again.",
+      "tooLarge": "This photo is too large, even after resizing.",
+      "tooSlow": "The upload took too long. Try again.",
+      "denied": "The photo storage refused the upload (access denied). Check the bucket setup.",
+      "refused": "The photo storage refused the upload. Try again.",
+      "serverUnreachable": "Couldn't reach the server. Check your connection and try again.",
+      "tooMany": "Too many uploads at once. Wait a minute and try again.",
+      "failedOrPaste": "Uploading failed. Try again, or paste an image URL.",
+      "unreadable": "Couldn't read this photo. Use a JPEG, PNG or WebP image."
+    }
+  },
+  "geocode": {
+    "find": "Find address",
+    "placeholder": "e.g. Tsimiski 45, Thessaloniki",
+    "findOnMap": "Find on map",
+    "placedBefore": "Placed at",
+    "placedAfter": " ({precision}). Drag the pin to fine-tune.",
+    "noMatch": "No place in Greece matched \"{query}\". Try a street and town, or click the map.",
+    "hint": "Find the address, or click the map to place the pin.",
+    "mapLabel": "Map position of this property - click to place the pin, drag it to adjust",
+    "noPosition": "No position yet.",
+    "pinTitle": "Map position (drag to move)",
+    "precision": {
+      "address": "exact address",
+      "street": "street",
+      "area": "neighbourhood / village",
+      "city": "town centre"
+    },
+    "err": {
+      "tooMany": "Too many searches in a row - wait a minute, or click the map instead.",
+      "offline": "Can't reach the server - click the map to place the pin instead.",
+      "unavailable": "Map search isn't available right now. Try again in a moment, or place the pin on the map."
+    }
+  },
+  "adminReviews": {
+    "intro": "Hiding a review removes it from the property page and its rating. Nothing is deleted, and it can be shown again.",
+    "visibility": "Visibility",
+    "visible": "Visible",
+    "hidden": "Hidden",
+    "filter": {
+      "visible": "Visible",
+      "hidden": "Hidden"
+    },
+    "search": "Search guest, property or comment",
+    "anyRating": "Any rating",
+    "loadFailed": "Couldn't load the reviews.",
+    "noMatch": "No reviews match these filters.",
+    "none": "No reviews yet.",
+    "col": {
+      "posted": "Posted",
+      "comment": "Comment"
+    },
+    "noComment": "No comment",
+    "show": "Show",
+    "hide": "Hide",
+    "showAria": "Show {name}'s review of {title}",
+    "hideAria": "Hide {name}'s review of {title}",
+    "who": "{name}'s {rating}-star review of {title}",
+    "hideDialog": {
+      "title": "Hide this review?",
+      "message": "{who} will no longer be shown to guests or counted in the property's rating. Nothing is deleted - you can show it again any time.",
+      "confirm": "Hide review",
+      "keep": "Keep visible"
+    },
+    "showDialog": {
+      "title": "Show this review again?",
+      "message": "{who} will be shown under the property again and counted in its rating.",
+      "confirm": "Show review",
+      "keep": "Keep hidden"
+    },
+    "hiddenDone": "Review hidden from guests.",
+    "shownDone": "Review shown again.",
+    "changeFailed": "Couldn't change this review."
   }
 }

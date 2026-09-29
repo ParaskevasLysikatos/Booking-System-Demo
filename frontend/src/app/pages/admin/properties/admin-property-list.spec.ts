@@ -10,6 +10,7 @@ import { of } from 'rxjs';
 import { PropertySummary } from '../../../core/properties/property.models';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
 import { AdminPropertyListPage } from './admin-property-list';
+import { TranslationService } from '../../../core/i18n/translation.service';
 
 const prop = (id: number, overrides: Partial<PropertySummary> = {}): PropertySummary => ({
   id, title: `Stay ${id}`, location: 'Corfu, Greece', price_per_night: '80.00', capacity: 4, amenities: [],
@@ -121,5 +122,18 @@ describe('AdminPropertyListPage', () => {
     listReq().flush(page([]));
     harness.detectChanges();
     expect(text()).toContain('No properties match.');
+  });
+
+  it('in Greek (TICKET-038): headings, chips, count and saved-by', async () => {
+    await open();
+    TestBed.inject(TranslationService).setLang('el');
+    listReq().flush(page([prop(1, { title: 'Harbour Loft', favorite_count: 3 }), prop(2, { title: 'Old Mill', is_active: false })]));
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('Νέο κατάλυμα');
+    expect(el).toContain('2 καταλύματα');
+    expect(el).toContain('Αποσυρμένο');
+    expect(el).toContain('Αποθηκεύτηκε από 3 επισκέπτες');
   });
 });

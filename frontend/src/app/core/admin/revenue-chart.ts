@@ -8,6 +8,7 @@ import { formatPrice } from '../money';
 import { formatDate, formatNumber } from '../i18n/format';
 import { currentLang } from '../i18n/locale';
 import { RevenueBucket, RevenueSeries, SeriesGranularity } from './admin-stats.models';
+import { translate } from '../i18n/translation.service';
 
 // --- y axis -------------------------------------------------------------
 
@@ -54,7 +55,10 @@ function round2(v: number): number {
 // dayMonth "6 Oct", medium "6 Oct 2026", full "Tue, 6 Oct 2026",
 // monthShort "Oct", monthYear "October 2026".
 
-export const GRANULARITY_TEXT: Record<SeriesGranularity, string> = { day: 'By day', week: 'By week', month: 'By month' };
+/** "By day" / "Ανά ημέρα" - in the chosen language (TICKET-038). */
+export function granularityText(g: SeriesGranularity): string {
+  return translate(`chart.by.${g}`);
+}
 
 /**
  * The bucket's full name for the tooltip and the table:
@@ -72,7 +76,7 @@ export function bucketTitle(b: RevenueBucket, granularity: SeriesGranularity): s
     b.from === b.to
       ? formatDate(from, 'medium')
       : `${sameMonth ? from.getDate() : formatDate(from, 'dayMonth')} – ${formatDate(to, 'medium')}`;
-  return full ? range : `${range} (partial ${granularity})`;
+  return full ? range : translate(`chart.partial.${granularity}`, { range });
 }
 
 /** Two-line x-axis label: `text` under the bar, `sub` (month / year) where it changes. */
@@ -275,20 +279,20 @@ export function todayPosition(series: RevenueSeries, today: Date, slot: number):
 }
 
 export function barAriaLabel(title: string, b: RevenueBucket): string {
-  const parts = [`${formatPrice(b.revenue)} revenue`];
-  if (Number(b.pending_revenue) > 0) parts.push(`${formatPrice(b.pending_revenue)} expected`);
-  parts.push(`${b.booked_nights} booked ${b.booked_nights === 1 ? 'night' : 'nights'}`);
-  if (b.pending_nights) parts.push(`${b.pending_nights} pending`);
+  const parts = [translate('chart.aria.revenue', { amount: formatPrice(b.revenue) })];
+  if (Number(b.pending_revenue) > 0) parts.push(translate('chart.aria.expected', { amount: formatPrice(b.pending_revenue) }));
+  parts.push(translate('chart.bookedNights', { count: b.booked_nights }));
+  if (b.pending_nights) parts.push(translate('chart.aria.pending', { count: b.pending_nights }));
   return `${title}: ${parts.join(', ')}`;
 }
 
 function chartSummary(series: RevenueSeries, bars: ChartBar[], totals: { revenue: number; expected: number }): string {
-  const unit = { day: 'day', week: 'week', month: 'month' }[series.granularity];
+  const unit = translate(`chart.unit.${series.granularity}`);
   if (!bars.length || (totals.revenue === 0 && totals.expected === 0)) {
-    return `Revenue by ${unit}: no revenue in this period.`;
+    return translate('chart.summaryEmpty', { unit });
   }
   const best = bars.reduce((a, b) => (b.revenue + b.expected > a.revenue + a.expected ? b : a));
-  let text = `Revenue by ${unit}, ${bars.length} bars: ${formatPrice(round2(totals.revenue))} confirmed`;
-  if (totals.expected > 0) text += ` and ${formatPrice(round2(totals.expected))} expected`;
-  return `${text}. Highest: ${best.title}, ${formatPrice(round2(best.revenue + best.expected))}.`;
+  let text = translate('chart.summary', { unit, bars: bars.length, revenue: formatPrice(round2(totals.revenue)) });
+  if (totals.expected > 0) text += translate('chart.summaryExpected', { amount: formatPrice(round2(totals.expected)) });
+  return text + translate('chart.summaryHighest', { title: best.title, amount: formatPrice(round2(best.revenue + best.expected)) });
 }

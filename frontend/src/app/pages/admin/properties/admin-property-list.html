@@ -1,26 +1,26 @@
 <header class="head">
-  <h1>Properties</h1>
-  <a mat-flat-button routerLink="new"><mat-icon>add</mat-icon>New property</a>
+  <h1>{{ 'admin.nav.properties' | t }}</h1>
+  <a mat-flat-button routerLink="new"><mat-icon>add</mat-icon>{{ 'adminProps.new' | t }}</a>
 </header>
 
 <div class="filters">
-  <mat-button-toggle-group [value]="query().status" (change)="setStatus($event.value)" hideSingleSelectionIndicator aria-label="Status">
-    <mat-button-toggle value="all">All</mat-button-toggle>
-    <mat-button-toggle value="active">Active</mat-button-toggle>
-    <mat-button-toggle value="retired">Retired</mat-button-toggle>
+  <mat-button-toggle-group [value]="query().status" (change)="setStatus($event.value)" hideSingleSelectionIndicator [attr.aria-label]="'adminProps.status' | t">
+    <mat-button-toggle value="all">{{ 'adminProps.all' | t }}</mat-button-toggle>
+    <mat-button-toggle value="active">{{ 'adminProps.filter.active' | t }}</mat-button-toggle>
+    <mat-button-toggle value="retired">{{ 'adminProps.filter.retired' | t }}</mat-button-toggle>
   </mat-button-toggle-group>
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search">
     <mat-icon matIconPrefix>search</mat-icon>
-    <mat-label>Search title or location</mat-label>
+    <mat-label>{{ 'adminProps.search' | t }}</mat-label>
     <input matInput [formControl]="search" />
   </mat-form-field>
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="sort">
-    <mat-label>Sort by</mat-label>
+    <mat-label>{{ 'listings.sortBy' | t }}</mat-label>
     <mat-select [value]="query().ordering" (selectionChange)="setOrdering($event.value)">
       @for (o of sortOptions; track o.value) {
-        <mat-option [value]="o.value">{{ o.label }}</mat-option>
+        <mat-option [value]="o.value">{{ o.label | t }}</mat-option>
       }
     </mat-select>
   </mat-form-field>
@@ -28,15 +28,15 @@
 
 @switch (state().status) {
   @case ('loading') {
-    <div class="skeleton" aria-busy="true" aria-label="Loading properties">
+    <div class="skeleton" aria-busy="true" [attr.aria-label]="'adminProps.loading' | t">
       @for (i of [1, 2, 3, 4, 5]; track i) { <div class="row"></div> }
     </div>
   }
   @case ('error') {
     <div class="message" role="alert">
       <mat-icon>cloud_off</mat-icon>
-      <p>Couldn't load the properties.</p>
-      <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      <p>{{ 'adminProps.loadFailed' | t }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
     </div>
   }
   @case ('ok') {
@@ -44,66 +44,66 @@
     @if (d.count === 0) {
       <div class="message">
         <mat-icon>holiday_village</mat-icon>
-        <p>No properties match.</p>
-        <a mat-stroked-button routerLink="new">Add a property</a>
+        <p>{{ 'adminProps.noMatch' | t }}</p>
+        <a mat-stroked-button routerLink="new">{{ 'adminProps.add' | t }}</a>
       </div>
     } @else {
-      <p class="count">{{ d.count }} {{ d.count === 1 ? 'property' : 'properties' }}</p>
+      <p class="count">{{ 'adminProps.count' | t: { count: d.count } }}</p>
       <div class="table-wrap">
         <table mat-table [dataSource]="d.results">
           <ng-container matColumnDef="photo">
-            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">Photo</span></th>
+            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">{{ 'adminProps.col.photo' | t }}</span></th>
             <td mat-cell *matCellDef="let p" class="photo">
               @if (p.cover_image) { <img class="thumb" [src]="p.cover_image" alt="" loading="lazy" /> }
               @else { <span class="thumb none"><mat-icon>image_not_supported</mat-icon></span> }
             </td>
           </ng-container>
           <ng-container matColumnDef="title">
-            <th mat-header-cell *matHeaderCellDef>Title</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminProps.col.title' | t }}</th>
             <td mat-cell *matCellDef="let p" class="title-cell">
               <a class="title" [routerLink]="[p.id, 'edit']">{{ p.title }}</a>
               <!-- Card view only (tablets/phones): the numbers columns are hidden there. -->
-              <span class="card-meta">{{ formatPrice(p.price_per_night) }} / night · Sleeps {{ p.capacity }} · {{ rating(p) }} · {{ savedByLabel(p) }}</span>
+              <span class="card-meta">{{ 'adminProps.cardMeta' | t: { price: formatPrice(p.price_per_night), sleeps: ('common.sleeps' | t: { count: p.capacity }), rating: rating(p), saved: savedByLabel(p) } }}</span>
             </td>
           </ng-container>
           <ng-container matColumnDef="location">
-            <th mat-header-cell *matHeaderCellDef>Location</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminProps.col.location' | t }}</th>
             <td mat-cell *matCellDef="let p" class="location">{{ p.location }}</td>
           </ng-container>
           <ng-container matColumnDef="price">
-            <th mat-header-cell *matHeaderCellDef class="num">€/night</th>
+            <th mat-header-cell *matHeaderCellDef class="num">{{ 'adminProps.col.price' | t }}</th>
             <td mat-cell *matCellDef="let p" class="num stat">{{ formatPrice(p.price_per_night) }}</td>
           </ng-container>
           <ng-container matColumnDef="capacity">
-            <th mat-header-cell *matHeaderCellDef class="num">Sleeps</th>
+            <th mat-header-cell *matHeaderCellDef class="num">{{ 'adminProps.col.sleeps' | t }}</th>
             <td mat-cell *matCellDef="let p" class="num stat">{{ p.capacity }}</td>
           </ng-container>
           <ng-container matColumnDef="rating">
-            <th mat-header-cell *matHeaderCellDef>Rating</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminProps.col.rating' | t }}</th>
             <td mat-cell *matCellDef="let p" class="stat">{{ rating(p) }}</td>
           </ng-container>
           <ng-container matColumnDef="saved">
             <!-- TICKET-033: how many guests saved (hearted) it. -->
-            <th mat-header-cell *matHeaderCellDef class="num">Saved by</th>
+            <th mat-header-cell *matHeaderCellDef class="num">{{ 'adminProps.col.savedBy' | t }}</th>
             <td mat-cell *matCellDef="let p" class="num stat saved" [attr.aria-label]="savedByLabel(p)" [class.none]="!savedBy(p)">
               <mat-icon aria-hidden="true">{{ savedBy(p) ? 'favorite' : 'favorite_border' }}</mat-icon>{{ savedBy(p) }}
             </td>
           </ng-container>
           <ng-container matColumnDef="status">
-            <th mat-header-cell *matHeaderCellDef>Status</th>
-            <td mat-cell *matCellDef="let p" class="status"><span class="chip" [class.retired]="!p.is_active">{{ p.is_active ? 'Active' : 'Retired' }}</span></td>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminProps.status' | t }}</th>
+            <td mat-cell *matCellDef="let p" class="status"><span class="chip" [class.retired]="!p.is_active">{{ (p.is_active ? 'adminProps.active' : 'adminProps.retired') | t }}</span></td>
           </ng-container>
           <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">Actions</span></th>
+            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">{{ 'adminBookings.col.actions' | t }}</span></th>
             <td mat-cell *matCellDef="let p" class="actions">
-              <a mat-icon-button [routerLink]="[p.id, 'edit']" matTooltip="Edit" [attr.aria-label]="'Edit ' + p.title"><mat-icon>edit</mat-icon></a>
-              <button mat-icon-button type="button" [matMenuTriggerFor]="more" [disabled]="busy() === p.id" [attr.aria-label]="'More actions for ' + p.title"><mat-icon>more_vert</mat-icon></button>
+              <a mat-icon-button [routerLink]="[p.id, 'edit']" [matTooltip]="'adminProps.edit' | t" [attr.aria-label]="'adminProps.editAria' | t: { title: p.title }"><mat-icon>edit</mat-icon></a>
+              <button mat-icon-button type="button" [matMenuTriggerFor]="more" [disabled]="busy() === p.id" [attr.aria-label]="'adminProps.moreAria' | t: { title: p.title }"><mat-icon>more_vert</mat-icon></button>
               <mat-menu #more="matMenu" xPosition="before">
-                <a mat-menu-item [routerLink]="['/listings', p.id]"><mat-icon>visibility</mat-icon>View public page</a>
+                <a mat-menu-item [routerLink]="['/listings', p.id]"><mat-icon>visibility</mat-icon>{{ 'adminProps.viewPublic' | t }}</a>
                 @if (p.is_active) {
-                  <button mat-menu-item type="button" class="danger" (click)="retire(p)"><mat-icon>archive</mat-icon>Retire…</button>
+                  <button mat-menu-item type="button" class="danger" (click)="retire(p)"><mat-icon>archive</mat-icon>{{ 'adminProps.retire' | t }}</button>
                 } @else {
-                  <button mat-menu-item type="button" (click)="reactivate(p)"><mat-icon>unarchive</mat-icon>Reactivate</button>
+                  <button mat-menu-item type="button" (click)="reactivate(p)"><mat-icon>unarchive</mat-icon>{{ 'adminProps.reactivate' | t }}</button>
                 }
               </mat-menu>
             </td>
@@ -113,7 +113,7 @@
         </table>
       </div>
       @if (d.count > pageSize) {
-        <mat-paginator [length]="d.count" [pageIndex]="query().page - 1" [pageSize]="pageSize" [hidePageSize]="true" (page)="onPage($event)" aria-label="Choose page" />
+        <mat-paginator [length]="d.count" [pageIndex]="query().page - 1" [pageSize]="pageSize" [hidePageSize]="true" (page)="onPage($event)" [attr.aria-label]="'adminBookings.pages' | t" />
       }
     }
   }

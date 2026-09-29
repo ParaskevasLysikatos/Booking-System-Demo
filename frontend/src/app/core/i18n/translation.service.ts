@@ -2,7 +2,6 @@ import { DOCUMENT } from '@angular/common';
 import { Injectable, OnDestroy, Signal, computed, inject, isDevMode } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 
-import el from './el.json';
 import en from './en.json';
 import { DEFAULT_LANG, LOCALES, Lang, currentLang, setCurrentLang } from './locale';
 
@@ -23,6 +22,12 @@ export type { Lang } from './locale';
  * - placeholders: `"Account menu for {email}"` + `{ email: 'a@b.c' }`
  * - plurals: a key whose value is `{ "one": "...", "other": "..." }` picks the
  *   form with `Intl.PluralRules` for the `count` param (`{count} nights`).
+ *
+ * English is bundled with the app (it's also the fallback for any gap).
+ * Greek is a separate chunk, loaded the first time it's needed: on start-up
+ * when it was the saved choice (the app waits for it, so there's no flash of
+ * English), or on the first switch - and it's prefetched when the pointer
+ * reaches the ΕΛ button. That keeps ~56 kB out of the initial bundle.
  */
 /** The toggle's order. */
 export const LANGUAGES: readonly Lang[] = ['en', 'el'];
@@ -41,7 +46,33 @@ export interface Dictionary {
   [key: string]: string | Dictionary;
 }
 
-export const DICTIONARIES: Record<Lang, Dictionary> = { en, el };
+/** The dictionaries loaded so far: English always, Greek once it's been needed. */
+export const DICTIONARIES: { en: Dictionary } & Partial<Record<Lang, Dictionary>> = { en };
+
+const LOADERS: Record<Exclude<Lang, 'en'>, () => Promise<Dictionary>> = {
+  el: () => import('./el.json').then((m) => m.default as Dictionary),
+};
+const loading = new Map<Lang, Promise<void>>();
+
+/** Load a language's dictionary once (a no-op when it's already there). */
+export function loadDictionary(lang: Lang): Promise<void> {
+  if (DICTIONARIES[lang]) return Promise.resolve();
+  let pending = loading.get(lang);
+  if (!pending) {
+    pending = LOADERS[lang as Exclude<Lang, 'en'>]().then(
+      (dict) => {
+        DICTIONARIES[lang] = dict;
+        loading.delete(lang); // in-flight de-duplication only; DICTIONARIES is the cache
+      },
+      (err: unknown) => {
+        loading.delete(lang); // e.g. offline: a later switch can try again
+        throw err;
+      },
+    );
+    loading.set(lang, pending);
+  }
+  return pending;
+}
 
 export function isLang(value: unknown): value is Lang {
   return value === 'en' || value === 'el';
@@ -83,7 +114,8 @@ export function resolve(dict: Dictionary, key: string, locale: string, params?: 
  */
 export function translate(key: string, params?: TParams): string {
   const lang = currentLang();
-  const text = resolve(DICTIONARIES[lang], key, LOCALES[lang], params) ?? resolve(DICTIONARIES.en, key, LOCALES.en, params);
+  const dict = DICTIONARIES[lang] ?? DICTIONARIES.en;
+  const text = resolve(dict, key, LOCALES[lang], params) ?? resolve(DICTIONARIES.en, key, LOCALES.en, params);
   if (text !== undefined) return text;
   if (isDevMode()) console.warn(`[i18n] missing text for "${key}"`);
   return key;
@@ -125,9 +157,41 @@ export class TranslationService implements OnDestroy {
    */
   readonly changes: Observable<Lang> = this.changes$.asObservable();
 
+  /** A saved language whose dictionary isn't loaded yet - `ready()` switches to it. */
+  private pending: Lang | null = null;
+  /** The language most recently asked for (a slow load must not override a later click). */
+  private requested: Lang;
+
   constructor() {
-    setCurrentLang(readStoredLang() ?? DEFAULT_LANG);
-    this.document.documentElement.lang = currentLang();
+    const saved = readStoredLang() ?? DEFAULT_LANG;
+    const start = DICTIONARIES[saved] ? saved : DEFAULT_LANG;
+    if (start !== saved) this.pending = saved;
+    this.requested = saved;
+    setCurrentLang(start);
+    this.document.documentElement.lang = start;
+  }
+
+  /**
+   * Resolves once the saved language is in effect (its dictionary loaded).
+   * The app waits for this at start-up (`provideI18n`), so a returning Greek
+   * visitor never sees English first. If Greek can't be loaded (offline), the
+   * app starts in English.
+   */
+  ready(): Promise<void> {
+    const lang = this.pending;
+    if (!lang) return Promise.resolve();
+    this.pending = null;
+    return loadDictionary(lang).then(
+      () => {
+        if (this.requested === lang) this.apply(lang);
+      },
+      () => undefined,
+    );
+  }
+
+  /** Start loading a language early (e.g. when the pointer reaches its button). */
+  preload(lang: Lang): void {
+    loadDictionary(lang).catch(() => undefined);
   }
 
   /** Only happens in tests (a new TestBed): the next one starts from English again. */
@@ -135,7 +199,24 @@ export class TranslationService implements OnDestroy {
     setCurrentLang(DEFAULT_LANG);
   }
 
-  setLang(lang: Lang): void {
+  /**
+   * Switch language. Instant when the dictionary is loaded (always for
+   * English); otherwise it switches as soon as Greek has loaded. The returned
+   * promise resolves when the switch is done (or rejects if Greek can't be
+   * loaded - the page then stays as it was).
+   */
+  setLang(lang: Lang): Promise<void> {
+    this.requested = lang;
+    if (DICTIONARIES[lang]) {
+      this.apply(lang);
+      return Promise.resolve();
+    }
+    return loadDictionary(lang).then(() => {
+      if (this.requested === lang) this.apply(lang);
+    });
+  }
+
+  private apply(lang: Lang): void {
     if (lang === currentLang()) return;
     setCurrentLang(lang);
     storeLang(lang);

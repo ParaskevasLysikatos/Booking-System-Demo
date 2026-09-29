@@ -4,12 +4,14 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AdminBadgesService } from '../../core/admin/admin-badges.service';
 import { AuthService } from '../../core/auth/auth.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 
 export const ADMIN_NAV = [
-  { path: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { path: 'properties', label: 'Properties', icon: 'holiday_village' },
-  { path: 'bookings', label: 'Bookings', icon: 'event_note' },
-  { path: 'reviews', label: 'Reviews', icon: 'reviews' },
+  // `label` is a dictionary key (TICKET-038).
+  { path: 'dashboard', label: 'admin.nav.dashboard', icon: 'dashboard' },
+  { path: 'properties', label: 'admin.nav.properties', icon: 'holiday_village' },
+  { path: 'bookings', label: 'admin.nav.bookings', icon: 'event_note' },
+  { path: 'reviews', label: 'admin.nav.reviews', icon: 'reviews' },
 ];
 
 /**
@@ -20,20 +22,20 @@ export const ADMIN_NAV = [
  */
 @Component({
   selector: 'app-admin-layout',
-  imports: [MatIconModule, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [MatIconModule, RouterLink, RouterLinkActive, RouterOutlet, TranslatePipe],
   template: `
     <div class="admin">
-      <nav class="side" aria-label="Admin">
-        <p class="heading">Admin</p>
+      <nav class="side" [attr.aria-label]="'admin.heading' | t">
+        <p class="heading">{{ 'admin.heading' | t }}</p>
         @for (item of nav; track item.path) {
           <a [routerLink]="item.path" routerLinkActive="active" ariaCurrentWhenActive="page">
-            <mat-icon>{{ item.icon }}</mat-icon><span>{{ item.label }}</span>
+            <mat-icon>{{ item.icon }}</mat-icon><span>{{ item.label | t }}</span>
             @if (item.path === 'bookings' && badges.pendingBookings(); as n) {
-              <span class="badge" [attr.aria-label]="n + ' pending ' + (n === 1 ? 'booking' : 'bookings')">{{ n }}</span>
+              <span class="badge" [attr.aria-label]="'admin.nav.pendingBadge' | t: { count: n }">{{ n }}</span>
             }
           </a>
         }
-        <a routerLink="/listings" class="back"><mat-icon>arrow_back</mat-icon><span>Back to site</span></a>
+        <a routerLink="/listings" class="back"><mat-icon>arrow_back</mat-icon><span>{{ 'admin.nav.backToSite' | t }}</span></a>
         @if (auth.currentUser(); as user) {
           <p class="who">{{ user.email }}</p>
         }

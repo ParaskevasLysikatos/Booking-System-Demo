@@ -2,25 +2,25 @@
 <section class="chart-card" aria-labelledby="rc-title">
   <header class="rc-head">
     <div>
-      <h2 id="rc-title">Revenue over time</h2>
-      <p class="rc-sub">{{ granularityText() }} · nights inside the period</p>
+      <h2 id="rc-title">{{ 'chart.title' | t }}</h2>
+      <p class="rc-sub">{{ 'chart.sub' | t: { granularity: granularityText() } }}</p>
     </div>
     <mat-button-toggle-group
       class="rc-view"
       [value]="view()"
       (change)="setView($event.value)"
       hideSingleSelectionIndicator
-      aria-label="Show revenue as"
+      [attr.aria-label]="'chart.showAs' | t"
     >
-      <mat-button-toggle value="chart">Chart</mat-button-toggle>
-      <mat-button-toggle value="table">Table</mat-button-toggle>
+      <mat-button-toggle value="chart">{{ 'chart.chart' | t }}</mat-button-toggle>
+      <mat-button-toggle value="table">{{ 'chart.table' | t }}</mat-button-toggle>
     </mat-button-toggle-group>
   </header>
 
   <!-- Two series -> a legend is always present (identity never by colour alone). -->
   <ul class="legend">
-    <li><span class="swatch revenue" aria-hidden="true"></span>Revenue (confirmed) <strong>{{ money(m.totals.revenue) }}</strong></li>
-    <li><span class="swatch expected" aria-hidden="true"></span>Expected (pending) <strong>{{ money(m.totals.expected) }}</strong></li>
+    <li><span class="swatch revenue" aria-hidden="true"></span>{{ 'chart.legendRevenue' | t }} <strong>{{ money(m.totals.revenue) }}</strong></li>
+    <li><span class="swatch expected" aria-hidden="true"></span>{{ 'chart.legendExpected' | t }} <strong>{{ money(m.totals.expected) }}</strong></li>
   </ul>
 
   @if (view() === 'chart') {
@@ -38,7 +38,7 @@
           [attr.width]="m.width"
           [attr.height]="svgHeight"
           role="group"
-          [attr.aria-label]="m.summary + ' Use the arrow keys to move between bars.'"
+          [attr.aria-label]="m.summary + ' ' + ('chart.keysHint' | t)"
           (pointerleave)="hide()"
         >
           <!-- hairline gridlines -->
@@ -73,7 +73,7 @@
               [attr.x]="m.todayX + (m.todayX > m.width - 44 ? -4 : 4)"
               [attr.y]="chart.top - 6"
               [attr.text-anchor]="m.todayX > m.width - 44 ? 'end' : 'start'"
-            >Today</text>
+            >{{ 'chart.today' | t }}</text>
           }
 
           <!-- Hit targets: the whole column slot, bigger than the bar. Roving tabindex. -->
@@ -99,39 +99,39 @@
       </div>
 
       @if (m.empty) {
-        <p class="empty" role="status">No revenue in this period</p>
+        <p class="empty" role="status">{{ 'chart.empty' | t }}</p>
       }
 
       @if (activeBar(); as a) {
         <div class="tooltip" [style.left.px]="tooltipLeft()" aria-hidden="true">
           <p class="tt-title">{{ a.title }}</p>
-          <p class="tt-row"><span class="key revenue"></span><strong>{{ money(a.revenue) }}</strong> revenue</p>
+          <p class="tt-row"><span class="key revenue"></span><span [innerHTML]="'chart.ttRevenue' | t: { amount: money(a.revenue) }"></span></p>
           @if (a.expected > 0) {
-            <p class="tt-row"><span class="key expected"></span><strong>{{ money(a.expected) }}</strong> expected</p>
+            <p class="tt-row"><span class="key expected"></span><span [innerHTML]="'chart.ttExpected' | t: { amount: money(a.expected) }"></span></p>
           }
           <p class="tt-nights">
-            {{ a.bucket.booked_nights }} booked {{ a.bucket.booked_nights === 1 ? 'night' : 'nights' }}
+            {{ 'chart.bookedNights' | t: { count: a.bucket.booked_nights } }}
             @if (a.bucket.pending_nights) {
-              · {{ a.bucket.pending_nights }} pending
+              {{ 'chart.pendingSuffix' | t: { count: a.bucket.pending_nights } }}
             }
           </p>
         </div>
       }
     </div>
     @if (scrolls()) {
-      <p class="scroll-note"><span aria-hidden="true">↔</span> Scroll sideways to see the whole period, or use the Table.</p>
+      <p class="scroll-note"><span aria-hidden="true">↔</span> {{ 'chart.scrollNote' | t }}</p>
     }
   } @else {
     <div class="table-wrap">
       <table>
-        <caption class="sr-only">Revenue over time, {{ granularityText().toLowerCase() }}</caption>
+        <caption class="sr-only">{{ 'chart.caption' | t: { granularity: granularityText().toLowerCase() } }}</caption>
         <thead>
           <tr>
-            <th scope="col">Period</th>
-            <th scope="col" class="num">Revenue</th>
-            <th scope="col" class="num">Expected</th>
-            <th scope="col" class="num nights">Booked nights</th>
-            <th scope="col" class="num nights">Pending nights</th>
+            <th scope="col">{{ 'chart.period' | t }}</th>
+            <th scope="col" class="num">{{ 'dashboard.revenue' | t }}</th>
+            <th scope="col" class="num">{{ 'dashboard.breakdown.expected' | t }}</th>
+            <th scope="col" class="num nights">{{ 'dashboard.breakdown.nights' | t }}</th>
+            <th scope="col" class="num nights">{{ 'chart.pendingNights' | t }}</th>
           </tr>
         </thead>
         <tbody>
@@ -147,7 +147,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <th scope="row">Total</th>
+            <th scope="row">{{ 'chart.total' | t }}</th>
             <td class="num">{{ money(m.totals.revenue) }}</td>
             <td class="num">{{ money(m.totals.expected) }}</td>
             <td class="num nights">{{ totalNights().booked }}</td>

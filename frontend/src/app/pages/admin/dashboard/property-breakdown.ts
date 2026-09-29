@@ -4,22 +4,23 @@ import { RouterLink } from '@angular/router';
 import { PropertyStats } from '../../../core/admin/admin-stats.models';
 import { formatPrice } from '../../../core/money';
 import { formatPercent } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 /** Per-property table under the dashboard cards: nights, occupancy meter, revenue, expected. */
 @Component({
   selector: 'app-property-breakdown',
-  imports: [RouterLink],
+  imports: [RouterLink, TranslatePipe],
   template: `
     <div class="wrap">
       <table>
-        <caption>By property · sorted by revenue</caption>
+        <caption>{{ 'dashboard.breakdown.caption' | t }}</caption>
         <thead>
           <tr>
-            <th scope="col">Property</th>
-            <th scope="col" class="num nights">Booked nights</th>
-            <th scope="col" class="occ">Occupancy</th>
-            <th scope="col" class="num">Revenue</th>
-            <th scope="col" class="num expected">Expected</th>
+            <th scope="col">{{ 'dashboard.breakdown.property' | t }}</th>
+            <th scope="col" class="num nights">{{ 'dashboard.breakdown.nights' | t }}</th>
+            <th scope="col" class="occ">{{ 'dashboard.occupancy' | t }}</th>
+            <th scope="col" class="num">{{ 'dashboard.revenue' | t }}</th>
+            <th scope="col" class="num expected">{{ 'dashboard.breakdown.expected' | t }}</th>
           </tr>
         </thead>
         <tbody>
@@ -28,12 +29,12 @@ import { formatPercent } from '../../../core/i18n/format';
               <th scope="row">
                 <a [routerLink]="['/listings', p.id]">{{ p.title }}</a>
                 @if (!p.is_active) {
-                  <span class="retired">Retired</span>
+                  <span class="retired">{{ 'dashboard.breakdown.retired' | t }}</span>
                 }
               </th>
               <td class="num nights">{{ p.booked_nights }}</td>
               <td class="occ">
-                <span class="meter" role="img" [attr.aria-label]="pct(p.occupancy_rate) + ' occupied'">
+                <span class="meter" role="img" [attr.aria-label]="'dashboard.breakdown.occupied' | t: { pct: pct(p.occupancy_rate) }">
                   <span class="fill" [style.width.%]="(p.occupancy_rate ?? 0) * 100"></span>
                 </span>
                 <span class="pct">{{ pct(p.occupancy_rate) }}</span>

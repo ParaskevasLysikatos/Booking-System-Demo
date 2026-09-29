@@ -8,7 +8,6 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { AdminPropertiesService, PropertyImageInput, PropertyWrite } from '../../../core/admin/admin-properties.service';
@@ -16,6 +15,9 @@ import { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
 import { AmenitiesPickerComponent } from './amenities-picker';
 import { ImagesEditorComponent } from './images-editor';
 import { LocationPickerComponent, MapPosition } from './location-picker';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
+import { PageTitle } from '../../../core/i18n/page-title';
 
 type LoadStatus = 'loading' | 'ready' | 'notFound' | 'error';
 
@@ -61,6 +63,7 @@ export function flattenMessages(value: unknown): string[] {
     AmenitiesPickerComponent,
     ImagesEditorComponent,
     LocationPickerComponent,
+    TranslatePipe,
   ],
   templateUrl: './property-form.html',
   styleUrl: './property-form.scss',
@@ -70,7 +73,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
   private readonly router = inject(Router);
   private readonly api = inject(AdminPropertiesService);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly titleService = inject(Title);
+  private readonly pageTitle = inject(PageTitle);
 
   /** null = creating a new property. */
   readonly id: number | null = (() => {
@@ -98,7 +101,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
   });
 
   constructor() {
-    this.titleService.setTitle(`${this.id === null ? 'New property' : 'Edit property'} · Admin · Booking System Demo`);
+    this.pageTitle.setKey(this.id === null ? 'adminForm.pageNew' : 'adminForm.pageEdit');
     if (this.id !== null) this.load(this.id);
   }
 
@@ -127,7 +130,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
               : null,
         });
         this.originalTitle.set(p.title);
-        this.titleService.setTitle(`Edit ${p.title} · Admin · Booking System Demo`);
+        this.pageTitle.setKey('adminForm.pageEditTitle', { title: p.title });
         this.status.set('ready');
       },
       error: (err) => this.status.set(err instanceof HttpErrorResponse && err.status === 404 ? 'notFound' : 'error'),
@@ -172,7 +175,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
     if (this.saving()) return;
     this.form.markAllAsTouched();
     if (this.form.invalid) {
-      this.error.set('Please fix the highlighted fields.');
+      this.error.set(translate('adminForm.fixFields'));
       return;
     }
     this.saving.set(true);
@@ -183,7 +186,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
       next: (p) => {
         this.saving.set(false);
         this.form.markAsPristine(); // nothing unsaved any more -> the guard lets us leave
-        this.snackBar.open(`Saved "${p.title}".`, 'OK', { duration: 4000 });
+        this.snackBar.open(translate('adminForm.saved', { title: p.title }), translate('common.ok'), { duration: 4000 });
         void this.router.navigate(['/admin/properties']);
       },
       error: (err) => {
@@ -197,21 +200,21 @@ export class PropertyFormPage implements HasUnsavedChanges {
     const c = this.form.controls[name];
     if (!c.touched || !c.errors) return null;
     if (c.errors['server']) return c.errors['server'];
-    if (c.errors['uploading']) return 'Wait for the photo uploads to finish, then save.';
-    if (c.errors['required']) return name === 'position' ? 'Set the map position: find the address or click the map.' : 'Required.';
-    if (c.errors['min']) return name === 'price' ? 'Must be more than €0.' : 'Must be at least 1.';
-    if (c.errors['max']) return 'Too large.';
-    if (c.errors['maxlength']) return `At most ${c.errors['maxlength'].requiredLength} characters.`;
-    if (c.errors['pattern']) return 'Whole number only.';
-    return 'Invalid value.';
+    if (c.errors['uploading']) return translate('adminForm.err.uploading');
+    if (c.errors['required']) return translate(name === 'position' ? 'adminForm.err.positionRequired' : 'adminForm.err.required');
+    if (c.errors['min']) return translate(name === 'price' ? 'adminForm.err.priceMin' : 'adminForm.err.min');
+    if (c.errors['max']) return translate('adminForm.err.max');
+    if (c.errors['maxlength']) return translate('adminForm.err.maxlength', { count: c.errors['maxlength'].requiredLength });
+    if (c.errors['pattern']) return translate('adminForm.err.pattern');
+    return translate('adminForm.err.invalid');
   }
 
   private applyServerErrors(err: unknown): void {
     if (!(err instanceof HttpErrorResponse) || err.status !== 400 || typeof err.error !== 'object' || !err.error) {
       this.error.set(
         err instanceof HttpErrorResponse && err.status === 0
-          ? "Can't reach the server. Your changes are still here - try again."
-          : 'Saving failed. Please try again.',
+          ? translate('adminForm.err.offline')
+          : translate('adminForm.err.saveFailed'),
       );
       return;
     }
@@ -226,6 +229,6 @@ export class PropertyFormPage implements HasUnsavedChanges {
         general.push(messages);
       }
     }
-    this.error.set(general.length ? general.join(' ') : 'Please fix the highlighted fields.');
+    this.error.set(general.length ? general.join(' ') : translate('adminForm.fixFields'));
   }
 }

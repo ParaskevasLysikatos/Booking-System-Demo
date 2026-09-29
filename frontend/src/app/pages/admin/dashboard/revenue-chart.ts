@@ -15,9 +15,10 @@ import {
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 
 import { RevenueSeries } from '../../../core/admin/admin-stats.models';
-import { CHART, ChartBar, GRANULARITY_TEXT, buildChart } from '../../../core/admin/revenue-chart';
+import { CHART, ChartBar, buildChart, granularityText } from '../../../core/admin/revenue-chart';
 import { todayLocal } from '../../../core/dates';
 import { formatPrice } from '../../../core/money';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 export const TOOLTIP_WIDTH = 200; // = .tooltip width in the SCSS
 const TOOLTIP_GAP = 8;
@@ -52,7 +53,7 @@ export function tooltipLeft(barLeft: number, barWidth: number, areaWidth: number
  */
 @Component({
   selector: 'app-revenue-chart',
-  imports: [MatButtonToggleModule],
+  imports: [MatButtonToggleModule, TranslatePipe],
   templateUrl: './revenue-chart.html',
   styleUrl: './revenue-chart.scss',
 })
@@ -76,7 +77,7 @@ export class RevenueChartComponent {
   readonly model = computed(() => buildChart(this.series(), this.plotWidth(), this.today()));
   /** The plot is wider than the card (a long daily range on a phone). */
   readonly scrolls = computed(() => this.model().width > this.plotWidth() + 1);
-  readonly granularityText = computed(() => GRANULARITY_TEXT[this.series().granularity]);
+  readonly granularityText = computed(() => granularityText(this.series().granularity));
   readonly activeBar = computed(() => {
     const i = this.active();
     return i === null ? null : (this.model().bars[i] ?? null);

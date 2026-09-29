@@ -104,7 +104,10 @@ follows the language ("Τετ 10 Μαρ 2027", "1.234,50 €", "4,7", "12,5%"). 
 property page, the booking form, login, register and the smaller pieces
 around them. Step 4 is done - My bookings (with the cancel and review
 dialogs), the Saved page, the payment return page, the payment and refund
-labels and the app's own error messages are in Greek too. See "Two
+labels and the app's own error messages are in Greek too. Step 5 is done -
+the whole admin area is in Greek (dashboard and revenue chart, bookings,
+properties list and form with photos and map position, reviews), and
+Greek is now a separate chunk loaded only when it's needed. See "Two
 languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
@@ -6170,7 +6173,7 @@ build or site.
    register, ...) - **done**.
 4. Guest pages, part 2 (My bookings, dialogs, Saved, payment screens,
    the app's own error messages) - **done**.
-5. The admin pages.
+5. The admin pages - **done**.
 6. The backend in Greek (Django `LocaleMiddleware`, `gettext`, `el` `.po`).
 7. Stripe's payment page in the same language (`locale` on the Checkout
    Session).
@@ -6180,7 +6183,8 @@ build or site.
 
 - **`en.json` / `el.json`** hold the texts under the same nested keys
   (`toolbar.logIn`, `mat.paginator.nextPage`, `titles.login`, ...). They
-  are bundled into the app (no extra request, no flash of English).
+  are loaded as described in "Greek loads only when it's needed" below
+  (English bundled; Greek a separate chunk, no flash of English).
   - Placeholders: `"Account menu for {email}"`.
   - Plurals: a key whose value is `{ "one": "{count} night", "other":
     "{count} nights" }` - the form is picked with `Intl.PluralRules` for
@@ -6342,11 +6346,10 @@ Checked in a browser (production build, API answers mocked, Greek chosen):
 listings, property page, booking step 2 and login at 1280 px and 390 px.
 No sideways scroll, no console errors, and Greek tab titles.
 
-**Bundle:** the initial bundle is 636 kB (+26 kB). Both dictionaries are in
-the main bundle, and Greek takes about twice the bytes of English (2 bytes
-per letter in UTF-8). Steps 4-5 will add roughly as much again. If that
-nears the 700 kB warning, `el.json` will be loaded only when Greek is
-chosen.
+**Bundle:** the initial bundle was 636 kB after this step (+26 kB, both
+dictionaries in the main bundle; Greek takes about twice the bytes of
+English - 2 bytes per letter in UTF-8). Step 5 moved Greek into its own
+chunk; see "Greek loads only when it's needed".
 
 ### Guest pages, part 2 (step 4)
 
@@ -6407,6 +6410,99 @@ Checked in a browser (production build, API answers mocked, Greek):
 
 `npm run check:i18n`: 396 key uses, all found. The initial bundle is
 651 kB.
+
+### Admin pages (step 5)
+
+The whole admin area is in Greek now:
+- **The side nav / phone tabs:** Πίνακας ελέγχου, Καταλύματα, Κρατήσεις,
+  Κριτικές, "Πίσω στον ιστότοπο", and the pending badge's label.
+- **The dashboard:**
+  - the period presets and the custom range
+  - "10 Ιουλ – 8 Αυγ 2026 · 30 νύχτες", and changes "έναντι Αυγούστου" /
+    "έναντι των προηγούμενων 30 ημερών"
+  - the four cards; points are "μον." ("▲ 6,7 μον.")
+  - the per-property table
+  - the revenue chart: title, By day / week / month, legend, axis
+    "1,5k €", Today, tooltip, "(μερική εβδομάδα)" buckets, the Table view,
+    and every screen-reader label and summary
+- **Bookings:**
+  - tabs, filters, columns (also the labels in the phone card view, which
+    come from `data-label`), chips, "έως τις 14:32", the buttons
+  - the Confirm / Cancel / Refund dialogs, and every snackbar with the
+    refund outcomes
+- **Properties list:** status toggle, search, sort, columns, "Αποθηκεύτηκε
+  από 3 επισκέπτες", the ⋮ menu, the Retire dialog, the snackbars.
+- **The property form:**
+  - headings, labels, placeholders, the Active switch
+  - all validation messages ("Υποχρεωτικό.", "Έως 200 χαρακτήρες.") and
+    save errors, the tab titles
+  - **amenities picker**
+  - **photos editor:** drop zone, upload rows ("Μεταφόρτωση 40%"), cover
+    star, and every upload error, including the S3 ones
+  - **map position:** Find on map, "Τοποθετήθηκε στο **…** (οδός)",
+    nothing found, errors
+- **Reviews:** filters, columns, Ορατή / Κρυφή, Hide / Show, the dialogs and
+  snackbars.
+- **"Discard unsaved changes?"** (the leave-the-form guard).
+
+The place names from OpenStreetMap ("Placed at …") stay plain text, never
+`[innerHTML]` - the rule from step 3: only app-formatted values go into
+`[innerHTML]` texts.
+
+The bookings tabs didn't fit a phone in Greek either, so they get the same
+narrower tabs as My bookings.
+
+### Greek loads only when it's needed
+
+With the admin texts, the two dictionaries grew to ~90 kB (Greek alone is
+56 kB), and the initial bundle reached 683 kB - close to the 700 kB
+warning. Now:
+
+- **English stays in the main bundle.** It's the default and the fallback
+  for any gap.
+- **Greek is its own chunk** (`import('./el.json')`, 49 kB / 11 kB gzipped),
+  loaded the first time it's needed:
+  - **Switching to ΕΛ** loads it, then switches. It's already prefetched when
+    the pointer reaches (or the keyboard focuses) the ΕΛ button, so the
+    click is usually instant.
+  - **A returning Greek visitor:** the app initializer (`provideI18n` →
+    `TranslationService.ready()`) waits for the chunk before the first
+    render, so the page never flashes English first.
+  - **If the chunk can't load** (offline), the app starts in or stays in
+    English. A later click tries again.
+  - **Clicking EN while Greek is still loading** keeps English (the latest
+    click wins).
+- `setLang()` now returns a promise. It is still instant (synchronous) when
+  the dictionary is already there, which it always is for English.
+- **In tests,** `src/test-setup.ts` loads Greek up front, so specs can
+  switch synchronously. `translation.service.spec.ts` covers the lazy path
+  by removing it.
+
+Result: **initial bundle 635 kB** (was 683 kB), below where it was before
+step 4.
+
+Tests (9 new, **475 frontend tests**; every existing admin test still passes
+in English):
+- **Dashboard:** `buildCards` in Greek (money, %, points, the occupancy
+  line), and the rendered page (presets, cards, chart, table).
+- **Admin bookings:** the table, the chips and the confirm dialog text.
+- **Properties list:** headings, chips, count and saved-by.
+- **Property form:** validation messages, headings, and the amenity names.
+- **Admin reviews:** count, chips, buttons and the stars' label.
+- **Lazy loading:** a switch loads Greek first; a saved Greek choice starts
+  in English until `ready()`; clicking EN during a slow load keeps
+  English.
+
+Checked in a browser (production build, API answers mocked, Greek saved
+from a previous visit):
+- the dashboard, bookings, properties, the new-property form and reviews
+  opened straight in Greek (headings and tab titles Greek on first render),
+  at 1280 and 390 px
+- no sideways scroll, no console errors
+- on a fresh visit, clicking ΕΛ fetched the Greek chunk (the only file
+  containing Greek text) and switched the login page and tab title
+
+`npm run check:i18n`: 734 key uses, all found.
 
 ### Material's own texts, per page
 
@@ -7302,9 +7398,10 @@ listings, cards, map, property page, booking form, login, register - in
 Greek, plus `npm run check:i18n`) is done; see "Two languages → Guest
 pages"; step 4 (My bookings + its dialogs, the review dialog, Saved, the
 payment return page, payment/refund labels, the app's own error messages)
-is done; see "Two languages → Guest pages, part 2". Next: the admin pages
-(step 5),
-the backend in Greek (step 6), Stripe's page language (step 7) and the
+is done; see "Two languages → Guest pages, part 2"; step 5 (the admin
+area in Greek, plus Greek as a lazy chunk: initial bundle 683 → 635 kB) is
+done; see "Two languages → Admin pages" and "Greek loads only when it's
+needed". Next: the backend in Greek (step 6), Stripe's page language (step 7) and the
 final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").

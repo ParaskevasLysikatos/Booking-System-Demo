@@ -23,6 +23,8 @@ import { Paginated, PropertyOrdering, PropertySummary } from '../../../core/prop
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
 import { formatNumber } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 export interface AdminListQuery {
   status: PropertyStatusFilter;
@@ -63,6 +65,7 @@ type ListState = { status: 'loading' } | { status: 'ok'; data: Paginated<Propert
     MatSelectModule,
     MatTableModule,
     MatTooltipModule,
+    TranslatePipe,
   ],
   templateUrl: './admin-property-list.html',
   providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
@@ -79,10 +82,11 @@ export class AdminPropertyListPage {
   readonly pageSize = ADMIN_PAGE_SIZE;
   readonly formatPrice = formatPrice;
   readonly sortOptions: { value: PropertyOrdering; label: string }[] = [
-    { value: 'newest', label: 'Newest' },
-    { value: 'price', label: 'Price: low to high' },
-    { value: '-price', label: 'Price: high to low' },
-    { value: '-capacity', label: 'Most guests' },
+    // `label` is a dictionary key (TICKET-038).
+    { value: 'newest', label: 'listings.sort.newest' },
+    { value: 'price', label: 'listings.sort.priceAsc' },
+    { value: '-price', label: 'listings.sort.priceDesc' },
+    { value: '-capacity', label: 'listings.sort.capacityDesc' },
   ];
 
   /** Status, search, sort and page all live in the URL. */
@@ -136,18 +140,17 @@ export class AdminPropertyListPage {
 
   retire(p: PropertySummary): void {
     this.confirm({
-      title: `Retire "${p.title}"?`,
-      message:
-        "It will be hidden from guests and can't be booked any more. Existing bookings, reviews and stats are kept, and you can reactivate it at any time.",
-      confirmLabel: 'Retire property',
+      title: translate('adminProps.retireDialog.title', { title: p.title }),
+      message: translate('adminProps.retireDialog.message'),
+      confirmLabel: translate('adminProps.retireDialog.confirm'),
       danger: true,
     })
       .pipe(filter(Boolean))
-      .subscribe(() => this.run(p, this.api.retire(p.id), `"${p.title}" retired - hidden from guests.`));
+      .subscribe(() => this.run(p, this.api.retire(p.id), translate('adminProps.retiredDone', { title: p.title })));
   }
 
   reactivate(p: PropertySummary): void {
-    this.run(p, this.api.reactivate(p.id), `"${p.title}" is active again.`);
+    this.run(p, this.api.reactivate(p.id), translate('adminProps.reactivated', { title: p.title }));
   }
 
   /** How many accounts saved it (TICKET-033) - admin responses carry `favorite_count`. */
@@ -157,11 +160,11 @@ export class AdminPropertyListPage {
 
   savedByLabel(p: PropertySummary): string {
     const n = this.savedBy(p);
-    return `Saved by ${n} ${n === 1 ? 'guest' : 'guests'}`;
+    return translate('adminProps.savedBy', { count: n });
   }
 
   rating(p: PropertySummary): string {
-    return p.rating_avg ? `★ ${formatNumber(p.rating_avg, 1)} (${p.review_count})` : 'New';
+    return p.rating_avg ? `★ ${formatNumber(p.rating_avg, 1)} (${p.review_count})` : translate('common.new');
   }
 
   private run(p: PropertySummary, request: Observable<unknown>, success: string): void {
@@ -169,13 +172,13 @@ export class AdminPropertyListPage {
     request.subscribe({
       next: () => {
         this.busy.set(null);
-        this.snackBar.open(success, 'OK', { duration: 4000 });
+        this.snackBar.open(success, translate('common.ok'), { duration: 4000 });
         this.refresh$.next();
       },
       error: (err) => {
         this.busy.set(null);
         const parsed = parseApiErrors(err);
-        this.snackBar.open(parsed.general ?? 'Something went wrong. Please try again.', 'OK', { duration: 6000 });
+        this.snackBar.open(parsed.general ?? translate('errors.generic'), translate('common.ok'), { duration: 6000 });
       },
     });
   }

@@ -16,6 +16,8 @@
         [attr.aria-label]="names[lang]"
         [attr.lang]="lang"
         (click)="i18n.setLang(lang)"
+        (pointerenter)="i18n.preload(lang)"
+        (focus)="i18n.preload(lang)"
       >{{ short[lang] }}</button>
     }
   </div>

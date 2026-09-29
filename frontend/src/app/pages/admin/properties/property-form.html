@@ -1,4 +1,4 @@
-<a mat-button routerLink="/admin/properties" class="back"><mat-icon>arrow_back</mat-icon> All properties</a>
+<a mat-button routerLink="/admin/properties" class="back"><mat-icon>arrow_back</mat-icon> {{ 'adminForm.allProperties' | t }}</a>
 
 @switch (status()) {
   @case ('loading') {
@@ -7,22 +7,22 @@
   @case ('notFound') {
     <div class="message">
       <mat-icon>search_off</mat-icon>
-      <p>This property doesn't exist.</p>
-      <a mat-stroked-button routerLink="/admin/properties">Back to properties</a>
+      <p>{{ 'adminForm.notFound' | t }}</p>
+      <a mat-stroked-button routerLink="/admin/properties">{{ 'adminForm.backToProperties' | t }}</a>
     </div>
   }
   @case ('error') {
     <div class="message" role="alert">
       <mat-icon>cloud_off</mat-icon>
-      <p>Couldn't load this property.</p>
-      <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      <p>{{ 'adminForm.loadFailed' | t }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
     </div>
   }
   @case ('ready') {
     <header class="head">
-      <h1>{{ id === null ? 'New property' : 'Edit ' + originalTitle() }}</h1>
+      <h1>{{ id === null ? ('adminForm.headingNew' | t) : ('adminForm.headingEdit' | t: { title: originalTitle() }) }}</h1>
       @if (id !== null) {
-        <a mat-button [routerLink]="['/listings', id]" target="_blank"><mat-icon>open_in_new</mat-icon>View public page</a>
+        <a mat-button [routerLink]="['/listings', id]" target="_blank"><mat-icon>open_in_new</mat-icon>{{ 'adminProps.viewPublic' | t }}</a>
       }
     </header>
 
@@ -32,63 +32,63 @@
       }
 
       <section class="card">
-        <h2>Details</h2>
+        <h2>{{ 'adminForm.details' | t }}</h2>
         <mat-form-field appearance="outline">
-          <mat-label>Title</mat-label>
-          <input matInput formControlName="title" placeholder="e.g. Harbour Loft" required />
+          <mat-label>{{ 'adminForm.title' | t }}</mat-label>
+          <input matInput formControlName="title" [placeholder]="'adminForm.titlePlaceholder' | t" required />
           @if (controlError('title'); as e) { <mat-error>{{ e }}</mat-error> }
         </mat-form-field>
         <mat-form-field appearance="outline">
-          <mat-label>Location</mat-label>
-          <input matInput formControlName="location" placeholder="e.g. Chania, Greece" required />
+          <mat-label>{{ 'adminForm.location' | t }}</mat-label>
+          <input matInput formControlName="location" [placeholder]="'adminForm.locationPlaceholder' | t" required />
           @if (controlError('location'); as e) { <mat-error>{{ e }}</mat-error> }
         </mat-form-field>
         <mat-form-field appearance="outline">
-          <mat-label>Description</mat-label>
+          <mat-label>{{ 'adminForm.description' | t }}</mat-label>
           <textarea matInput formControlName="description" rows="4"></textarea>
           @if (controlError('description'); as e) { <mat-error>{{ e }}</mat-error> }
         </mat-form-field>
         <div class="row">
           <mat-form-field appearance="outline">
-            <mat-label>Price per night</mat-label>
+            <mat-label>{{ 'adminForm.price' | t }}</mat-label>
             <span matTextPrefix>€&nbsp;</span>
             <input matInput type="number" min="0.01" step="0.01" formControlName="price" required />
             @if (controlError('price'); as e) { <mat-error>{{ e }}</mat-error> }
           </mat-form-field>
           <mat-form-field appearance="outline">
-            <mat-label>Sleeps (guests)</mat-label>
+            <mat-label>{{ 'adminForm.capacity' | t }}</mat-label>
             <input matInput type="number" min="1" step="1" formControlName="capacity" required />
             @if (controlError('capacity'); as e) { <mat-error>{{ e }}</mat-error> }
           </mat-form-field>
         </div>
         <mat-slide-toggle formControlName="isActive">
-          {{ form.controls.isActive.value ? 'Active - visible and bookable' : 'Retired - hidden from guests' }}
+          {{ (form.controls.isActive.value ? 'adminForm.activeOn' : 'adminForm.activeOff') | t }}
         </mat-slide-toggle>
       </section>
 
       <!-- TICKET-034 step 7: required map position. -->
       <section class="card" aria-labelledby="position-heading">
-        <h2 id="position-heading">Map position</h2>
-        <p class="hint">Guests see a ~500 m area around it, never the exact spot. Only admins see the pin.</p>
+        <h2 id="position-heading">{{ 'adminForm.mapPosition' | t }}</h2>
+        <p class="hint">{{ 'adminForm.mapHint' | t }}</p>
         <app-location-picker formControlName="position" [locationText]="form.controls.location.value" />
         @if (controlError('position'); as e) { <p class="err" role="alert">{{ e }}</p> }
       </section>
 
       <section class="card">
-        <h2>Amenities</h2>
+        <h2>{{ 'adminForm.amenities' | t }}</h2>
         <app-amenities-picker formControlName="amenities" />
         @if (controlError('amenities'); as e) { <p class="err">{{ e }}</p> }
       </section>
 
       <section class="card">
-        <h2>Photos</h2>
+        <h2>{{ 'adminForm.photos' | t }}</h2>
         <app-images-editor formControlName="images" [error]="controlError('images')" />
       </section>
 
       <div class="actions">
-        <a mat-button routerLink="/admin/properties">Cancel</a>
+        <a mat-button routerLink="/admin/properties">{{ 'common.cancel' | t }}</a>
         <button mat-flat-button type="submit" class="save" [disabled]="saving()">
-          @if (saving()) { <mat-spinner diameter="20" /> } @else { {{ id === null ? 'Create property' : 'Save changes' }} }
+          @if (saving()) { <mat-spinner diameter="20" /> } @else { {{ (id === null ? 'adminForm.create' : 'adminForm.saveChanges') | t }} }
         </button>
       </div>
     </form>

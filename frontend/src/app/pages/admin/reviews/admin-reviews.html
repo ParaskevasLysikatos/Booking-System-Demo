@@ -1,35 +1,35 @@
-<h1>Reviews</h1>
-<p class="intro">Hiding a review removes it from the property page and its rating. Nothing is deleted, and it can be shown again.</p>
+<h1>{{ 'admin.nav.reviews' | t }}</h1>
+<p class="intro">{{ 'adminReviews.intro' | t }}</p>
 
 <div class="filters">
-  <mat-button-toggle-group [value]="query().visibility" (change)="setVisibility($event.value)" hideSingleSelectionIndicator aria-label="Visibility">
-    <mat-button-toggle value="all">All</mat-button-toggle>
-    <mat-button-toggle value="visible">Visible</mat-button-toggle>
-    <mat-button-toggle value="hidden">Hidden</mat-button-toggle>
+  <mat-button-toggle-group [value]="query().visibility" (change)="setVisibility($event.value)" hideSingleSelectionIndicator [attr.aria-label]="'adminReviews.visibility' | t">
+    <mat-button-toggle value="all">{{ 'adminProps.all' | t }}</mat-button-toggle>
+    <mat-button-toggle value="visible">{{ 'adminReviews.filter.visible' | t }}</mat-button-toggle>
+    <mat-button-toggle value="hidden">{{ 'adminReviews.filter.hidden' | t }}</mat-button-toggle>
   </mat-button-toggle-group>
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search">
     <mat-icon matIconPrefix>search</mat-icon>
-    <mat-label>Search guest, property or comment</mat-label>
+    <mat-label>{{ 'adminReviews.search' | t }}</mat-label>
     <input matInput [formControl]="search" />
   </mat-form-field>
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="prop">
-    <mat-label>Property</mat-label>
+    <mat-label>{{ 'dashboard.breakdown.property' | t }}</mat-label>
     <mat-select [value]="query().property" (selectionChange)="setProperty($event.value)">
-      <mat-option [value]="null">All properties</mat-option>
+      <mat-option [value]="null">{{ 'adminBookings.allProperties' | t }}</mat-option>
       @for (p of propertyOptions(); track p.id) {
-        <mat-option [value]="p.id">{{ p.title }}{{ p.active ? '' : ' (retired)' }}</mat-option>
+        <mat-option [value]="p.id">{{ p.title }}{{ p.active ? '' : ('adminBookings.retiredSuffix' | t) }}</mat-option>
       }
     </mat-select>
   </mat-form-field>
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="stars">
-    <mat-label>Rating</mat-label>
+    <mat-label>{{ 'adminProps.col.rating' | t }}</mat-label>
     <mat-select [value]="query().rating" (selectionChange)="setRating($event.value)">
-      <mat-option [value]="null">Any rating</mat-option>
+      <mat-option [value]="null">{{ 'adminReviews.anyRating' | t }}</mat-option>
       @for (n of ratings; track n) {
-        <mat-option [value]="n">{{ n }} {{ n === 1 ? 'star' : 'stars' }}</mat-option>
+        <mat-option [value]="n">{{ 'reviews.stars' | t: { count: n } }}</mat-option>
       }
     </mat-select>
   </mat-form-field>
@@ -37,15 +37,15 @@
 
 @switch (state().status) {
   @case ('loading') {
-    <div class="skeleton" aria-busy="true" aria-label="Loading reviews">
+    <div class="skeleton" aria-busy="true" [attr.aria-label]="'reviews.loading' | t">
       @for (i of [1, 2, 3, 4, 5]; track i) { <div class="row"></div> }
     </div>
   }
   @case ('error') {
     <div class="message" role="alert">
       <mat-icon>cloud_off</mat-icon>
-      <p>Couldn't load the reviews.</p>
-      <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      <p>{{ 'adminReviews.loadFailed' | t }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
     </div>
   }
   @case ('ok') {
@@ -53,58 +53,58 @@
     @if (d.count === 0) {
       <div class="message">
         <mat-icon>rate_review</mat-icon>
-        <p>{{ filtered() ? 'No reviews match these filters.' : 'No reviews yet.' }}</p>
+        <p>{{ (filtered() ? 'adminReviews.noMatch' : 'adminReviews.none') | t }}</p>
         @if (filtered()) {
-          <button mat-stroked-button type="button" (click)="clearFilters()">Clear filters</button>
+          <button mat-stroked-button type="button" (click)="clearFilters()">{{ 'listings.clearFilters' | t }}</button>
         }
       </div>
     } @else {
-      <p class="count">{{ d.count }} {{ d.count === 1 ? 'review' : 'reviews' }}</p>
+      <p class="count">{{ 'common.reviews' | t: { count: d.count } }}</p>
       <div class="table-wrap">
         <!-- Tablets and phones: each row renders as a card (CSS only, like the other admin tables). -->
         <table mat-table [dataSource]="d.results">
           <ng-container matColumnDef="date">
-            <th mat-header-cell *matHeaderCellDef>Posted</th>
-            <td mat-cell *matCellDef="let r" class="muted date" data-label="Posted">{{ date(r.created_at) }}</td>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminReviews.col.posted' | t }}</th>
+            <td mat-cell *matCellDef="let r" class="muted date" [attr.data-label]="'adminReviews.col.posted' | t">{{ date(r.created_at) }}</td>
           </ng-container>
           <ng-container matColumnDef="property">
-            <th mat-header-cell *matHeaderCellDef>Property</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'dashboard.breakdown.property' | t }}</th>
             <td mat-cell *matCellDef="let r" class="property">
               <a [routerLink]="['/listings', r.property.id]">{{ r.property.title }}</a>
             </td>
           </ng-container>
           <ng-container matColumnDef="guest">
-            <th mat-header-cell *matHeaderCellDef>Guest</th>
-            <td mat-cell *matCellDef="let r" class="guest" data-label="Guest">
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminBookings.col.guest' | t }}</th>
+            <td mat-cell *matCellDef="let r" class="guest" [attr.data-label]="'adminBookings.col.guest' | t">
               <span>{{ r.author_name }} <span class="email" [attr.title]="r.guest_email">{{ r.guest_email }}</span></span>
             </td>
           </ng-container>
           <ng-container matColumnDef="rating">
-            <th mat-header-cell *matHeaderCellDef>Rating</th>
-            <td mat-cell *matCellDef="let r" class="rating" data-label="Rating"><app-star-rating [rating]="r.rating" [size]="16" /></td>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminProps.col.rating' | t }}</th>
+            <td mat-cell *matCellDef="let r" class="rating" [attr.data-label]="'adminProps.col.rating' | t"><app-star-rating [rating]="r.rating" [size]="16" /></td>
           </ng-container>
           <ng-container matColumnDef="comment">
-            <th mat-header-cell *matHeaderCellDef>Comment</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminReviews.col.comment' | t }}</th>
             <td mat-cell *matCellDef="let r" class="comment">
               @if (r.comment) {
                 <span [attr.title]="r.comment">{{ r.comment }}</span>
               } @else {
-                <span class="muted">No comment</span>
+                <span class="muted">{{ 'adminReviews.noComment' | t }}</span>
               }
             </td>
           </ng-container>
           <ng-container matColumnDef="status">
-            <th mat-header-cell *matHeaderCellDef>Status</th>
+            <th mat-header-cell *matHeaderCellDef>{{ 'adminProps.status' | t }}</th>
             <td mat-cell *matCellDef="let r" class="status">
-              <span class="chip" [class.hidden]="r.is_hidden">{{ r.is_hidden ? 'Hidden' : 'Visible' }}</span>
+              <span class="chip" [class.hidden]="r.is_hidden">{{ (r.is_hidden ? 'adminReviews.hidden' : 'adminReviews.visible') | t }}</span>
             </td>
           </ng-container>
           <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">Actions</span></th>
+            <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">{{ 'adminBookings.col.actions' | t }}</span></th>
             <td mat-cell *matCellDef="let r" class="actions">
               <button mat-stroked-button type="button" [class.hide]="!r.is_hidden" (click)="toggleHidden(r)" [disabled]="busy() !== null"
-                      [attr.aria-label]="(r.is_hidden ? 'Show ' : 'Hide ') + r.author_name + '\'s review of ' + r.property.title">
-                <mat-icon>{{ r.is_hidden ? 'visibility' : 'visibility_off' }}</mat-icon>{{ r.is_hidden ? 'Show' : 'Hide' }}
+                      [attr.aria-label]="(r.is_hidden ? 'adminReviews.showAria' : 'adminReviews.hideAria') | t: { name: r.author_name, title: r.property.title }">
+                <mat-icon>{{ r.is_hidden ? 'visibility' : 'visibility_off' }}</mat-icon>{{ (r.is_hidden ? 'adminReviews.show' : 'adminReviews.hide') | t }}
               </button>
             </td>
           </ng-container>
@@ -113,7 +113,7 @@
         </table>
       </div>
       @if (d.count > pageSize) {
-        <mat-paginator [length]="d.count" [pageIndex]="query().page - 1" [pageSize]="pageSize" [hidePageSize]="true" (page)="onPage($event)" aria-label="Choose page" />
+        <mat-paginator [length]="d.count" [pageIndex]="query().page - 1" [pageSize]="pageSize" [hidePageSize]="true" (page)="onPage($event)" [attr.aria-label]="'adminBookings.pages' | t" />
       }
     }
   }

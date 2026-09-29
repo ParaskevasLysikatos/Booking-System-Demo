@@ -32,6 +32,8 @@ import { PropertyBreakdownComponent } from './property-breakdown';
 import { RevenueChartComponent } from './revenue-chart';
 import { provideLocalizedDatepicker } from '../../../core/i18n/datepicker-i18n';
 import { formatPercent } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 type DashState =
   | { status: 'loading' }
@@ -77,9 +79,11 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
     revenueDelta: prev ? percentDelta(Number(cur.revenue.confirmed), Number(prev.revenue.confirmed)) : null,
     occupancyPct: rate === null ? '–' : formatPercent(rate, 1),
     occupancyWidth: (rate ?? 0) * 100,
-    occupancyDetail:
-      `${cur.occupancy.booked_nights} of ${cur.occupancy.available_nights} nights booked · ` +
-      `${cur.occupancy.active_properties} active ${cur.occupancy.active_properties === 1 ? 'property' : 'properties'}`,
+    occupancyDetail: translate('dashboard.occupancyDetail', {
+      booked: cur.occupancy.booked_nights,
+      available: cur.occupancy.available_nights,
+      properties: translate('dashboard.activeProperties', { count: cur.occupancy.active_properties }),
+    }),
     pendingNights: cur.occupancy.pending_nights,
     occupancyDelta: prev ? pointsDelta(rate, prev.occupancy.rate) : null,
     stays,
@@ -107,6 +111,7 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
     MatInputModule,
     PropertyBreakdownComponent,
     RevenueChartComponent,
+    TranslatePipe,
   ],
   providers: [provideLocalizedDatepicker()], // date pickers in the chosen language (TICKET-038)
   templateUrl: './dashboard.html',
@@ -202,7 +207,7 @@ export class AdminDashboardPage {
   }
 
   deltaLabel(d: Delta): string {
-    const tone = d.good === null ? '' : d.good ? ' (better)' : ' (worse)';
+    const tone = d.good === null ? '' : translate(d.good ? 'dashboard.better' : 'dashboard.worse');
     return `${d.text} ${this.comparison().label}${tone}`;
   }
 

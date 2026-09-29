@@ -28,6 +28,7 @@ export interface GeocodeResponse {
   attribution: string;
 }
 
+/** English precision words; the form shows `geocode.precision.<key>` in the chosen language (TICKET-038). */
 export const PRECISION_LABELS: Record<GeocodePrecision, string> = {
   address: 'exact address',
   street: 'street',

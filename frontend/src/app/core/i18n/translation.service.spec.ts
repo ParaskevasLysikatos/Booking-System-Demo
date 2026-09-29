@@ -106,4 +106,42 @@ describe('TranslationService (TICKET-038)', () => {
     expect(i18n.has('titles.login')).toBe(true);
     expect(i18n.has('Some literal title')).toBe(false);
   });
+
+  describe('Greek is loaded lazily (a separate chunk)', () => {
+    let greek: typeof DICTIONARIES.el;
+    beforeEach(() => {
+      greek = DICTIONARIES.el;
+      delete DICTIONARIES.el; // as in the app before Greek is first needed
+    });
+    afterEach(() => {
+      DICTIONARIES.el = greek;
+    });
+
+    it('a switch loads it first, then changes the language', async () => {
+      const i18n = create();
+      const switching = i18n.setLang('el');
+      expect(i18n.lang()).toBe('en'); // not yet - still loading
+      await switching;
+      expect(i18n.lang()).toBe('el');
+      expect(i18n.t('toolbar.logIn')).toBe('Σύνδεση');
+      expect(localStorage.getItem(LANG_STORAGE_KEY)).toBe('el');
+    });
+
+    it('a saved Greek choice: starts in English, ready() switches before the first render', async () => {
+      const i18n = create('el');
+      expect(i18n.lang()).toBe('en');
+      await i18n.ready();
+      expect(i18n.lang()).toBe('el');
+      expect(i18n.t('toolbar.logIn')).toBe('Σύνδεση');
+      expect(document.documentElement.lang).toBe('el');
+    });
+
+    it('clicking EN while Greek is still loading keeps English', async () => {
+      const i18n = create();
+      const slow = i18n.setLang('el');
+      await i18n.setLang('en');
+      await slow;
+      expect(i18n.lang()).toBe('en');
+    });
+  });
 });

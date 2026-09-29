@@ -81,9 +81,8 @@ describe('dates and money in the chosen language (TICKET-038 step 2)', () => {
     expect(formatRange(new Date(2026, 8, 1), new Date(2026, 8, 30))).toBe('1 – 30 Σεπ 2026');
     expect(formatRange(new Date(2026, 7, 15), new Date(2026, 8, 14))).toBe('15 Αυγ – 14 Σεπ 2026');
     expect(formatRange(new Date(2025, 9, 1), new Date(2026, 8, 30))).toBe('1 Οκτ 2025 – 30 Σεπ 2026');
-    // The label's words are translated in step 5; the month is already Greek.
-    expect(previousPeriod(new Date(2026, 8, 1), new Date(2026, 8, 30)).label).toContain('Αυγούστου');
-    expect(pointsDelta(0.5, 0.375)!.text).toBe('▲ 12,5 pts');
+    expect(previousPeriod(new Date(2026, 8, 1), new Date(2026, 8, 30)).label).toBe('έναντι Αυγούστου'); // genitive month (step 5 words)
+    expect(pointsDelta(0.5, 0.375)!.text).toBe('▲ 12,5 μον.');
   });
 
   it('revenue chart: axis money and bucket titles', () => {

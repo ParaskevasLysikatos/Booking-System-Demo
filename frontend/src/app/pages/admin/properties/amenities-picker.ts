@@ -8,6 +8,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
 import { KNOWN_AMENITIES, amenityIcon, amenityLabel, toAmenityKey } from '../../../core/amenities';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 /**
  * Amenities for the property form (TICKET-024): a checklist of the known
@@ -16,10 +17,10 @@ import { KNOWN_AMENITIES, amenityIcon, amenityLabel, toAmenityKey } from '../../
  */
 @Component({
   selector: 'app-amenities-picker',
-  imports: [ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatChipsModule, MatFormFieldModule, MatIconModule, MatInputModule],
+  imports: [ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatChipsModule, MatFormFieldModule, MatIconModule, MatInputModule, TranslatePipe],
   providers: [{ provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => AmenitiesPickerComponent), multi: true }],
   template: `
-    <div class="grid" role="group" aria-label="Amenities">
+    <div class="grid" role="group" [attr.aria-label]="'amenityPicker.group' | t">
       @for (key of known; track key) {
         <mat-checkbox [checked]="selected().includes(key)" (change)="toggle(key, $event.checked)" [disabled]="disabled()">
           <span class="opt"><mat-icon>{{ icon(key) }}</mat-icon>{{ label(key) }}</span>
@@ -29,17 +30,17 @@ import { KNOWN_AMENITIES, amenityIcon, amenityLabel, toAmenityKey } from '../../
 
     <div class="custom">
       <mat-form-field appearance="outline" subscriptSizing="dynamic">
-        <mat-label>Other amenity</mat-label>
-        <input matInput [formControl]="custom" placeholder="e.g. Hot tub" maxlength="50" (keydown.enter)="$event.preventDefault(); addCustom()" />
+        <mat-label>{{ 'amenityPicker.other' | t }}</mat-label>
+        <input matInput [formControl]="custom" [placeholder]="'amenityPicker.otherPlaceholder' | t" maxlength="50" (keydown.enter)="$event.preventDefault(); addCustom()" />
       </mat-form-field>
-      <button mat-stroked-button type="button" (click)="addCustom()" [disabled]="disabled() || !custom.value.trim()">Add</button>
+      <button mat-stroked-button type="button" (click)="addCustom()" [disabled]="disabled() || !custom.value.trim()">{{ 'amenityPicker.add' | t }}</button>
     </div>
     @if (customKeys().length) {
-      <mat-chip-set aria-label="Other amenities">
+      <mat-chip-set [attr.aria-label]="'amenityPicker.others' | t">
         @for (key of customKeys(); track key) {
           <mat-chip (removed)="toggle(key, false)" [disabled]="disabled()">
             {{ label(key) }}
-            <button matChipRemove [attr.aria-label]="'Remove ' + label(key)"><mat-icon>cancel</mat-icon></button>
+            <button matChipRemove [attr.aria-label]="'amenityPicker.remove' | t: { label: label(key) }"><mat-icon>cancel</mat-icon></button>
           </mat-chip>
         }
       </mat-chip-set>

@@ -1,7 +1,7 @@
 <header class="head">
   <div>
-    <h1>Dashboard</h1>
-    <p class="range">{{ rangeText() }} · {{ nights() }} nights <span class="muted">· changes shown {{ comparison().label }}</span></p>
+    <h1>{{ 'admin.nav.dashboard' | t }}</h1>
+    <p class="range">{{ 'dashboard.range' | t: { range: rangeText(), nights: ('common.nights' | t: { count: nights() }) } }} <span class="muted">{{ 'dashboard.changesShown' | t: { label: comparison().label } }}</span></p>
   </div>
 </header>
 
@@ -10,20 +10,20 @@
     [value]="toggleValue()"
     (change)="selectPreset($event.value)"
     hideSingleSelectionIndicator
-    aria-label="Period"
+    [attr.aria-label]="'dashboard.period' | t"
   >
     @for (p of presets; track p.key) {
-      <mat-button-toggle [value]="p.key">{{ p.label }}</mat-button-toggle>
+      <mat-button-toggle [value]="p.key">{{ p.label | t }}</mat-button-toggle>
     }
-    <mat-button-toggle value="custom">Custom…</mat-button-toggle>
+    <mat-button-toggle value="custom">{{ 'dashboard.custom' | t }}</mat-button-toggle>
   </mat-button-toggle-group>
 
   @if (showCustom()) {
     <mat-form-field appearance="outline" subscriptSizing="dynamic" class="custom">
-      <mat-label>Custom range (max {{ maxDays }} days)</mat-label>
+      <mat-label>{{ 'dashboard.customRange' | t: { days: maxDays } }}</mat-label>
       <mat-date-range-input [formGroup]="custom" [rangePicker]="picker" [max]="customMax()">
-        <input matStartDate formControlName="start" placeholder="From" />
-        <input matEndDate formControlName="end" placeholder="To" (dateChange)="applyCustom()" />
+        <input matStartDate formControlName="start" [placeholder]="'dashboard.from' | t" />
+        <input matEndDate formControlName="end" [placeholder]="'dashboard.to' | t" (dateChange)="applyCustom()" />
       </mat-date-range-input>
       <mat-datepicker-toggle matIconSuffix [for]="picker" />
       <mat-date-range-picker #picker />
@@ -33,7 +33,7 @@
 
 @switch (state().status) {
   @case ('loading') {
-    <div class="cards" aria-busy="true" aria-label="Loading stats">
+    <div class="cards" aria-busy="true" [attr.aria-label]="'dashboard.loading' | t">
       @for (i of [1, 2, 3, 4]; track i) {
         <div class="card skeleton"></div>
       }
@@ -44,21 +44,21 @@
   @case ('error') {
     <div class="message" role="alert">
       <mat-icon>cloud_off</mat-icon>
-      <p>Couldn't load the stats.</p>
-      <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+      <p>{{ 'dashboard.loadFailed' | t }}</p>
+      <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
     </div>
   }
 
   @case ('ok') {
     @let c = cards()!;
     @if (c.empty) {
-      <p class="hint" role="status"><mat-icon>info</mat-icon>No bookings in this period.</p>
+      <p class="hint" role="status"><mat-icon>info</mat-icon>{{ 'dashboard.noBookings' | t }}</p>
     }
 
     <div class="cards">
       <!-- Revenue - the dashboard's one hero figure -->
       <section class="card" aria-labelledby="rev-label">
-        <p class="label" id="rev-label">Revenue</p>
+        <p class="label" id="rev-label">{{ 'dashboard.revenue' | t }}</p>
         <p class="value hero">{{ c.revenue }}</p>
         @if (c.revenueDelta; as d) {
           <p class="delta" [class.good]="d.good === true" [class.bad]="d.good === false" [attr.aria-label]="deltaLabel(d)">
@@ -67,32 +67,32 @@
         }
         <p class="sub">
           @if (c.revenueExpected) {
-            + {{ c.revenueExpected }} expected from pending bookings
+            {{ 'dashboard.expectedFromPending' | t: { amount: c.revenueExpected } }}
           } @else {
-            Confirmed stays only · nights inside the period
+            {{ 'dashboard.confirmedOnly' | t }}
           }
         </p>
       </section>
 
       <section class="card" aria-labelledby="occ-label">
-        <p class="label" id="occ-label">Occupancy</p>
+        <p class="label" id="occ-label">{{ 'dashboard.occupancy' | t }}</p>
         <p class="value">{{ c.occupancyPct }}</p>
         @if (c.occupancyDelta; as d) {
           <p class="delta" [class.good]="d.good === true" [class.bad]="d.good === false" [attr.aria-label]="deltaLabel(d)">
             {{ d.text }} <span class="muted">{{ comparison().label }}</span>
           </p>
         }
-        <span class="meter" role="img" [attr.aria-label]="c.occupancyPct + ' of available nights booked'">
+        <span class="meter" role="img" [attr.aria-label]="'dashboard.occupancyMeter' | t: { pct: c.occupancyPct }">
           <span class="fill" [style.width.%]="c.occupancyWidth"></span>
         </span>
         <p class="sub">{{ c.occupancyDetail }}</p>
         @if (c.pendingNights) {
-          <p class="sub">+ {{ c.pendingNights }} {{ c.pendingNights === 1 ? 'night' : 'nights' }} pending confirmation</p>
+          <p class="sub">{{ 'dashboard.pendingNights' | t: { count: c.pendingNights } }}</p>
         }
       </section>
 
       <section class="card" aria-labelledby="book-label">
-        <p class="label" id="book-label">Stays in period</p>
+        <p class="label" id="book-label">{{ 'dashboard.stays' | t }}</p>
         <p class="value">{{ c.stays }}</p>
         @if (c.staysDelta; as d) {
           <p class="delta" [class.good]="d.good === true" [class.bad]="d.good === false" [attr.aria-label]="deltaLabel(d)">
@@ -100,22 +100,22 @@
           </p>
         }
         <ul class="split">
-          <li><span class="dot confirmed"></span>{{ c.confirmed }} confirmed</li>
-          <li><span class="dot pending"></span>{{ c.pending }} pending</li>
-          <li><span class="dot cancelled"></span>{{ c.cancelled }} cancelled</li>
+          <li><span class="dot confirmed"></span>{{ 'dashboard.confirmedN' | t: { count: c.confirmed } }}</li>
+          <li><span class="dot pending"></span>{{ 'dashboard.pendingN' | t: { count: c.pending } }}</li>
+          <li><span class="dot cancelled"></span>{{ 'dashboard.cancelledN' | t: { count: c.cancelled } }}</li>
         </ul>
-        <p class="sub">{{ c.createdInPeriod }} new {{ c.createdInPeriod === 1 ? 'booking' : 'bookings' }} made in this period</p>
+        <p class="sub">{{ 'dashboard.created' | t: { count: c.createdInPeriod } }}</p>
       </section>
 
       <section class="card" aria-labelledby="adr-label">
-        <p class="label" id="adr-label">Avg. revenue per booked night</p>
+        <p class="label" id="adr-label">{{ 'dashboard.adr' | t }}</p>
         <p class="value">{{ c.avgNight ?? '–' }}</p>
         @if (c.avgNightDelta; as d) {
           <p class="delta" [class.good]="d.good === true" [class.bad]="d.good === false" [attr.aria-label]="deltaLabel(d)">
             {{ d.text }} <span class="muted">{{ comparison().label }}</span>
           </p>
         }
-        <p class="sub">Confirmed revenue ÷ confirmed nights</p>
+        <p class="sub">{{ 'dashboard.adrSub' | t }}</p>
       </section>
     </div>
 

@@ -29,6 +29,8 @@ import { paymentLabel, refundView } from '../../../core/payments/payment-labels'
 import { ConfirmDialog, ConfirmDialogData } from '../../../shared/confirm-dialog';
 import { providePaginatorI18n } from '../../../core/i18n/paginator-i18n';
 import { formatDate } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled';
 
@@ -41,9 +43,10 @@ export interface AdminBookingsQuery {
 }
 
 export const ADMIN_BOOKING_TABS: { key: AdminBookingsTab; label: string }[] = [
-  { key: 'upcoming', label: 'Upcoming' },
-  { key: 'past', label: 'Past' },
-  { key: 'cancelled', label: 'Cancelled' },
+  // `label` is a dictionary key (TICKET-038).
+  { key: 'upcoming', label: 'myBookings.tab.upcoming' },
+  { key: 'past', label: 'myBookings.tab.past' },
+  { key: 'cancelled', label: 'myBookings.tab.cancelled' },
 ];
 
 export function parseAdminBookingsQuery(q: { get(name: string): string | null }): AdminBookingsQuery {
@@ -75,10 +78,9 @@ type ListState = { status: 'loading' } | { status: 'ok'; data: Paginated<Booking
 
 /** A server reason as one sentence with exactly one full stop. */
 function sentence(reason: string | null): string {
-  return `${(reason ?? 'unknown reason').replace(/[.\s]+$/, '')}.`;
+  return `${(reason ?? translate('adminBookings.unknownReason')).replace(/[.\s]+$/, '')}.`;
 }
 
-const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confirmed: 'Confirmed', cancelled: 'Cancelled' };
 
 /** /admin/bookings (TICKET-025) - every guest's bookings, with Confirm / Cancel. */
 @Component({
@@ -96,6 +98,7 @@ const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confir
     MatTableModule,
     MatTabsModule,
     MatTooltipModule,
+    TranslatePipe,
   ],
   templateUrl: './admin-bookings.html',
   providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
@@ -184,23 +187,33 @@ export class AdminBookingsPage {
   confirmBooking(b: Booking): void {
     // TICKET-029: confirming a booking that is still waiting for the guest's
     // online payment waives it - the server closes their payment page first.
-    const unpaid = b.payment?.status === 'open'
-      ? ` The guest hasn't paid online yet: confirming closes their payment page, so the payment is waived (e.g. they pay you another way).`
-      : '';
+    const unpaid = b.payment?.status === 'open' ? translate('adminBookings.confirmDialog.unpaid') : '';
     this.ask({
-      title: `Confirm booking #${b.id}?`,
-      message: `${b.property.title}, ${this.range(b)} for ${b.guest_email ?? 'the guest'} (${b.guests} ${b.guests === 1 ? 'guest' : 'guests'}, ${formatPrice(b.total_price)}). The guest will see it as Confirmed.${unpaid}`,
-      confirmLabel: 'Confirm booking',
-      cancelLabel: 'Not now',
-    }).subscribe(() => this.run(b, this.bookings.confirm(b.id), `Booking #${b.id} confirmed.`));
+      title: translate('adminBookings.confirmDialog.title', { id: b.id }),
+      message: translate('adminBookings.confirmDialog.message', {
+        title: b.property.title,
+        range: this.range(b),
+        guest: b.guest_email ?? translate('adminBookings.guestFor'),
+        guests: translate('common.guests', { count: b.guests }),
+        total: formatPrice(b.total_price),
+        unpaid,
+      }),
+      confirmLabel: translate('booking.confirm'),
+      cancelLabel: translate('adminBookings.notNow'),
+    }).subscribe(() => this.run(b, this.bookings.confirm(b.id), translate('adminBookings.confirmed', { id: b.id })));
   }
 
   cancelBooking(b: Booking): void {
     this.ask({
-      title: `Cancel booking #${b.id}?`,
-      message: `${b.property.title}, ${this.range(b)} for ${b.guest_email ?? 'the guest'}. The dates will be released and this can't be undone. ${this.cancelPaymentNote(b)}`,
-      confirmLabel: 'Cancel booking',
-      cancelLabel: 'Keep booking',
+      title: translate('adminBookings.cancelDialog.title', { id: b.id }),
+      message: translate('adminBookings.cancelDialog.message', {
+        title: b.property.title,
+        range: this.range(b),
+        guest: b.guest_email ?? translate('adminBookings.guestFor'),
+        note: this.cancelPaymentNote(b),
+      }),
+      confirmLabel: translate('myBookings.cancel'),
+      cancelLabel: translate('myBookings.dialog.keep'),
       danger: true,
     }).subscribe(() => this.run(b, this.bookings.cancel(b.id), (res) => this.cancelOutcome(res)));
   }
@@ -211,26 +224,30 @@ export class AdminBookingsPage {
    */
   refundNow(b: Booking): void {
     const r = refundView(b);
-    const last = r?.kind === 'failed' && r.reason ? ` The last attempt failed: ${sentence(r.reason)}` : '';
+    const last = r?.kind === 'failed' && r.reason ? translate('adminBookings.lastFailed', { reason: sentence(r.reason) }) : '';
     this.ask({
-      title: `Refund booking #${b.id}?`,
-      message: `Stripe will refund the full ${formatPrice(b.payment?.amount ?? b.total_price)} to the card ${b.guest_email ?? 'the guest'} paid with. It can never be refunded twice.${last}`,
-      confirmLabel: 'Refund now',
-      cancelLabel: 'Not now',
+      title: translate('adminBookings.refundDialog.title', { id: b.id }),
+      message: translate('adminBookings.refundDialog.message', {
+        amount: formatPrice(b.payment?.amount ?? b.total_price),
+        guest: b.guest_email ?? translate('adminBookings.guestName'),
+        last,
+      }),
+      confirmLabel: translate('adminBookings.refundNow'),
+      cancelLabel: translate('adminBookings.notNow'),
     }).subscribe(() => this.run(b, this.bookings.refund(b.id), (res) => this.refundOutcome(res)));
   }
 
   private cancelOutcome(res: Booking): string {
     const r = refundView(res);
-    if (r?.kind === 'pending') return `Booking #${res.id} cancelled - refund of ${r.amount} sent to Stripe.`;
-    if (r?.kind === 'failed') return `Booking #${res.id} cancelled, but the refund failed: ${sentence(r.reason)} Use Refund now to retry.`;
-    return `Booking #${res.id} cancelled.`;
+    if (r?.kind === 'pending') return translate('adminBookings.outcome.refundSent', { id: res.id, amount: r.amount });
+    if (r?.kind === 'failed') return translate('adminBookings.outcome.refundFailed', { id: res.id, reason: sentence(r.reason) });
+    return translate('myBookings.cancelled', { id: res.id });
   }
 
   private refundOutcome(res: Booking): string {
     const r = refundView(res);
-    if (r?.kind === 'failed') return `The refund for booking #${res.id} failed: ${sentence(r.reason)}`;
-    return `Refund of ${r?.amount ?? formatPrice(res.total_price)} for booking #${res.id} sent to Stripe.`;
+    if (r?.kind === 'failed') return translate('adminBookings.outcome.refundOnlyFailed', { id: res.id, reason: sentence(r.reason) });
+    return translate('adminBookings.outcome.refundOnlySent', { id: res.id, amount: r?.amount ?? formatPrice(res.total_price) });
   }
 
   /** What cancelling means for the booking's money (TICKET-029). */
@@ -238,12 +255,12 @@ export class AdminBookingsPage {
     switch (b.payment?.status) {
       case 'paid':
         return b.payment.refund?.status === 'refunded'
-          ? `The guest's payment of ${formatPrice(b.payment.amount)} has already been refunded.`
-          : `The guest paid ${formatPrice(b.payment.amount)} online - it's refunded in full to their card automatically.`;
+          ? translate('adminBookings.note.alreadyRefunded', { amount: formatPrice(b.payment.amount) })
+          : translate('adminBookings.note.willRefund', { amount: formatPrice(b.payment.amount) });
       case 'open':
-        return "The guest's open payment page will be closed first, so they can't pay for a cancelled booking.";
+        return translate('adminBookings.note.closePage');
       default:
-        return 'No online payment was taken, so there is nothing to refund.';
+        return translate('adminBookings.note.nothing');
     }
   }
 
@@ -252,10 +269,6 @@ export class AdminBookingsPage {
   readonly clockTime = clockTime;
 
   // --- display helpers ----------------------------------------------------
-
-  label(status: BookingStatus): string {
-    return STATUS_LABEL[status];
-  }
 
   date(iso: string, year = false): string {
     return formatDate(iso, year ? 'medium' : 'dayMonth');
@@ -289,7 +302,7 @@ export class AdminBookingsPage {
       next: (result) => {
         this.busy.set(null);
         const message = typeof success === 'string' ? success : success(result);
-        this.snackBar.open(message, 'OK', { duration: typeof success === 'string' ? 4000 : 7000 });
+        this.snackBar.open(message, translate('common.ok'), { duration: typeof success === 'string' ? 4000 : 7000 });
         this.refresh$.next();
         this.badges.refresh();
       },
@@ -298,7 +311,7 @@ export class AdminBookingsPage {
         const parsed = parseApiErrors(err);
         const message = parsed.general ?? Object.values(parsed.fields).flat().join(' ');
         // e.g. someone else changed it meanwhile - show why and the current state
-        this.snackBar.open(message || 'Something went wrong. Please try again.', 'OK', { duration: 7000 });
+        this.snackBar.open(message || translate('errors.generic'), translate('common.ok'), { duration: 7000 });
         this.refresh$.next();
         this.badges.refresh();
       },
