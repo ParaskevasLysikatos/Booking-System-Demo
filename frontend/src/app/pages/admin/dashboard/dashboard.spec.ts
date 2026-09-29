@@ -6,6 +6,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { AdminStats } from '../../../core/admin/admin-stats.models';
 import { ADMIN_STATS_URL } from '../../../core/admin/admin-stats.service';
+import { DAILY } from '../../../core/admin/revenue-chart.testing';
 import { AdminDashboardPage, buildCards } from './dashboard';
 
 const stats = (overrides: Partial<AdminStats> = {}): AdminStats => ({
@@ -18,6 +19,7 @@ const stats = (overrides: Partial<AdminStats> = {}): AdminStats => ({
     { id: 2, title: 'Beta', is_active: true, booked_nights: 5, pending_nights: 0, occupancy_rate: 0.5, revenue: '166.67', pending_revenue: '0.00' },
     { id: 3, title: 'Gamma', is_active: false, booked_nights: 2, pending_nights: 0, occupancy_rate: 0.2, revenue: '160.00', pending_revenue: '0.00' },
   ],
+  series: DAILY,
   ...overrides,
 });
 
@@ -99,6 +101,20 @@ describe('AdminDashboardPage', () => {
     expect(text()).toContain('4 new bookings made in this period');
     const rows = [...harness.routeNativeElement!.querySelectorAll('app-property-breakdown tbody tr')];
     expect(rows.map((r) => r.querySelector('th')!.textContent!.trim())).toEqual(['Alpha', 'Beta', 'GammaRetired']);
+  });
+
+  it('the revenue chart sits between the cards and the per-property table (TICKET-035)', async () => {
+    await open('/admin/dashboard');
+    expect(harness.routeNativeElement!.querySelector('.chart-skeleton')).not.toBeNull(); // while loading
+    calls().forEach((c) => c.flush(stats()));
+    harness.detectChanges();
+    const root = harness.routeNativeElement!;
+    const order = [...root.querySelectorAll('.cards, app-revenue-chart, app-property-breakdown')].map((e) =>
+      e.tagName === 'DIV' ? 'cards' : e.tagName.toLowerCase(),
+    );
+    expect(order).toEqual(['cards', 'app-revenue-chart', 'app-property-breakdown']);
+    expect(root.querySelectorAll('app-revenue-chart rect.hit').length).toBe(10);
+    expect(text()).toContain('Revenue (confirmed) €626.67'); // the chart's legend = the Revenue card
   });
 
   it('presets update the URL (default = this month, no params)', async () => {

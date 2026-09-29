@@ -38,6 +38,7 @@
         <div class="card skeleton"></div>
       }
     </div>
+    <div class="chart-skeleton skeleton" aria-hidden="true"></div>
   }
 
   @case ('error') {
@@ -117,6 +118,8 @@
         <p class="sub">Confirmed revenue ÷ confirmed nights</p>
       </section>
     </div>
+
+    <app-revenue-chart [series]="series()!" />
 
     @if (breakdown().length) {
       <app-property-breakdown [rows]="breakdown()" />

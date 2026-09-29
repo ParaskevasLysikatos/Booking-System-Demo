@@ -17,6 +17,26 @@ export interface AdminStats {
   };
   revenue: { confirmed: string; pending: string }; // decimals as strings
   properties: PropertyStats[];
+  /** Revenue over time for the dashboard chart (TICKET-035). */
+  series: RevenueSeries;
+}
+
+export type SeriesGranularity = 'day' | 'week' | 'month';
+
+/** Buckets cover the period without gaps; the first/last can be partial. */
+export interface RevenueSeries {
+  granularity: SeriesGranularity;
+  buckets: RevenueBucket[];
+}
+
+export interface RevenueBucket {
+  from: string; // YYYY-MM-DD, inclusive
+  to: string; // YYYY-MM-DD, inclusive
+  nights: number;
+  revenue: string; // confirmed, decimal string; buckets add up to revenue.confirmed exactly
+  pending_revenue: string; // expected; add up to revenue.pending
+  booked_nights: number; // all properties incl. retired
+  pending_nights: number;
 }
 
 export interface PropertyStats {

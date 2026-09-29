@@ -30,6 +30,7 @@ import {
 import { addDays } from '../../../core/dates';
 import { formatPrice } from '../../../core/money';
 import { PropertyBreakdownComponent } from './property-breakdown';
+import { RevenueChartComponent } from './revenue-chart';
 
 type DashState =
   | { status: 'loading' }
@@ -92,7 +93,7 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
   };
 }
 
-/** /admin/dashboard (TICKET-023) - stat cards + per-property breakdown for a chosen period. */
+/** /admin/dashboard (TICKET-023) - stat cards, revenue chart (TICKET-035) + per-property breakdown for a chosen period. */
 @Component({
   selector: 'app-admin-dashboard',
   imports: [
@@ -104,6 +105,7 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
     MatIconModule,
     MatInputModule,
     PropertyBreakdownComponent,
+    RevenueChartComponent,
   ],
   providers: [provideNativeDateAdapter(), { provide: MAT_DATE_LOCALE, useValue: 'en-GB' }],
   templateUrl: './dashboard.html',
@@ -147,6 +149,10 @@ export class AdminDashboardPage {
   readonly cards = computed(() => {
     const s = this.state();
     return s.status === 'ok' ? buildCards(s.current, s.previous) : null;
+  });
+  readonly series = computed(() => {
+    const s = this.state();
+    return s.status === 'ok' ? s.current.series : null;
   });
   readonly breakdown = computed(() => {
     const s = this.state();

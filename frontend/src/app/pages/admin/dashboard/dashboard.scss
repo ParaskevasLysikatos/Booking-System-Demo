@@ -33,6 +33,9 @@
   &.skeleton { background: var(--mat-sys-surface-container-high); border-color: transparent; }
 }
 
+/* Same size as the revenue chart card, so nothing jumps when it arrives. */
+.chart-skeleton { height: 390px; margin-bottom: 24px; border-radius: 16px; background: var(--mat-sys-surface-container-high); }
+
 p { margin: 0; }
 .label { font-size: 14px; color: var(--mat-sys-on-surface-variant); }
 .value { font-size: 32px; font-weight: 600; line-height: 1.15; }

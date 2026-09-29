@@ -64,7 +64,10 @@ final check locally and on Render as admin; see "Map view: final check".
 step 1 is done - `GET /api/admin/stats/` also returns a `series` of
 revenue and expected revenue by day, week or month (picked from the
 period's length), adding up exactly to the Revenue card; see "Admin
-stats API → Revenue over time".
+stats API → Revenue over time"; step 2 is done - the dashboard has a
+"Revenue over time" chart (stacked confirmed + expected columns, a Today
+line, tooltips, keyboard, a Table view); see "Admin dashboard → Revenue
+chart".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -250,7 +253,8 @@ frontend/
                                         BrowserRedirect (to Stripe) - TICKET-029
     core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas),
                                         AdminPropertiesService (list all / create / update / retire / reactivate),
-                                        AdminBadgesService (pending-bookings count for the side nav)
+                                        AdminBadgesService (pending-bookings count for the side nav),
+                                        revenue-chart.ts (the revenue chart's ticks, labels, geometry - TICKET-035)
     core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
@@ -275,7 +279,7 @@ frontend/
                                         payment line per card (countdown + Pay now, paid, refund)
     pages/payment-return/               /bookings/:id/payment - back from Stripe: confirming (polling), confirmed,
                                         processing, not completed (countdown, Pay now, Cancel), time ran out
-    pages/admin/                        Admin shell (side nav), dashboard/ (stat cards + breakdown table),
+    pages/admin/                        Admin shell (side nav), dashboard/ (stat cards, revenue chart, breakdown table),
                                         properties/ (table + form with amenities picker and drag-drop photos),
                                         bookings/ (every guest's bookings: tabs, filters, confirm/cancel),
                                         reviews/ (every review: filters, Hide / Show again - TICKET-032)
@@ -3049,7 +3053,7 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 | URL | Page | Notes |
 | --- | --- | --- |
 | `/admin` | → `/admin/dashboard` | The whole `/admin` group is lazy-loaded and guarded **once** by `adminGuard` |
-| `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, per-property table; see "Admin dashboard" |
+| `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, revenue chart, per-property table; see "Admin dashboard" |
 | `/admin/properties` | `pages/admin/properties/` | Table of all properties; `/new` and `/:id/edit` form (unsaved-changes guard); see "Admin properties" |
 | `/admin/bookings` | `pages/admin/bookings/` | Every guest's bookings, Upcoming / Past / Cancelled, confirm and cancel; see "Admin bookings" |
 | `/admin/reviews` | `pages/admin/reviews/` | Every review (hidden too), filters, Hide / Show again; see "Admin reviews" (TICKET-032) |
@@ -3228,6 +3232,131 @@ and expected revenue from pending bookings.
 Also checked in Chrome against the seeded data: This month (€78, 0.5%
 occupancy ▼ 5.5 pts vs August) and Last 12 months (€2,283, 6 stays,
 €84.56 per night), with the breakdown table.
+
+### Revenue chart (TICKET-035)
+
+"Revenue over time" sits between the stat cards and the per-property
+table. It draws the `series` from the same stats response (see "Admin
+stats API → Revenue over time"), so it needs no extra request, and it
+follows the period buttons like everything else on the page.
+
+- **What it shows:** one column per day, week or month (the backend
+  picks the size from the period's length; the subtitle says "By day" /
+  "By week" / "By month"). Confirmed revenue is the solid column, and the
+  **expected** revenue from pending bookings is stacked on top in a
+  lighter shade of the same blue. The legend shows both totals. They are
+  the same figures as the Revenue card, to the cent.
+- **"Today"**: a thin vertical line where today falls, when the period
+  includes it. Everything to its right is the future, so it's mostly
+  expected revenue.
+- **Tooltip:** hover over a column, tap it, or Tab to it. It shows the
+  bucket ("16 – 22 Nov 2026", "1 – 6 Jan 2030 (partial week)"), the
+  revenue, the expected revenue and the booked / pending nights. It opens
+  **beside** the column so it never covers it, and a grey band marks the
+  active column. The other columns are **not** dimmed, because a dimmed
+  dark-blue column would look just like the light "expected" colour.
+- **Keyboard:** the chart is one Tab stop. ← / → move between columns,
+  Home / End jump to the first / last, and Esc hides the tooltip. There's
+  a visible focus ring, and every column has a screen-reader label
+  ("Sat, 5 Jan 2030: €0 revenue, €100 expected, 0 booked nights, 1
+  pending"). The chart itself has a one-line summary with the totals and
+  the highest column.
+- **Chart / Table toggle:** the Table lists every bucket with revenue,
+  expected, booked and pending nights, plus a Total row. It exists
+  because the light "expected" colour is below 3:1 contrast on the
+  card, so every value must be readable without the colours too. On
+  phones the table shows the period, revenue and expected only.
+- **Axes:** round € ticks (`€0 / €500 / €1k / €1.5k`, about 5 steps, a
+  little headroom above the tallest column) as hairline gridlines. The x
+  labels are thinned out when columns are narrow (e.g. every 4th day on
+  a phone). The label where a new month starts (or a new year, by month)
+  always shows, with the month / year on a second line.
+- **Phones:** the whole period fits the card (a month by day, or 12
+  months, fit a 320 px phone with thinner columns). Only a long daily
+  custom range (roughly 40-62 days) on a phone scrolls sideways inside
+  the card; the y axis stays put, the page itself never scrolls, and a
+  note says "Scroll sideways to see the whole period, or use the
+  Table."
+- **Empty period:** the axes stay, with "No revenue in this period" in
+  the middle. While loading there's a skeleton the chart's size, so
+  nothing jumps.
+
+**How it's built:** a hand-built SVG, with no chart library, so the
+bundle is unchanged. The initial bundle is the same size; the chart adds
+about 10 kB to the lazy dashboard chunk.
+
+- `core/admin/revenue-chart.ts` is pure functions with no Angular or
+  DOM: `niceTicks`, `compactEuro`, `bucketTitle`, `axisLabel`,
+  `thinLabels`, `columnPath` (rounded top, square base),
+  `todayPosition` and `buildChart` (the whole layout for a given
+  width).
+- `pages/admin/dashboard/revenue-chart.ts` is the component. It
+  measures its width with a `ResizeObserver` and places the tooltip
+  (`tooltipLeft`). It uses a roving `tabindex` over transparent
+  full-height hit areas, which are bigger than the bars.
+
+**Design rules followed** (the dataviz guidance):
+
+- Columns are at most 24 px wide, with a 4 px rounded top and a square
+  base.
+- A 2 px gap separates the stacked parts.
+- Gridlines are hairlines, and the text uses text colours, never the
+  series colour.
+- A legend is always present for the two series.
+- The two blues (`#005cbb` = the app's primary, `#7cabff` = the same
+  azure palette two steps lighter) were run through the palette
+  validator. Lightness, chroma and colour-blind separation pass (ΔE 25);
+  the contrast warning on the light blue is what the Table view answers.
+- In Windows high-contrast mode the two series switch to system
+  colours.
+- The app is light-only, so there's no dark variant.
+
+**Tests:** 22 new frontend tests.
+
+- `core/admin/revenue-chart.spec.ts` (13):
+  - ticks, including an empty chart
+  - compact €
+  - bucket titles: day, full or partial week and month
+  - axis labels and thinning around a month start
+  - the column path
+  - bar geometry, the stacked gap, and a month fitting a phone vs a
+    62-day range scrolling
+  - labels anchored inward at the edges
+  - today's position, by day and inside a week
+  - totals, the screen-reader summary and labels, and the empty chart
+- `revenue-chart.spec.ts` (8):
+  - columns, segments, legend, Today, axis
+  - no Today outside the period
+  - the scroll note
+  - tooltip placement
+  - hover with band and no dimming
+  - keyboard (one tab stop, ← → Home End Esc)
+  - the Table view with its Total row
+  - the empty period
+- `dashboard.spec.ts` (+1): the order cards → chart → table, the
+  skeleton while loading, and the legend matching the Revenue card.
+
+The test data is the backend's hand-worked example
+(`revenue-chart.testing.ts`), so both sides test the same numbers. 375
+frontend tests pass.
+
+**Checked in a headless Chromium** against the seeded data, logged in
+as the demo admin:
+
+- This month (by day), Last 12 months (by month), Next 30 days at
+  768 px, and a custom Aug-Dec range (by week: 23 columns, legend
+  €5,836 + €3,862 = the Revenue card).
+- Phones at 390 and 320 px, including the 62-day scroll.
+- The keyboard path, and the Table view.
+- There's no sideways page scroll anywhere.
+
+This caught four things, all fixed before shipping:
+
+- Dimmed columns looked like "expected".
+- The tooltip covered the column it described.
+- Starting a scrolled phone chart at today hid all of the month's
+  revenue. The chart now fits instead of scrolling.
+- The first month label was cut to "ept" at the left edge.
 
 ## Admin properties (Angular)
 
@@ -5960,5 +6089,8 @@ final check"). **TICKET-035 (revenue chart) is in progress:** step 1
 (the `series` block on `GET /api/admin/stats/`: revenue, expected revenue
 and nights per day / week / month bucket, cut to the period's edges, the
 bars adding up exactly to the Revenue card) is done; see "Admin stats
-API → Revenue over time"; next is step 2, the chart on the admin
-dashboard.
+API → Revenue over time"; step 2 (the "Revenue over time" chart on
+`/admin/dashboard`: hand-built SVG, stacked confirmed + expected
+columns, a Today line, tooltip beside the column, keyboard, Chart /
+Table toggle, fits phones) is done; see "Admin dashboard → Revenue
+chart"; next is step 3, the check in Chrome locally and on Render.

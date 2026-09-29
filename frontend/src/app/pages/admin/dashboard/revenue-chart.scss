@@ -1,0 +1,168 @@
+@use 'responsive' as r;
+
+/*
+ * Colours (dataviz method, validated with the palette script against the
+ * light surface): one hue, two steps - confirmed = the app's primary azure
+ * (#005cbb), expected = a lighter step of the same azure palette (tone 70).
+ * The light step is 2.2:1 on the surface (a WARN), so the values are always
+ * readable without colour too: legend, tooltip, and the Table view.
+ * The app is light-only (color-scheme: light), so there is no dark variant.
+ */
+:host {
+  --rc-revenue: var(--mat-sys-primary, #005cbb);
+  --rc-expected: #7cabff;
+  --rc-grid: var(--mat-sys-outline-variant);
+  --rc-ink-muted: var(--mat-sys-on-surface-variant);
+  display: block;
+  margin-bottom: 24px;
+}
+
+.chart-card {
+  padding: 16px 18px 12px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 16px;
+  background: var(--mat-sys-surface);
+}
+
+p { margin: 0; }
+
+.rc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  h2 { margin: 0; font-size: 16px; font-weight: 500; }
+}
+.rc-sub { margin-top: 2px; font-size: 13px; color: var(--rc-ink-muted); }
+.rc-view { --mat-button-toggle-height: 32px; font-size: 13px; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 12px 0 4px;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--rc-ink-muted);
+  li { display: inline-flex; align-items: center; gap: 6px; }
+  strong { color: var(--mat-sys-on-surface); font-weight: 500; }
+}
+/* Legend mirrors the mark: a small rounded rect for bars. */
+.swatch { width: 12px; height: 12px; border-radius: 3px; }
+.swatch.revenue, .key.revenue { background: var(--rc-revenue); }
+.swatch.expected, .key.expected { background: var(--rc-expected); }
+
+/* --- chart ------------------------------------------------------------- */
+
+.plot-area { position: relative; display: flex; }
+.y-axis { flex: 0 0 auto; }
+.y-axis text, .x-label, .x-sub, .today-label {
+  font-size: 11px;
+  fill: var(--rc-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.x-sub { font-weight: 500; }
+
+.scroller {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.plot { display: block; }
+
+.grid { stroke: var(--rc-grid); stroke-width: 1; shape-rendering: crispEdges; }
+.grid.base { stroke: var(--mat-sys-outline); }
+
+.bar.revenue { fill: var(--rc-revenue); }
+.bar.expected { fill: var(--rc-expected); }
+/* The hovered/focused column lifts with a band behind it. (Not by dimming
+   the others: a dimmed confirmed bar looks just like "expected".) */
+.band { fill: var(--mat-sys-surface-container-high); }
+
+.today { stroke: var(--mat-sys-on-surface-variant); stroke-width: 1; shape-rendering: crispEdges; }
+.today-label { font-weight: 500; }
+
+.hit { fill: transparent; cursor: default; outline: none; }
+.hit:focus-visible { stroke: var(--mat-sys-primary); stroke-width: 2; }
+
+.scroll-note { margin-top: 4px; font-size: 12px; color: var(--rc-ink-muted); }
+
+.empty {
+  position: absolute;
+  inset: 0 0 36px 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--rc-ink-muted);
+  pointer-events: none;
+}
+
+/* Values lead, labels follow; line keys, not boxes. */
+.tooltip {
+  position: absolute;
+  top: 24px;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 200px; /* fixed, so the component can place it beside the bar */
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-lowest, #fff);
+  color: var(--mat-sys-on-surface);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  pointer-events: none;
+}
+.tt-title { margin-bottom: 2px; color: var(--rc-ink-muted); }
+.tt-row { display: flex; align-items: center; gap: 6px; }
+.tt-row strong { font-size: 13px; font-weight: 600; }
+/* A light tooltip, so its keys are exactly the bars' colours. */
+.key { width: 12px; height: 3px; border-radius: 2px; }
+.tt-nights { margin-top: 2px; color: var(--rc-ink-muted); }
+
+/* --- table view --------------------------------------------------------- */
+
+.table-wrap { max-height: 360px; overflow: auto; margin-top: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 8px 12px; text-align: left; border-top: 1px solid var(--mat-sys-outline-variant); white-space: nowrap; }
+thead th {
+  position: sticky;
+  top: 0;
+  border-top: 0;
+  background: var(--mat-sys-surface);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--rc-ink-muted);
+}
+tbody th { font-weight: 400; }
+tfoot th, tfoot td { font-weight: 500; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Local on purpose: the CDK's .cdk-visually-hidden styles aren't loaded on this page. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.muted { color: var(--rc-ink-muted); }
+
+/* Windows high contrast: keep the two series apart without our colours. */
+@media (forced-colors: active) {
+  .bar.revenue, .swatch.revenue { fill: CanvasText; background: CanvasText; }
+  .bar.expected, .swatch.expected { fill: GrayText; background: GrayText; }
+}
+
+/* Phones: period, revenue and expected only (the nights are in the tooltip). */
+@include r.phone {
+  .chart-card { padding: 14px 12px 10px; }
+  th, td { padding: 8px; }
+  .nights { display: none; }
+}

@@ -1,0 +1,160 @@
+@let m = model();
+<section class="chart-card" aria-labelledby="rc-title">
+  <header class="rc-head">
+    <div>
+      <h2 id="rc-title">Revenue over time</h2>
+      <p class="rc-sub">{{ granularityText() }} · nights inside the period</p>
+    </div>
+    <mat-button-toggle-group
+      class="rc-view"
+      [value]="view()"
+      (change)="setView($event.value)"
+      hideSingleSelectionIndicator
+      aria-label="Show revenue as"
+    >
+      <mat-button-toggle value="chart">Chart</mat-button-toggle>
+      <mat-button-toggle value="table">Table</mat-button-toggle>
+    </mat-button-toggle-group>
+  </header>
+
+  <!-- Two series -> a legend is always present (identity never by colour alone). -->
+  <ul class="legend">
+    <li><span class="swatch revenue" aria-hidden="true"></span>Revenue (confirmed) <strong>{{ money(m.totals.revenue) }}</strong></li>
+    <li><span class="swatch expected" aria-hidden="true"></span>Expected (pending) <strong>{{ money(m.totals.expected) }}</strong></li>
+  </ul>
+
+  @if (view() === 'chart') {
+    <div class="plot-area" #area>
+      <!-- y axis: stays put while the plot scrolls -->
+      <svg class="y-axis" [attr.width]="chart.yAxisWidth" [attr.height]="svgHeight" aria-hidden="true">
+        @for (t of m.ticks; track t.value) {
+          <text [attr.x]="chart.yAxisWidth - 8" [attr.y]="t.y" dy="0.32em" text-anchor="end">{{ t.text }}</text>
+        }
+      </svg>
+
+      <div class="scroller" #scroller (scroll)="hide()">
+        <svg
+          class="plot"
+          [attr.width]="m.width"
+          [attr.height]="svgHeight"
+          role="group"
+          [attr.aria-label]="m.summary + ' Use the arrow keys to move between bars.'"
+          (pointerleave)="hide()"
+        >
+          <!-- hairline gridlines -->
+          @for (t of m.ticks; track t.value) {
+            <line class="grid" [class.base]="t.value === 0" x1="0" [attr.x2]="m.width" [attr.y1]="t.y" [attr.y2]="t.y" />
+          }
+
+          <!-- highlight band behind the active column -->
+          @if (activeBar(); as a) {
+            <rect class="band" [attr.x]="a.slotX" [attr.y]="chart.top" [attr.width]="a.slotWidth" [attr.height]="chart.plotHeight" />
+          }
+
+          @for (b of m.bars; track b.bucket.from) {
+            @if (b.revenuePath) {
+              <path class="bar revenue" [attr.d]="b.revenuePath" />
+            }
+            @if (b.expectedPath) {
+              <path class="bar expected" [attr.d]="b.expectedPath" />
+            }
+            @if (b.showLabel) {
+              <text class="x-label" [attr.x]="b.labelX" [attr.y]="baseline + 16" [attr.text-anchor]="b.labelAnchor">{{ b.label.text }}</text>
+            }
+            @if (b.showLabel && b.label.sub) {
+              <text class="x-sub" [attr.x]="b.labelX" [attr.y]="baseline + 31" [attr.text-anchor]="b.labelAnchor">{{ b.label.sub }}</text>
+            }
+          }
+
+          @if (m.todayX !== null) {
+            <line class="today" [attr.x1]="m.todayX" [attr.x2]="m.todayX" [attr.y1]="chart.top - 4" [attr.y2]="baseline" />
+            <text
+              class="today-label"
+              [attr.x]="m.todayX + (m.todayX > m.width - 44 ? -4 : 4)"
+              [attr.y]="chart.top - 6"
+              [attr.text-anchor]="m.todayX > m.width - 44 ? 'end' : 'start'"
+            >Today</text>
+          }
+
+          <!-- Hit targets: the whole column slot, bigger than the bar. Roving tabindex. -->
+          @for (b of m.bars; track b.bucket.from) {
+            <rect
+              class="hit"
+              [attr.data-bar]="b.index"
+              [attr.x]="b.slotX"
+              [attr.y]="chart.top"
+              [attr.width]="b.slotWidth"
+              [attr.height]="chart.plotHeight"
+              role="img"
+              [attr.aria-label]="b.ariaLabel"
+              [attr.tabindex]="b.index === focusIndex() ? 0 : -1"
+              (pointerenter)="show(b)"
+              (click)="show(b)"
+              (focus)="onFocus(b)"
+              (blur)="onBlur()"
+              (keydown)="onKeydown($event, b)"
+            />
+          }
+        </svg>
+      </div>
+
+      @if (m.empty) {
+        <p class="empty" role="status">No revenue in this period</p>
+      }
+
+      @if (activeBar(); as a) {
+        <div class="tooltip" [style.left.px]="tooltipLeft()" aria-hidden="true">
+          <p class="tt-title">{{ a.title }}</p>
+          <p class="tt-row"><span class="key revenue"></span><strong>{{ money(a.revenue) }}</strong> revenue</p>
+          @if (a.expected > 0) {
+            <p class="tt-row"><span class="key expected"></span><strong>{{ money(a.expected) }}</strong> expected</p>
+          }
+          <p class="tt-nights">
+            {{ a.bucket.booked_nights }} booked {{ a.bucket.booked_nights === 1 ? 'night' : 'nights' }}
+            @if (a.bucket.pending_nights) {
+              · {{ a.bucket.pending_nights }} pending
+            }
+          </p>
+        </div>
+      }
+    </div>
+    @if (scrolls()) {
+      <p class="scroll-note"><span aria-hidden="true">↔</span> Scroll sideways to see the whole period, or use the Table.</p>
+    }
+  } @else {
+    <div class="table-wrap">
+      <table>
+        <caption class="sr-only">Revenue over time, {{ granularityText().toLowerCase() }}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Period</th>
+            <th scope="col" class="num">Revenue</th>
+            <th scope="col" class="num">Expected</th>
+            <th scope="col" class="num nights">Booked nights</th>
+            <th scope="col" class="num nights">Pending nights</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (b of m.bars; track b.bucket.from) {
+            <tr>
+              <th scope="row">{{ b.title }}</th>
+              <td class="num">{{ money(b.revenue) }}</td>
+              <td class="num muted">{{ b.expected > 0 ? money(b.expected) : '–' }}</td>
+              <td class="num nights">{{ b.bucket.booked_nights }}</td>
+              <td class="num muted nights">{{ b.bucket.pending_nights || '–' }}</td>
+            </tr>
+          }
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Total</th>
+            <td class="num">{{ money(m.totals.revenue) }}</td>
+            <td class="num">{{ money(m.totals.expected) }}</td>
+            <td class="num nights">{{ totalNights().booked }}</td>
+            <td class="num nights">{{ totalNights().pending }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  }
+</section>
