@@ -826,6 +826,12 @@ test, always last).
 - [ ] **TICKET-037** — UI polish pass + refresh seed data
   - Priority: P0 · Depends on: Epic 3 & 4 complete
   - Seed data must include **enough reviews** to show the TICKET-032 Reviews section well (requested during TICKET-032: the current seeder only produced 3 reviews in total). E.g. more past *confirmed* stays so most properties get several reviews, with a mix of ratings and some without a comment - every review still backed by a real ended, confirmed booking (the rule the API enforces).
+  - **Seed photos from the owner's S3 bucket** (requested after TICKET-036), instead of `picsum.photos` URLs:
+    - a fixed set of free-licensed photos (Unsplash / Pexels licence) stored once under a **simple, fixed folder `property-images/seed/`** with readable names, e.g. `property-images/seed/villa-01.webp`, `…/studio-03.webp` - no `YYYY/MM/<random>` path. Inside `property-images/`, so the bucket policy already makes them public and the IAM user can already write there: no AWS change.
+    - the seeder builds `https://<bucket>.s3.<region>.amazonaws.com/property-images/seed/<name>.webp` (via `uploads.s3.public_url()`), picking photos that match the property type; **falls back to picsum** when the `AWS_*` settings aren't set (fresh clones, tests).
+    - safe with TICKET-036's clean-up: `key_from_url()` only matches uploaded keys (`YYYY/MM/<32 hex>`), so a seed photo shared by several properties is **never deleted** when an admin removes it from one (add a test for that).
+    - getting them into the bucket, to decide when the ticket starts: a small `manage.py upload_seed_photos` (uploads a repo folder of pre-resized WebPs with the existing keys, skips ones already there) vs uploading them once by hand in the S3 console.
+    - Render: the hosted database keeps its picsum URLs until the one-off re-seed planned in TICKET-041.
 
 - [ ] **TICKET-041** — Simple demo logins in the seeder (admin + guests)
   - Priority: P0 · Depends on: TICKET-026 · Do before TICKET-039 (requested after TICKET-026)
@@ -849,10 +855,22 @@ test, always last).
     - Tests: every key exists in both dictionaries (no missing Greek), switching updates the page without a reload, dates/prices formatted per locale.
   - Decisions to agree when the ticket starts: the approach above vs `ngx-translate`; default language (browser vs always English); whether the server's field-level validation messages need Greek too.
 
-- [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket**
+- [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket before the meetup**
   - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)
   - Redeploy both Render services from the final `master`, run the local and hosted smoke tests (the "Payments: business rules & test cases" E2E cases + the TICKET-028 hosted demo check), and tick off the README's "Demo day" checklist.
   - (The former TICKET-039 "Record a backup demo video" was dropped - decision after TICKET-029.)
+
+---
+
+## Epic 9 — After the meetup: refactor & hardening
+
+- [ ] **TICKET-043** — Refactor & hardening (the last ticket)
+  - Priority: P2 · Depends on: TICKET-039 · After the meetup, when the demo becomes a real personal project. Collects refactors and robustness work; items are added here as they come up.
+  - **Brevo as a backup email provider** (requested after TICKET-036): when a Gmail API send fails because the Google refresh token is expired or revoked (`invalid_grant` - the app is in *Testing* mode, so the token expires every 7 days), send the email through Brevo instead, so booking emails keep going out until `gmail_authorize` is re-run.
+    - Background: TICKET-030 first used Brevo (HTTP API, worked on Render) and then replaced it with the Gmail API because Brevo rewrites a Gmail sender to its own `…@brevosend.com` address (Reply-To kept replies with the owner). The old `BrevoEmailBackend` is in git history (`3b57bb0`) and can be brought back.
+    - Sketch: `EMAIL_PROVIDER=gmail` + optional `EMAIL_FALLBACK_PROVIDER=brevo` and `BREVO_API_KEY`; a small wrapper backend tries Gmail, and on `invalid_grant` / an auth failure (not on an ordinary refusal of one message) sends the same message through Brevo; the outbox (`BookingEmail`) records which provider sent it; the owner gets told once (log error + a line in the owner alert / Django Admin) that the Gmail token needs `gmail_authorize` again.
+    - Decisions when the ticket starts: fall back only on auth errors vs on any Gmail failure; whether the fallback should also cover network errors / Google outages; how the owner is told the token expired.
+    - Tests for the switch-over (Gmail `invalid_grant` → Brevo used, recorded; ordinary 4xx → no fallback; no Brevo key → current behaviour) + README "Emails" and `render.yaml` (`BREVO_API_KEY` as `sync: false`).
 
 ---
 

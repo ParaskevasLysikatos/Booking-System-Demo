@@ -6635,4 +6635,7 @@ upload-only IAM user) is done; **TICKET-036 is done** (final check with
 the owner's bucket `booking-demo-photos-paraskevas`, locally and on
 Render: a 4000×3000 JPEG became a 1600×1200 WebP of 74.5 KB, portrait
 kept its orientation, saved photos show to guests, removed ones are
-deleted from S3; see "Photo uploads: final check").
+deleted from S3; see "Photo uploads: final check"). Planned later: seed photos
+served from the bucket's `property-images/seed/` folder (TICKET-037), and,
+after the meetup, Brevo as a backup email provider when the Gmail token
+has expired (TICKET-043, "Refactor & hardening").
