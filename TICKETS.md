@@ -832,6 +832,13 @@ test, always last).
     - safe with TICKET-036's clean-up: `key_from_url()` only matches uploaded keys (`YYYY/MM/<32 hex>`), so a seed photo shared by several properties is **never deleted** when an admin removes it from one (add a test for that).
     - getting them into the bucket, to decide when the ticket starts: a small `manage.py upload_seed_photos` (uploads a repo folder of pre-resized WebPs with the existing keys, skips ones already there) vs uploading them once by hand in the S3 console.
     - Render: the hosted database keeps its picsum URLs until the one-off re-seed planned in TICKET-041.
+  - Decisions (agreed before building):
+    - **photos:** picked by Claude on Unsplash in the owner's Chrome (Unsplash License, no Unsplash+), resized in the browser to 1280 px WebP (quality 75, no EXIF) and **kept in the repo** at `backend/core/seed_photos/` with a `CREDITS.md`.
+    - **getting them into the bucket:** a new `manage.py upload_seed_photos` (existing keys, `property-images/seed/<name>.webp`, skips files already there via a public HEAD - no `s3:ListBucket` needed; `--force` re-uploads). Run once by the owner (Claude's shells can't reach S3).
+    - **reviews:** 4-8 per property from extra ended, confirmed stays over the last 12 months (distinct guests, no overlaps); positive-skewed ratings with some 2-3★, ~25% without a comment, ~30 comment texts.
+    - **UI polish:** TICKET-042 (shorter "Placed at …" labels) is folded in; shortened on the **backend** (`short_label` from Nominatim's `addressdetails`, fallback to the first parts of the full line), full line as a tooltip.
+  - Plan: step 1 pick the photos · step 2 `upload_seed_photos` · step 3 seeder uses the S3 seed photos by property type (picsum fallback) · step 4 more reviews · step 5 TICKET-042 short labels · step 6 re-seed + Chrome check, README, done.
+  - Step 1 done: 36 photos (3 MB) in `backend/core/seed_photos/` - villa ×4, house ×4, cottage ×3, penthouse ×3, view ×2 (exteriors/terraces, used as covers) and apartment ×4, studio ×3, loft ×3, bedroom ×4, kitchen ×3, bathroom ×3 (interiors). Greek-island look for the exteriors (white houses, blue doors, stone cottages, sea-view pools). Picked from Unsplash's own search in Chrome, reviewed on contact sheets, downloaded as one `.tar`; `CREDITS.md` lists photographer + link per file.
 
 - [ ] **TICKET-041** — Simple demo logins in the seeder (admin + guests)
   - Priority: P0 · Depends on: TICKET-026 · Do before TICKET-039 (requested after TICKET-026)

@@ -6035,6 +6035,13 @@ the demo never starts out empty:
   don't land in the sea.
 - **Images** - 2-5 per property, deterministic `picsum.photos` URLs (free,
   no API key), with the first one flagged as the cover image.
+  *(TICKET-037, in progress):* a fixed set of 36 free-licensed Unsplash
+  photos now lives in `backend/core/seed_photos/` (1280 px WebP, credits in
+  its `CREDITS.md`), grouped by file name prefix - exteriors/terraces
+  (`villa-`, `house-`, `cottage-`, `penthouse-`, `view-`) and interiors
+  (`apartment-`, `studio-`, `loft-`, `bedroom-`, `kitchen-`, `bathroom-`).
+  The next steps upload them to the S3 bucket under
+  `property-images/seed/` and make the seeder use them instead of picsum.
 - **Guest users** - 10 by default, usernames `guest_<n>_<fakename>`,
   emails `...@example.com`, all sharing one known password so you can log
   in as any of them while testing: **`DemoPass123!`**.
