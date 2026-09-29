@@ -1,3 +1,4 @@
+from django.utils.translation import gettext as _
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -146,14 +147,14 @@ class GeocodeView(APIView):
             results = geocoding.search(query)
         except geocoding.GeocodingDisabled:
             return Response(
-                {"detail": "Map search is switched off. Place the pin on the map instead.",
+                {"detail": _("Map search is switched off. Place the pin on the map instead."),
                  "code": "geocoding_disabled"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except geocoding.GeocodingError:
             return Response(
-                {"detail": "Map search isn't available right now. Try again in a moment, "
-                           "or place the pin on the map.",
+                {"detail": _("Map search isn't available right now. Try again in a moment, "
+                             "or place the pin on the map."),
                  "code": "geocoding_unavailable"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )

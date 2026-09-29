@@ -1,4 +1,5 @@
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext as _
 from rest_framework import serializers
 
 from listings.models import Property
@@ -58,17 +59,17 @@ class ReviewCreateSerializer(serializers.Serializer):
 
     def validate_property(self, prop):
         if not prop.is_active:
-            raise serializers.ValidationError("This property isn't available.")
+            raise serializers.ValidationError(_("This property isn't available."))
         return prop
 
     def validate(self, attrs):
         user = self.context["request"].user
         prop = attrs["property"]
         if Review.objects.filter(property=prop, guest=user).exists():
-            raise serializers.ValidationError("You've already reviewed this place.")
+            raise serializers.ValidationError(_("You've already reviewed this place."))
         if not has_finished_stay(user, prop.id):
             raise serializers.ValidationError(
-                "You can review a place once a confirmed stay there has ended."
+                _("You can review a place once a confirmed stay there has ended.")
             )
         return attrs
 
@@ -80,7 +81,7 @@ class ReviewCreateSerializer(serializers.Serializer):
                 return Review.objects.create(guest=self.context["request"].user, **validated_data)
         except IntegrityError:
             raise serializers.ValidationError(
-                {"non_field_errors": ["You've already reviewed this place."]}
+                {"non_field_errors": [_("You've already reviewed this place.")]}
             )
 
 

@@ -60,6 +60,8 @@ MIDDLEWARE = [
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    # Accept-Language -> the API's language (TICKET-038); Admin stays English.
+    'core.middleware.ApiLanguageMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -112,7 +114,16 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-LANGUAGE_CODE = 'en-us'
+# TICKET-038: the API speaks English (default) and Greek. The language of a
+# request comes from its Accept-Language header (core.middleware); our own
+# Greek texts live in backend/locale/el/LC_MESSAGES/django.po - see the
+# README's "Two languages".
+LANGUAGE_CODE = 'en'
+LANGUAGES = [
+    ('en', 'English'),
+    ('el', 'Ελληνικά'),
+]
+LOCALE_PATHS = [BASE_DIR / 'locale']
 TIME_ZONE = 'Europe/Athens'
 USE_I18N = True
 USE_TZ = True

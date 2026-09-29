@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _, gettext_lazy
 from rest_framework import serializers
 
 from bookings.models import Booking
@@ -117,8 +118,8 @@ class CoordinatesMixin(serializers.Serializer):
             )
         return data
 
-    POSITION_REQUIRED = "Every property needs a map position - find the address or click the map."
-    POSITION_KEPT = "A map position can't be removed - move the pin instead."
+    POSITION_REQUIRED = gettext_lazy("Every property needs a map position - find the address or click the map.")
+    POSITION_KEPT = gettext_lazy("A map position can't be removed - move the pin instead.")
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -145,9 +146,9 @@ class CoordinatesMixin(serializers.Serializer):
 
         lat, lng = final("latitude"), final("longitude")
         if lat is None and lng is not None:
-            raise serializers.ValidationError({"latitude": ["Set a latitude too, or clear the longitude."]})
+            raise serializers.ValidationError({"latitude": [_("Set a latitude too, or clear the longitude.")]})
         if lng is None and lat is not None:
-            raise serializers.ValidationError({"longitude": ["Set a longitude too, or clear the latitude."]})
+            raise serializers.ValidationError({"longitude": [_("Set a longitude too, or clear the latitude.")]})
         return attrs
 
 
@@ -332,7 +333,7 @@ class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, Coordinat
 
     def validate_images(self, value):
         if sum(1 for img in value if img.get("is_cover")) > 1:
-            raise serializers.ValidationError("Only one image can be the cover.")
+            raise serializers.ValidationError(_("Only one image can be the cover."))
         return value
 
     @staticmethod

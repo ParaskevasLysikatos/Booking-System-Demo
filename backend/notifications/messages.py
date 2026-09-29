@@ -15,7 +15,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from payments.models import Payment
 
@@ -146,6 +146,13 @@ def _tidy(text):
 
 
 def build_message(row):
+    # Booking emails stay English (TICKET-038 scope), even when they're
+    # built inside a request the guest made in Greek.
+    with translation.override("en"):
+        return _build_message(row)
+
+
+def _build_message(row):
     ctx = email_context(row)
     template = f"notifications/emails/{row.kind}"
     message = EmailMultiAlternatives(

@@ -1,0 +1,356 @@
+# Greek texts of the Booking System Demo API (TICKET-038).
+# Regenerate: python manage.py makemessages -l el --add-location=file -i staticfiles
+# Compile:    python manage.py compilemessages
+msgid ""
+msgstr ""
+"Project-Id-Version: Booking System Demo\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-29 20:01+0300\n"
+"PO-Revision-Date: 2026-09-29 20:00+0300\n"
+"Last-Translator: \n"
+"Language-Team: Greek\n"
+"Language: el\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: accounts/library_messages.py
+msgid "No active account found with the given credentials"
+msgstr "Δεν βρέθηκε ενεργός λογαριασμός με αυτά τα στοιχεία"
+
+#: accounts/library_messages.py
+msgid "No active account found for the given token."
+msgstr "Δεν βρέθηκε ενεργός λογαριασμός για αυτό το token."
+
+#: accounts/library_messages.py
+msgid "Given token not valid for any token type"
+msgstr "Το token δεν είναι έγκυρο για κανέναν τύπο token"
+
+#: accounts/library_messages.py
+msgid "Token is invalid or expired"
+msgstr "Το token δεν είναι έγκυρο ή έχει λήξει"
+
+#: accounts/library_messages.py
+msgid "Token is invalid"
+msgstr "Το token δεν είναι έγκυρο"
+
+#: accounts/library_messages.py
+msgid "Token is expired"
+msgstr "Το token έχει λήξει"
+
+#: accounts/library_messages.py
+msgid "Token is blacklisted"
+msgstr "Το token έχει ανακληθεί"
+
+#: accounts/library_messages.py
+msgid "User not found"
+msgstr "Ο χρήστης δεν βρέθηκε"
+
+#: accounts/library_messages.py
+msgid "User is inactive"
+msgstr "Ο χρήστης είναι ανενεργός"
+
+#: accounts/library_messages.py
+#, python-format
+msgid "This password is too short. It must contain at least %d character."
+msgid_plural ""
+"This password is too short. It must contain at least %d characters."
+msgstr[0] ""
+"Αυτό το συνθηματικό είναι πολύ μικρό. Πρέπει να περιέχει τουλάχιστον %d "
+"χαρακτήρα."
+msgstr[1] ""
+"Αυτό το συνθηματικό είναι πολύ μικρό. Πρέπει να περιέχει τουλάχιστον %d "
+"χαρακτήρες."
+
+#: accounts/permissions.py
+msgid "Only admin accounts can perform this action."
+msgstr "Μόνο οι λογαριασμοί διαχειριστή μπορούν να κάνουν αυτή την ενέργεια."
+
+#: accounts/permissions.py
+msgid "Only admin accounts can modify this resource."
+msgstr "Μόνο οι λογαριασμοί διαχειριστή μπορούν να κάνουν αλλαγές εδώ."
+
+#: accounts/serializers.py
+msgid "An account with this email already exists."
+msgstr "Υπάρχει ήδη λογαριασμός με αυτό το email."
+
+#: bookings/serializers.py
+#, python-format
+msgid "This property sleeps at most %(count)s guest."
+msgid_plural "This property sleeps at most %(count)s guests."
+msgstr[0] "Αυτό το κατάλυμα φιλοξενεί έως %(count)s άτομο."
+msgstr[1] "Αυτό το κατάλυμα φιλοξενεί έως %(count)s άτομα."
+
+#: bookings/serializers.py
+msgid "This property isn't available for booking."
+msgstr "Αυτό το κατάλυμα δεν είναι διαθέσιμο για κράτηση."
+
+#: bookings/serializers.py listings/filters.py
+msgid "check_in can't be in the past."
+msgstr "Η άφιξη δεν μπορεί να είναι στο παρελθόν."
+
+#: bookings/serializers.py
+#, python-format
+msgid "Bookings open at most %(days)s days ahead."
+msgstr "Οι κρατήσεις ανοίγουν έως %(days)s ημέρες νωρίτερα."
+
+#: bookings/serializers.py listings/filters.py
+msgid "check_out must be after check_in."
+msgstr "Η αναχώρηση πρέπει να είναι μετά την άφιξη."
+
+#: bookings/serializers.py
+#, python-format
+msgid "A stay can be at most %(nights)s nights."
+msgstr "Η διαμονή μπορεί να είναι έως %(nights)s νύχτες."
+
+#: bookings/serializers.py
+msgid "Only status can be changed on a booking."
+msgstr "Σε μια κράτηση μπορεί να αλλάξει μόνο η κατάσταση."
+
+#: bookings/views.py
+msgid "These dates are no longer available for this property."
+msgstr "Αυτές οι ημερομηνίες δεν είναι πλέον διαθέσιμες για αυτό το κατάλυμα."
+
+#: bookings/views.py
+msgid ""
+"These dates were just booked by someone else. Please pick different dates."
+msgstr ""
+"Αυτές οι ημερομηνίες μόλις κρατήθηκαν από κάποιον άλλο. Επιλέξτε άλλες "
+"ημερομηνίες."
+
+#: bookings/views.py
+msgctxt "booking status"
+msgid "pending"
+msgstr "σε αναμονή"
+
+#: bookings/views.py
+msgctxt "booking status"
+msgid "confirmed"
+msgstr "επιβεβαιωμένη"
+
+#: bookings/views.py
+msgctxt "booking status"
+msgid "cancelled"
+msgstr "ακυρωμένη"
+
+#: bookings/views.py
+#, python-format
+msgid "Unknown status %(given)s. Use one or more of: %(allowed)s."
+msgstr ""
+"Άγνωστη κατάσταση %(given)s. Χρησιμοποιήστε μία ή περισσότερες από: "
+"%(allowed)s."
+
+#: bookings/views.py
+msgid "Only admins can refund bookings."
+msgstr "Μόνο οι διαχειριστές μπορούν να επιστρέψουν χρήματα για κρατήσεις."
+
+#: bookings/views.py
+msgid "The payment page for this booking was just opened. Please try again."
+msgstr "Η σελίδα πληρωμής αυτής της κράτησης μόλις άνοιξε. Δοκιμάστε ξανά."
+
+#: bookings/views.py
+#, python-format
+msgid "Booking is already %(status)s."
+msgstr "Η κράτηση είναι ήδη %(status)s."
+
+#: bookings/views.py
+msgid "Guests can only cancel a booking."
+msgstr "Οι επισκέπτες μπορούν μόνο να ακυρώσουν μια κράτηση."
+
+#: bookings/views.py
+#, python-format
+msgid ""
+"Online cancellation closed on %(deadline)s (%(hours)s hours before check-"
+"in). Please contact us."
+msgstr ""
+"Η ηλεκτρονική ακύρωση έκλεισε στις %(deadline)s (%(hours)s ώρες πριν από την"
+" άφιξη). Επικοινωνήστε μαζί μας."
+
+#: bookings/views.py
+#, python-format
+msgid "Can't change a %(current)s booking to %(new)s."
+msgstr "Μια κράτηση που είναι %(current)s δεν μπορεί να γίνει %(new)s."
+
+#: bookings/views.py
+msgid "from and to must be given together."
+msgstr "Η αρχή και το τέλος της περιόδου δίνονται μαζί."
+
+#: bookings/views.py
+msgid "to can't be before from."
+msgstr "Το τέλος της περιόδου δεν μπορεί να είναι πριν από την αρχή."
+
+#: bookings/views.py
+#, python-format
+msgid "The period can be at most %(days)s days."
+msgstr "Η περίοδος μπορεί να είναι έως %(days)s ημέρες."
+
+#: listings/filters.py
+msgid "check_in and check_out must be given together."
+msgstr "Η άφιξη και η αναχώρηση δίνονται μαζί."
+
+#: listings/filters.py
+msgid "min_price can't be greater than max_price."
+msgstr "Η ελάχιστη τιμή δεν μπορεί να είναι μεγαλύτερη από τη μέγιστη."
+
+#: listings/serializers.py
+msgid ""
+"Every property needs a map position - find the address or click the map."
+msgstr ""
+"Κάθε κατάλυμα χρειάζεται θέση στον χάρτη - βρείτε τη διεύθυνση ή κάντε κλικ "
+"στον χάρτη."
+
+#: listings/serializers.py
+msgid "A map position can't be removed - move the pin instead."
+msgstr "Η θέση στον χάρτη δεν μπορεί να αφαιρεθεί - μετακινήστε την καρφίτσα."
+
+#: listings/serializers.py
+msgid "Set a latitude too, or clear the longitude."
+msgstr "Ορίστε και γεωγραφικό πλάτος ή καθαρίστε το μήκος."
+
+#: listings/serializers.py
+msgid "Set a longitude too, or clear the latitude."
+msgstr "Ορίστε και γεωγραφικό μήκος ή καθαρίστε το πλάτος."
+
+#: listings/serializers.py
+msgid "Only one image can be the cover."
+msgstr "Μόνο μία φωτογραφία μπορεί να είναι το εξώφυλλο."
+
+#: listings/views.py
+msgid "Map search is switched off. Place the pin on the map instead."
+msgstr ""
+"Η αναζήτηση στον χάρτη είναι απενεργοποιημένη. Τοποθετήστε την καρφίτσα στον"
+" χάρτη."
+
+#: listings/views.py
+msgid ""
+"Map search isn't available right now. Try again in a moment, or place the "
+"pin on the map."
+msgstr ""
+"Η αναζήτηση στον χάρτη δεν είναι διαθέσιμη αυτή τη στιγμή. Δοκιμάστε σε λίγο"
+" ή τοποθετήστε την καρφίτσα στον χάρτη."
+
+#: payments/refunds.py
+msgid "This booking wasn't paid online, so there's nothing to refund."
+msgstr ""
+"Αυτή η κράτηση δεν πληρώθηκε online, οπότε δεν υπάρχει κάτι να επιστραφεί."
+
+#: payments/refunds.py
+msgid "Only cancelled bookings are refunded - cancel the booking first."
+msgstr ""
+"Επιστροφή χρημάτων γίνεται μόνο για ακυρωμένες κρατήσεις - ακυρώστε πρώτα "
+"την κράτηση."
+
+#: payments/refunds.py
+msgid "This booking has already been refunded."
+msgstr "Τα χρήματα αυτής της κράτησης έχουν ήδη επιστραφεί."
+
+#: payments/refunds.py
+msgid "A refund is already on its way - Stripe will confirm it."
+msgstr ""
+"Μια επιστροφή χρημάτων είναι ήδη καθ' οδόν - η Stripe θα την επιβεβαιώσει."
+
+#: payments/services.py
+msgid "This booking doesn't take online payment."
+msgstr "Αυτή η κράτηση δεν πληρώνεται online."
+
+#: payments/services.py
+msgid "This booking is already confirmed."
+msgstr "Αυτή η κράτηση είναι ήδη επιβεβαιωμένη."
+
+#: payments/services.py
+msgid "This booking was cancelled."
+msgstr "Αυτή η κράτηση ακυρώθηκε."
+
+#: payments/services.py
+msgid "This booking has already been paid."
+msgstr "Αυτή η κράτηση έχει ήδη πληρωθεί."
+
+#: payments/services.py
+msgid ""
+"The time to pay for this booking has run out, so the dates were released. "
+"Please book again."
+msgstr ""
+"Ο χρόνος πληρωμής για αυτή την κράτηση έληξε, οπότε οι ημερομηνίες "
+"αποδεσμεύτηκαν. Κάντε ξανά την κράτηση."
+
+#: payments/services.py
+msgid "Online payment is switched off right now."
+msgstr "Η online πληρωμή είναι απενεργοποιημένη αυτή τη στιγμή."
+
+#: payments/services.py
+msgid ""
+"Your payment page is still being prepared. Please try again in a moment."
+msgstr "Η σελίδα πληρωμής σας ετοιμάζεται ακόμη. Δοκιμάστε ξανά σε λίγο."
+
+#: payments/services.py
+msgid "We couldn't reach the payment provider. Please try again."
+msgstr "Δεν ήταν δυνατή η σύνδεση με τον πάροχο πληρωμών. Δοκιμάστε ξανά."
+
+#: payments/services.py
+msgid ""
+"A payment for this booking is still being processed by the bank. Please try "
+"again once it has gone through or failed."
+msgstr ""
+"Η τράπεζα επεξεργάζεται ακόμη μια πληρωμή για αυτή την κράτηση. Δοκιμάστε "
+"ξανά μόλις ολοκληρωθεί ή αποτύχει."
+
+#: payments/services.py
+msgid ""
+"We couldn't reach the payment provider to close this booking's payment page."
+" Please try again."
+msgstr ""
+"Δεν ήταν δυνατή η σύνδεση με τον πάροχο πληρωμών για να κλείσει η σελίδα "
+"πληρωμής αυτής της κράτησης. Δοκιμάστε ξανά."
+
+#: payments/services.py
+msgid ""
+"The payment for this booking has just gone through, so it's now confirmed. "
+"Please refresh."
+msgstr ""
+"Η πληρωμή για αυτή την κράτηση μόλις ολοκληρώθηκε, οπότε είναι πλέον "
+"επιβεβαιωμένη. Ανανεώστε τη σελίδα."
+
+#: payments/services.py
+msgid ""
+"A payment for this booking is now being processed by the bank. Please try "
+"again once it has gone through or failed."
+msgstr ""
+"Η τράπεζα επεξεργάζεται τώρα μια πληρωμή για αυτή την κράτηση. Δοκιμάστε "
+"ξανά μόλις ολοκληρωθεί ή αποτύχει."
+
+#: reviews/serializers.py
+msgid "This property isn't available."
+msgstr "Αυτό το κατάλυμα δεν είναι διαθέσιμο."
+
+#: reviews/serializers.py
+msgid "You've already reviewed this place."
+msgstr "Έχετε ήδη αξιολογήσει αυτό το κατάλυμα."
+
+#: reviews/serializers.py
+msgid "You can review a place once a confirmed stay there has ended."
+msgstr ""
+"Μπορείτε να αξιολογήσετε ένα κατάλυμα αφού τελειώσει μια επιβεβαιωμένη "
+"διαμονή σας εκεί."
+
+#: uploads/views.py
+msgid "Only JPEG, PNG and WebP photos can be uploaded."
+msgstr "Μπορούν να ανέβουν μόνο φωτογραφίες JPEG, PNG και WebP."
+
+#: uploads/views.py
+#, python-format
+msgid "Photos can be at most %(size)s."
+msgstr "Οι φωτογραφίες μπορούν να είναι έως %(size)s."
+
+#: uploads/views.py
+msgid "Photo uploads are switched off. Paste an image URL instead."
+msgstr ""
+"Το ανέβασμα φωτογραφιών είναι απενεργοποιημένο. Επικολλήστε τη διεύθυνση URL"
+" μιας εικόνας."
+
+#: uploads/views.py
+msgid ""
+"Photo uploads aren't available right now. Try again, or paste an image URL."
+msgstr ""
+"Το ανέβασμα φωτογραφιών δεν είναι διαθέσιμο αυτή τη στιγμή. Δοκιμάστε ξανά ή"
+" επικολλήστε τη διεύθυνση URL μιας εικόνας."

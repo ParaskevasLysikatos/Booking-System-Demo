@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.utils.translation import gettext as _, gettext_lazy
 from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -36,7 +37,7 @@ class UploadConfigView(APIView):
 class PresignRequestSerializer(serializers.Serializer):
     content_type = serializers.ChoiceField(
         choices=list(s3.CONTENT_TYPES),
-        error_messages={"invalid_choice": "Only JPEG, PNG and WebP photos can be uploaded."},
+        error_messages={"invalid_choice": gettext_lazy("Only JPEG, PNG and WebP photos can be uploaded.")},
     )
     # The browser's own count of the (resized) file. Checked here only for a
     # friendly message - the real limit is S3's content-length-range.
@@ -45,7 +46,7 @@ class PresignRequestSerializer(serializers.Serializer):
     def validate_size(self, value):
         limit = settings.UPLOADS_MAX_BYTES
         if value > limit:
-            raise serializers.ValidationError(f"Photos can be at most {_megabytes(limit)}.")
+            raise serializers.ValidationError(_("Photos can be at most %(size)s.") % {"size": _megabytes(limit)})
         return value
 
 
@@ -71,14 +72,14 @@ class PresignUploadView(APIView):
             upload = s3.presign(data.validated_data["content_type"])
         except s3.UploadsDisabled:
             return Response(
-                {"detail": "Photo uploads are switched off. Paste an image URL instead.",
+                {"detail": _("Photo uploads are switched off. Paste an image URL instead."),
                  "code": "uploads_disabled"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception:  # noqa: BLE001 - botocore errors; details go to the log only
             logger.exception("Could not presign an S3 upload")
             return Response(
-                {"detail": "Photo uploads aren't available right now. Try again, or paste an image URL.",
+                {"detail": _("Photo uploads aren't available right now. Try again, or paste an image URL."),
                  "code": "uploads_unavailable"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )

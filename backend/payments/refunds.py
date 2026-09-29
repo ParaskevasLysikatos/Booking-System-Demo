@@ -38,6 +38,7 @@ from decimal import Decimal
 import stripe
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from bookings.models import Booking
 
@@ -217,13 +218,13 @@ def refund_blocker(booking, payment):
     never started (e.g. cancelled before refunds existed), failed, or is
     pending but was never sent (the send was interrupted)."""
     if payment is None or payment.status != Payment.Status.PAID:
-        return "not_paid", "This booking wasn't paid online, so there's nothing to refund."
+        return "not_paid", _("This booking wasn't paid online, so there's nothing to refund.")
     if booking.status != Booking.Status.CANCELLED:
-        return "not_cancelled", "Only cancelled bookings are refunded - cancel the booking first."
+        return "not_cancelled", _("Only cancelled bookings are refunded - cancel the booking first.")
     if payment.refund_status == Refund.REFUNDED:
-        return "already_refunded", "This booking has already been refunded."
+        return "already_refunded", _("This booking has already been refunded.")
     if payment.refund_status == Refund.PENDING and payment.stripe_refund_id:
-        return "refund_in_progress", "A refund is already on its way - Stripe will confirm it."
+        return "refund_in_progress", _("A refund is already on its way - Stripe will confirm it.")
     return None
 
 

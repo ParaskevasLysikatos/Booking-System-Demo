@@ -107,8 +107,10 @@ dialogs), the Saved page, the payment return page, the payment and refund
 labels and the app's own error messages are in Greek too. Step 5 is done -
 the whole admin area is in Greek (dashboard and revenue chart, bookings,
 properties list and form with photos and map position, reviews), and
-Greek is now a separate chunk loaded only when it's needed. See "Two
-languages (English / Greek, TICKET-038)".
+Greek is now a separate chunk loaded only when it's needed. Step 6 is done -
+the server's own messages (booking clashes, validation, password rules,
+login errors, payment and refund refusals) come back in Greek when the app
+is in Greek. See "Two languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -181,6 +183,8 @@ backend/
                        stripe (TICKET-029), boto3 (S3 photo uploads, TICKET-036)
   build.sh             Render build: pip install, collectstatic, migrate, first-deploy seed
   manage.py
+  locale/el/LC_MESSAGES/  django.po (the API's Greek texts, edited by hand) + django.mo (compiled, committed)
+                       - see "Two languages -> Server messages in Greek" (TICKET-038)
   config/              Django project settings
     settings.py        Reads DB/secret/CORS/JWT config from env vars (DATABASE_URL on Render); JWT is the
                        API's default auth; production hardening when DJANGO_DEBUG=False
@@ -189,6 +193,8 @@ backend/
   core/                Small app - currently just the health-check endpoint
     views.py           GET /api/health/ - queries Postgres, returns status (error details only in DEBUG)
     tests.py           Health check + seed tests (--if-empty, demo logins, --replace-old-demo)
+    middleware.py      ApiLanguageMiddleware - Accept-Language -> the API's language, English elsewhere (TICKET-038)
+    test_i18n.py       The API in Greek / English, Admin and emails stay English, .mo matches .po (TICKET-038)
     demo_accounts.py   The demo logins (TICKET-041) + helpers that find demo accounts
     urls.py
     pagination.py      StandardPagination - 12 per page, ?page_size= up to 50
@@ -6174,7 +6180,8 @@ build or site.
 4. Guest pages, part 2 (My bookings, dialogs, Saved, payment screens,
    the app's own error messages) - **done**.
 5. The admin pages - **done**.
-6. The backend in Greek (Django `LocaleMiddleware`, `gettext`, `el` `.po`).
+6. The backend in Greek (a small language middleware, `gettext`, an `el`
+   `.po`) - **done**.
 7. Stripe's payment page in the same language (`locale` on the Checkout
    Session).
 8. Final check in both languages, locally and on Render.
@@ -6304,7 +6311,7 @@ In Greek now:
   "Ασφαλής πληρωμή", ...
 
 Error messages that come from the server (e.g. "Check-in can't be in the
-past.") are still English until step 6.
+past.") were still English here; step 6 translated them.
 
 How it's done:
 - **Plurals** use `{count}` keys (`common.nights`: "1 νύχτα" / "4 νύχτες").
@@ -6503,6 +6510,109 @@ from a previous visit):
   containing Greek text) and switched the login page and tab title
 
 `npm run check:i18n`: 734 key uses, all found.
+
+### Server messages in Greek (step 6)
+
+Messages written by the API - "These dates are no longer available",
+"This password is too common.", "This field is required.", "No active
+account found ...", every payment and refund refusal - now come back in
+the app's language:
+
+| Request | Answer |
+|---|---|
+| `Accept-Language: el` (app in Greek) | "Αυτές οι ημερομηνίες δεν είναι πλέον διαθέσιμες για αυτό το κατάλυμα." |
+| `Accept-Language: en`, no header, or any other language | "These dates are no longer available for this property." (unchanged) |
+
+The error `code`s (`dates_unavailable`, `payment_processing`, ...) never
+change, so code that checks them works in both languages.
+
+**How it works:**
+
+- **`core/middleware.py` (`ApiLanguageMiddleware`)**, right after the
+  sessions middleware:
+  - for `/api/...` it reads `Accept-Language` (which the Angular app sets
+    on every API call - step 1) and activates that language for the
+    request. `el`, `el-GR` and a browser's `el-GR,el;q=0.9,en;q=0.8` all
+    mean Greek; anything else means English.
+  - it adds `Content-Language: el` / `en` and `Vary: Accept-Language` to
+    API answers (so a cache never serves a Greek answer to an English
+    request).
+  - **everywhere else** (Django Admin at `/admin/`) it always activates
+    English.
+  - Why not Django's own `LocaleMiddleware`: it would also translate
+    the Django Admin (out of scope), can redirect to language prefixes,
+    and reads a `django_language` cookie. Ours only reads the header, so
+    an answer depends on the request alone.
+- **`settings.py`:** `LANGUAGE_CODE = 'en'`, `LANGUAGES` = English and
+  Greek, `LOCALE_PATHS = [BASE_DIR / 'locale']`.
+- **Our messages** are wrapped in Django's `gettext` (`_("...")`), or
+  `gettext_lazy` for texts defined once at import time (the permission
+  messages, `DATES_TAKEN`, the map-position messages, the upload type
+  error). The English text is the key, and it is exactly what it was
+  before, so every existing test still passes unchanged.
+  - Numbers are placeholders now: `_("A stay can be at most %(nights)s
+    nights.") % {"nights": 30}`.
+  - "Sleeps at most 1 guest / 3 guests" uses `ngettext` (Greek: "1 άτομο"
+    / "3 άτομα"). English was "1 guests" before; now it's "1 guest".
+  - Booking statuses inside a sentence are words, not codes: "Η κράτηση
+    είναι ήδη ακυρωμένη." (`status_word()` in `bookings/views.py`, with the
+    context "booking status").
+- **Django's and DRF's own messages** (password rules, "This field is
+  required.", "Enter a valid email address.") come from their own Greek
+  translations - nothing to do.
+- **Gaps filled from our catalog** (`accounts/library_messages.py` lists
+  them so `makemessages` picks them up; Django reads our catalog first):
+  - simplejwt ships no Greek: the failed-login message ("Δεν βρέθηκε
+    ενεργός λογαριασμός με αυτά τα στοιχεία") and the token messages.
+  - Django 5.2 reworded "This password is too short. It must contain at
+    least 8 characters." and its Greek hasn't caught up.
+- **The catalog:** `backend/locale/el/LC_MESSAGES/django.po` (67 texts,
+  human-edited) and `django.mo` (compiled). The `.mo` is committed, because
+  Render's Python build has no `gettext` tools; the Docker image installs
+  them for editing.
+- **Stays English, on purpose:**
+  - **Booking emails** - `build_message()` renders under
+    `translation.override("en")`, even when the booking was made in Greek.
+  - **Django Admin** (see the middleware).
+  - **Stored refund failure reasons** ("Stripe refused the refund") -
+    they're saved in the database, shown to the admin as recorded.
+  - `Model.clean()` messages - only the Django Admin shows them.
+  - Management-command output and logs.
+
+The frontend needs no change: `parseApiErrors()` already shows whatever
+`detail` / field messages the server sends. The small "check_in → check-in
+date" rewording on the listings and booking pages only matches English
+messages, and Greek ones never contain field names.
+
+**Changing or adding a server text:**
+
+1. Wrap it: `from django.utils.translation import gettext as _` →
+   `_("Your text with %(count)s.") % {"count": n}` (placeholders by name,
+   never an f-string - the key must be the same every time).
+2. `python manage.py makemessages -l el --add-location=file -i staticfiles`
+   (inside Docker: `docker compose exec backend python manage.py ...`) - adds
+   it to `django.po`.
+3. Write its Greek `msgstr` in `django.po` (and drop any `#, fuzzy` line
+   makemessages added - a fuzzy text is not used).
+4. `python manage.py compilemessages` → `django.mo`. Commit both files.
+
+**Tests** (`core/test_i18n.py`, 16 new, **508 backend tests** pass on
+Postgres):
+- **Which header means what:** `el`, `el-GR`, a browser's full header,
+  quality order (`fr, el;q=0.5` → Greek); missing / `fr` / `*` / junk →
+  English.
+- **API answers:** `Content-Language` and `Vary`; the dates-taken 409 in
+  Greek and, without the header, the same English as before; field
+  messages with numbers; the plural ("1 άτομο" / "3 άτομα", and English
+  "1 guest"); a status word inside a sentence; Django's password rules
+  and DRF's "required" in Greek; the duplicate email; the failed login
+  (simplejwt, from our catalog); the admin-only permission message; the
+  language never leaks into the next request.
+- **Stays English:** the booking email of a Greek request (subject, text
+  and HTML); `build_message()` gives the same email under Greek; the
+  Django Admin login page with `Accept-Language: el`.
+- **The catalog:** the committed `.mo` has every `.po` text, translated -
+  editing `django.po` and forgetting `compilemessages` fails this test.
 
 ### Material's own texts, per page
 
@@ -7401,7 +7511,10 @@ payment return page, payment/refund labels, the app's own error messages)
 is done; see "Two languages → Guest pages, part 2"; step 5 (the admin
 area in Greek, plus Greek as a lazy chunk: initial bundle 683 → 635 kB) is
 done; see "Two languages → Admin pages" and "Greek loads only when it's
-needed". Next: the backend in Greek (step 6), Stripe's page language (step 7) and the
+needed"; step 6 (the API's messages in Greek through Django's translations:
+`Accept-Language` → `core.middleware`, our texts in `backend/locale/el/`,
+Django Admin and emails stay English) is done; see "Two languages → Server
+messages in Greek". Next: Stripe's page language (step 7) and the
 final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").

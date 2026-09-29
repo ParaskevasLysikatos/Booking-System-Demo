@@ -5,6 +5,7 @@ from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext as _, gettext_lazy, pgettext
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -37,8 +38,18 @@ EXCLUSION_VIOLATION = "23P01"  # Postgres SQLSTATE for exclusion_violation
 DEADLOCK_DETECTED = "40P01"  # Postgres SQLSTATE for deadlock_detected
 NO_OVERLAP_CONSTRAINT = "booking_no_overlap_per_property"
 
-DATES_TAKEN = "These dates are no longer available for this property."
-DATES_JUST_TAKEN = "These dates were just booked by someone else. Please pick different dates."
+DATES_TAKEN = gettext_lazy("These dates are no longer available for this property.")
+DATES_JUST_TAKEN = gettext_lazy("These dates were just booked by someone else. Please pick different dates.")
+
+
+def status_word(value):
+    """A booking status inside a sentence: "cancelled" / "ακυρωμένη"."""
+    words = {
+        Booking.Status.PENDING: pgettext("booking status", "pending"),
+        Booking.Status.CONFIRMED: pgettext("booking status", "confirmed"),
+        Booking.Status.CANCELLED: pgettext("booking status", "cancelled"),
+    }
+    return words.get(value, value)
 
 
 def is_deadlock(exc):
@@ -79,8 +90,10 @@ class BookingFilterSerializer(serializers.Serializer):
         invalid = [s for s in statuses if s not in Booking.Status.values]
         if not statuses or invalid:
             raise serializers.ValidationError(
-                f"Unknown status {', '.join(invalid) or repr(value)}. "
-                f"Use one or more of: {', '.join(Booking.Status.values)}."
+                _("Unknown status %(given)s. Use one or more of: %(allowed)s.") % {
+                    "given": ", ".join(invalid) or repr(value),
+                    "allowed": ", ".join(Booking.Status.values),
+                }
             )
         return statuses
 
@@ -247,7 +260,7 @@ class BookingViewSet(
         again with the new reason. 409 with a `code` when there's nothing to
         do (not_paid / not_cancelled / already_refunded / refund_in_progress)."""
         if not self._is_admin():
-            return Response({"detail": "Only admins can refund bookings."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": _("Only admins can refund bookings.")}, status=status.HTTP_403_FORBIDDEN)
         booking = get_object_or_404(self.get_queryset(), pk=pk)
         try:
             refund_now(booking.pk)
@@ -288,7 +301,7 @@ class BookingViewSet(
                     # The guest opened the payment page between our close
                     # and this lock - it's open again. Nothing changed; retry.
                     return Response({
-                        "detail": "The payment page for this booking was just opened. Please try again.",
+                        "detail": _("The payment page for this booking was just opened. Please try again."),
                         "code": "checkout_just_opened",
                     }, status=status.HTTP_409_CONFLICT)
                 payment.status = Payment.Status.CANCELLED
@@ -314,23 +327,24 @@ class BookingViewSet(
     def _check_transition(self, booking, new_status):
         current = booking.status
         if new_status == current:
-            raise ValidationError({"status": [f"Booking is already {current}."]})
+            raise ValidationError({"status": [_("Booking is already %(status)s.") % {"status": status_word(current)}]})
         if self._is_admin():
             allowed = Booking.ADMIN_TRANSITIONS[current]
         else:
             if new_status != Booking.Status.CANCELLED:
-                raise ValidationError({"status": ["Guests can only cancel a booking."]})
+                raise ValidationError({"status": [_("Guests can only cancel a booking.")]})
             if not booking.guest_can_cancel():
                 deadline = timezone.localtime(booking.cancel_deadline())
                 hours = settings.BOOKING_GUEST_CANCELLATION_HOURS
                 raise ValidationError({"status": [
-                    f"Online cancellation closed on {deadline:%Y-%m-%d %H:%M} "
-                    f"({hours} hours before check-in). Please contact us."
+                    _("Online cancellation closed on %(deadline)s (%(hours)s hours before check-in). "
+                      "Please contact us.") % {"deadline": f"{deadline:%Y-%m-%d %H:%M}", "hours": hours}
                 ]})
             allowed = Booking.GUEST_TRANSITIONS[current]
         if new_status not in allowed:
             raise ValidationError(
-                {"status": [f"Can't change a {current} booking to {new_status}."]}
+                {"status": [_("Can't change a %(current)s booking to %(new)s.") % {
+                    "current": status_word(current), "new": status_word(new_status)}]}
             )
 
 
@@ -355,16 +369,16 @@ class StatsPeriodSerializer(serializers.Serializer):
     def validate(self, attrs):
         start, end = attrs.get("from"), attrs.get("to")
         if (start is None) != (end is None):
-            raise ValidationError({"from": ["from and to must be given together."]})
+            raise ValidationError({"from": [_("from and to must be given together.")]})
         if start is None:
             today = timezone.localdate()
             start = today.replace(day=1)
             next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
             end = next_month - timedelta(days=1)
         if end < start:
-            raise ValidationError({"to": ["to can't be before from."]})
+            raise ValidationError({"to": [_("to can't be before from.")]})
         if (end - start).days + 1 > MAX_STATS_DAYS:
-            raise ValidationError({"to": [f"The period can be at most {MAX_STATS_DAYS} days."]})
+            raise ValidationError({"to": [_("The period can be at most %(days)s days.") % {"days": MAX_STATS_DAYS}]})
         return {"start": start, "end": end}
 
 

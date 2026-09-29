@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.utils import timezone
+from django.utils.translation import gettext as _, ngettext
 from rest_framework import serializers
 
 from listings.models import Property
@@ -12,6 +13,14 @@ from .models import Booking
 
 MAX_NIGHTS = 30
 MAX_DAYS_AHEAD = 365
+
+
+def capacity_message(capacity):
+    return ngettext(
+        "This property sleeps at most %(count)s guest.",
+        "This property sleeps at most %(count)s guests.",
+        capacity,
+    ) % {"count": capacity}
 
 
 class BookingPropertySummarySerializer(serializers.ModelSerializer):
@@ -151,7 +160,7 @@ class BookingCreateSerializer(serializers.Serializer):
 
     def validate_property(self, prop):
         if not prop.is_active:
-            raise serializers.ValidationError("This property isn't available for booking.")
+            raise serializers.ValidationError(_("This property isn't available for booking."))
         return prop
 
     def validate(self, attrs):
@@ -159,15 +168,15 @@ class BookingCreateSerializer(serializers.Serializer):
         check_in, check_out = attrs["check_in"], attrs["check_out"]
         errors = {}
         if check_in < today:
-            errors["check_in"] = ["check_in can't be in the past."]
+            errors["check_in"] = [_("check_in can't be in the past.")]
         elif check_in > today + timedelta(days=MAX_DAYS_AHEAD):
-            errors["check_in"] = [f"Bookings open at most {MAX_DAYS_AHEAD} days ahead."]
+            errors["check_in"] = [_("Bookings open at most %(days)s days ahead.") % {"days": MAX_DAYS_AHEAD}]
         if check_out <= check_in:
-            errors["check_out"] = ["check_out must be after check_in."]
+            errors["check_out"] = [_("check_out must be after check_in.")]
         elif (check_out - check_in).days > MAX_NIGHTS:
-            errors["check_out"] = [f"A stay can be at most {MAX_NIGHTS} nights."]
+            errors["check_out"] = [_("A stay can be at most %(nights)s nights.") % {"nights": MAX_NIGHTS}]
         if attrs["guests"] > attrs["property"].capacity:
-            errors["guests"] = [f"This property sleeps at most {attrs['property'].capacity} guests."]
+            errors["guests"] = [capacity_message(attrs["property"].capacity)]
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -197,6 +206,6 @@ class BookingStatusSerializer(serializers.Serializer):
         extra = set(self.initial_data) - {"status"}
         if extra:
             raise serializers.ValidationError(
-                {field: ["Only status can be changed on a booking."] for field in sorted(extra)}
+                {field: [_("Only status can be changed on a booking.")] for field in sorted(extra)}
             )
         return attrs

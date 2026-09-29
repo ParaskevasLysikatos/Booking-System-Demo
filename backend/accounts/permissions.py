@@ -12,6 +12,7 @@ is only a UI hint for the frontend.
 """
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils.translation import gettext_lazy as _
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 
@@ -31,7 +32,7 @@ class IsAdminRole(BasePermission):
     """Only app admins. Anonymous callers get 401 (JWT auth advertises a
     WWW-Authenticate header), logged-in non-admins get 403."""
 
-    message = "Only admin accounts can perform this action."
+    message = _("Only admin accounts can perform this action.")
 
     def has_permission(self, request, view):
         return is_app_admin(request.user)
@@ -42,7 +43,7 @@ class IsAdminOrReadOnly(BasePermission):
     (POST/PUT/PATCH/DELETE). Used by the public-browse-but-admin-managed
     endpoints such as /api/properties/."""
 
-    message = "Only admin accounts can modify this resource."
+    message = _("Only admin accounts can modify this resource.")
 
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:

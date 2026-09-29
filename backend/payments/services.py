@@ -34,6 +34,7 @@ import stripe
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from bookings.models import Booking
 from notifications.outbox import booking_cancelled, reason_for_payment_status
@@ -134,17 +135,17 @@ def session_params(booking, payment):
 
 def check_payable(booking, payment, now=None):
     if payment is None:
-        raise CheckoutError("This booking doesn't take online payment.", "payment_not_required")
+        raise CheckoutError(_("This booking doesn't take online payment."), "payment_not_required")
     if booking.status == Booking.Status.CONFIRMED:
-        raise CheckoutError("This booking is already confirmed.", "already_confirmed")
+        raise CheckoutError(_("This booking is already confirmed."), "already_confirmed")
     if booking.status == Booking.Status.CANCELLED:
-        raise CheckoutError("This booking was cancelled.", "booking_cancelled")
+        raise CheckoutError(_("This booking was cancelled."), "booking_cancelled")
     if payment.status in (Payment.Status.PAID, Payment.Status.PROCESSING):
-        raise CheckoutError("This booking has already been paid.", "already_paid")
+        raise CheckoutError(_("This booking has already been paid."), "already_paid")
     if not payment.is_holding(now):
         raise CheckoutError(
-            "The time to pay for this booking has run out, so the dates were released. "
-            "Please book again.",
+            _("The time to pay for this booking has run out, so the dates were released. "
+             "Please book again."),
             "payment_window_closed",
         )
 
@@ -195,17 +196,17 @@ def start_checkout(booking_id):
             params=params, options={"idempotency_key": key}
         )
     except PaymentsDisabled:
-        raise CheckoutError("Online payment is switched off right now.", "payments_disabled", 503)
+        raise CheckoutError(_("Online payment is switched off right now."), "payments_disabled", 503)
     except stripe.IdempotencyError:
         # The same request is still being processed (a parallel double click).
         raise CheckoutError(
-            "Your payment page is still being prepared. Please try again in a moment.",
+            _("Your payment page is still being prepared. Please try again in a moment."),
             "checkout_in_progress",
         )
     except stripe.StripeError:
         logger.exception("Stripe Checkout Session create failed for booking %s", booking_id)
         raise CheckoutError(
-            "We couldn't reach the payment provider. Please try again.",
+            _("We couldn't reach the payment provider. Please try again."),
             "payment_provider_error",
             502,
         )
@@ -226,7 +227,7 @@ def start_checkout(booking_id):
         # Cancelled while we were talking to Stripe: nobody has seen this
         # page yet - close it so it can never be paid.
         expire_session_quietly(session.id)
-        raise CheckoutError("This booking was cancelled.", "booking_cancelled")
+        raise CheckoutError(_("This booking was cancelled."), "booking_cancelled")
     if payment.stripe_checkout_session_id != session.id:
         # A parallel request stored a different session first; keep that one.
         expire_session_quietly(session.id)
@@ -327,8 +328,8 @@ def close_checkout_for_status_change(booking_id):
         return None
     if payment.status == Payment.Status.PROCESSING:
         raise CheckoutError(
-            "A payment for this booking is still being processed by the bank. "
-            "Please try again once it has gone through or failed.",
+            _("A payment for this booking is still being processed by the bank. "
+             "Please try again once it has gone through or failed."),
             "payment_processing",
         )
     if payment.status != Payment.Status.OPEN or not payment.stripe_checkout_session_id:
@@ -344,8 +345,8 @@ def close_checkout_for_status_change(booking_id):
     except stripe.StripeError:
         logger.exception("Couldn't close Checkout Session %s", session_id)
         raise CheckoutError(
-            "We couldn't reach the payment provider to close this booking's payment page. "
-            "Please try again.",
+            _("We couldn't reach the payment provider to close this booking's payment page. "
+             "Please try again."),
             "payment_provider_error",
             502,
         )
@@ -357,13 +358,13 @@ def close_checkout_for_status_change(booking_id):
             apply_session_state(booking, payment, session)
         if session.get("payment_status") == "paid":
             raise CheckoutError(
-                "The payment for this booking has just gone through, so it's now confirmed. "
-                "Please refresh.",
+                _("The payment for this booking has just gone through, so it's now confirmed. "
+                 "Please refresh."),
                 "payment_completed",
             )
         raise CheckoutError(
-            "A payment for this booking is now being processed by the bank. "
-            "Please try again once it has gone through or failed.",
+            _("A payment for this booking is now being processed by the bank. "
+             "Please try again once it has gone through or failed."),
             "payment_processing",
         )
     return session_id

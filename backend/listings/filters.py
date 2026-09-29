@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from rest_framework import serializers
 
 from bookings.models import Booking
@@ -36,16 +37,16 @@ class DateRangeQuerySerializer(serializers.Serializer):
         check_in, check_out = attrs.get("check_in"), attrs.get("check_out")
         if (check_in is None) != (check_out is None):
             raise serializers.ValidationError(
-                {"check_in": ["check_in and check_out must be given together."]}
+                {"check_in": [_("check_in and check_out must be given together.")]}
             )
         if check_in and check_out:
             if check_out <= check_in:
                 raise serializers.ValidationError(
-                    {"check_out": ["check_out must be after check_in."]}
+                    {"check_out": [_("check_out must be after check_in.")]}
                 )
             if check_in < timezone.localdate():
                 raise serializers.ValidationError(
-                    {"check_in": ["check_in can't be in the past."]}
+                    {"check_in": [_("check_in can't be in the past.")]}
                 )
         return attrs
 
@@ -70,7 +71,7 @@ class PropertyFilterSerializer(DateRangeQuerySerializer):
         low, high = attrs.get("min_price"), attrs.get("max_price")
         if low is not None and high is not None and low > high:
             raise serializers.ValidationError(
-                {"min_price": ["min_price can't be greater than max_price."]}
+                {"min_price": [_("min_price can't be greater than max_price.")]}
             )
         return attrs
 
