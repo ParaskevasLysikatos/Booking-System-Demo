@@ -2,23 +2,24 @@ import { Component } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
+import { TranslatePipe } from '../i18n/translate.pipe';
 
 /** iPhone/iPad: Safari can't be asked to install, so we show the manual steps (TICKET-031). */
 @Component({
   selector: 'app-install-ios-dialog',
-  imports: [MatButtonModule, MatDialogModule, MatIconModule],
+  imports: [MatButtonModule, MatDialogModule, MatIconModule, TranslatePipe],
   template: `
-    <h2 mat-dialog-title>Install the app</h2>
+    <h2 mat-dialog-title>{{ 'installIos.title' | t }}</h2>
     <mat-dialog-content>
       <ol>
-        <li>Tap <strong>Share</strong> <mat-icon aria-hidden="true">ios_share</mat-icon> in the browser's toolbar.</li>
-        <li>Choose <strong>Add to Home Screen</strong> <mat-icon aria-hidden="true">add_box</mat-icon> (scroll down if you don't see it).</li>
-        <li>Tap <strong>Add</strong>.</li>
+        <li>{{ 'installIos.tap' | t }} <strong>{{ 'installIos.share' | t }}</strong> <mat-icon aria-hidden="true">ios_share</mat-icon> {{ 'installIos.inToolbar' | t }}</li>
+        <li>{{ 'installIos.choose' | t }} <strong>{{ 'installIos.addToHome' | t }}</strong> <mat-icon aria-hidden="true">add_box</mat-icon> {{ 'installIos.scrollHint' | t }}</li>
+        <li>{{ 'installIos.tap' | t }} <strong>{{ 'installIos.add' | t }}</strong>.</li>
       </ol>
-      <p>The app then opens full-screen from its icon, like any other app.</p>
+      <p>{{ 'installIos.after' | t }}</p>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      <button mat-flat-button mat-dialog-close cdkFocusInitial>Got it</button>
+      <button mat-flat-button mat-dialog-close cdkFocusInitial>{{ 'installIos.gotIt' | t }}</button>
     </mat-dialog-actions>
   `,
   styles: `

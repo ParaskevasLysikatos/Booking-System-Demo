@@ -51,6 +51,8 @@ import { ListingQuery, PAGE_SIZES, listKey, parseListingQuery, pinsKey, toQueryP
 import { MapPopupCardComponent } from './map-popup-card/map-popup-card';
 import { PropertyCardComponent } from './property-card/property-card';
 import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 type ListState =
   | { status: 'loading'; query: ListingQuery }
@@ -71,12 +73,8 @@ type PinsState =
 export const SPLIT_VIEW_QUERY = '(min-width: 1100px)';
 
 /** API field names -> words, for messages like "check_in can't be in the past." */
-function humanize(message: string): string {
-  return message
-    .replace(/\bcheck_in\b/g, 'Check-in')
-    .replace(/\bcheck_out\b/g, 'Check-out')
-    .replace(/\bmin_price\b/g, 'Min price')
-    .replace(/\bmax_price\b/g, 'Max price');
+function humanize(message: string, t: (key: string) => string): string {
+  return message.replace(/\b(check_in|check_out|min_price|max_price)\b/g, (field) => t(`listings.field.${field}`));
 }
 
 /** Both dates or neither, and check-out after check-in. */
@@ -107,6 +105,7 @@ const priceRangeValidator: ValidatorFn = (group: AbstractControl): ValidationErr
     MapComponent,
     MapPopupCardComponent,
     PropertyCardComponent,
+    TranslatePipe,
   ],
   // Native Date adapter + dd/mm/yyyy display (how dates are written in Greece).
   providers: [provideLocalizedDatepicker()], // date pickers in the chosen language (TICKET-038)
@@ -114,6 +113,7 @@ const priceRangeValidator: ValidatorFn = (group: AbstractControl): ValidationErr
   styleUrl: './listings.scss',
 })
 export class PropertyListPage {
+  private readonly i18n = inject(TranslationService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly properties = inject(PropertyService);
@@ -123,11 +123,12 @@ export class PropertyListPage {
   readonly guestOptions = Array.from({ length: 16 }, (_, i) => i + 1);
   readonly pageSizes = PAGE_SIZES;
   readonly sortOptions: { value: PropertyOrdering; label: string }[] = [
-    { value: 'newest', label: 'Newest' },
-    { value: 'price', label: 'Price: low to high' },
-    { value: '-price', label: 'Price: high to low' },
-    { value: '-capacity', label: 'Most guests' },
-    { value: 'capacity', label: 'Fewest guests' },
+    // `label` is a dictionary key (TICKET-038).
+    { value: 'newest', label: 'listings.sort.newest' },
+    { value: 'price', label: 'listings.sort.priceAsc' },
+    { value: '-price', label: 'listings.sort.priceDesc' },
+    { value: '-capacity', label: 'listings.sort.capacityDesc' },
+    { value: 'capacity', label: 'listings.sort.capacityAsc' },
   ];
 
   private readonly fb = inject(FormBuilder);
@@ -160,11 +161,12 @@ export class PropertyListPage {
           map((data): ListState => ({ status: 'ok', query, data })),
           catchError((err) => {
             const parsed = parseApiErrors(err);
-            const message = humanize(parsed.general ?? Object.values(parsed.fields).flat().join(' '));
+            const message = humanize(parsed.general ?? Object.values(parsed.fields).flat().join(' '), (k) => this.i18n.t(k));
             // A 400 means the search itself is invalid (e.g. a hand-edited URL
             // with past dates) - offer "Clear filters", not a pointless retry.
             const badRequest = err instanceof HttpErrorResponse && err.status === 400;
-            return of<ListState>({ status: 'error', query, message: message || 'Could not load stays.', badRequest });
+            // No message -> the template shows listings.loadFailed in the current language.
+            return of<ListState>({ status: 'error', query, message, badRequest });
           }),
           startWith<ListState>({ status: 'loading', query }),
         ),
@@ -225,7 +227,7 @@ export class PropertyListPage {
         lat: p.latitude,
         lng: p.longitude,
         label: price,
-        title: `${p.title}, ${price} a night`,
+        title: this.i18n.t('listings.markerTitle', { title: p.title, price }),
         data: p,
       };
     });
@@ -297,8 +299,8 @@ export class PropertyListPage {
   dateError(): string | null {
     const dates = this.form.controls.dates;
     if (!dates.touched && !dates.dirty) return null;
-    if (dates.hasError('incomplete')) return 'Pick both a check-in and a check-out date.';
-    if (dates.hasError('noNights')) return 'Check-out must be after check-in.';
+    if (dates.hasError('incomplete')) return this.i18n.t('listings.dateIncomplete');
+    if (dates.hasError('noNights')) return this.i18n.t('listings.noNights');
     return null;
   }
 

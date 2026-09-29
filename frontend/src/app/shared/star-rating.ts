@@ -1,5 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
+import { translate } from '../core/i18n/translation.service';
+import { formatNumber } from '../core/i18n/format';
 
 export type StarIcon = 'star' | 'star_half' | 'star_border';
 
@@ -35,6 +37,6 @@ export class StarRatingComponent {
   readonly icons = computed(() => starIcons(this.rating()));
   readonly label = computed(() => {
     const r = Math.round(this.rating() * 10) / 10;
-    return `${r} out of 5 stars`;
+    return translate('stars.label', { rating: formatNumber(r, Number.isInteger(r) ? 0 : 1) });
   });
 }

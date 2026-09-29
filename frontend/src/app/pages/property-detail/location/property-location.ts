@@ -4,6 +4,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { PropertyDetail } from '../../../core/properties/property.models';
 import { MapComponent } from '../../../shared/map/map';
 import { MapMarker } from '../../../shared/map/map-markers';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { translate } from '../../../core/i18n/translation.service';
 
 /** Zoom Google Maps opens at: about the size of the 500 m area. */
 const GOOGLE_MAPS_ZOOM = 15;
@@ -36,7 +38,7 @@ export function googleMapsSearchUrl(text: string): string {
  */
 @Component({
   selector: 'app-property-location',
-  imports: [MapComponent, MatIconModule],
+  imports: [MapComponent, MatIconModule, TranslatePipe],
   template: `
     @if (marker(); as m) {
       <app-map
@@ -49,13 +51,13 @@ export function googleMapsSearchUrl(text: string): string {
     }
     <p class="where"><mat-icon aria-hidden="true">place</mat-icon>{{ property().location }}</p>
     @if (approximate()) {
-      <p class="note">Shown within about {{ radiusText() }} to protect the host's privacy.</p>
+      <p class="note">{{ 'location.approxNote' | t: { radius: radiusText() } }}</p>
     } @else if (marker()) {
-      <p class="note">Exact location - only admins see this. Guests see a {{ radiusText() }} area.</p>
+      <p class="note">{{ 'location.exactNote' | t: { radius: radiusText() } }}</p>
     }
     <a class="gmaps" [href]="googleMapsUrl()" target="_blank" rel="noopener noreferrer">
-      <mat-icon aria-hidden="true">open_in_new</mat-icon>Open in Google Maps
-      <span class="sr-only">(opens in a new tab)</span>
+      <mat-icon aria-hidden="true">open_in_new</mat-icon>{{ 'location.openGoogle' | t }}
+      <span class="sr-only">{{ 'location.newTab' | t }}</span>
     </a>
   `,
   styles: `
@@ -91,14 +93,14 @@ export class PropertyLocationComponent {
     if (!at) return null;
     const { id, title } = this.property();
     return this.approximate()
-      ? { id, ...at, title: `Approximate area of ${title}`, areaRadiusM: this.radius() }
-      : { id, ...at, title: `Exact location of ${title}` };
+      ? { id, ...at, title: translate('location.areaOf', { title }), areaRadiusM: this.radius() }
+      : { id, ...at, title: translate('location.exactOf', { title }) };
   });
 
   protected readonly mapLabel = computed(() =>
     this.approximate()
-      ? `Map: the area around ${this.property().title}`
-      : `Map: exact location of ${this.property().title}`,
+      ? translate('location.mapArea', { title: this.property().title })
+      : translate('location.mapExact', { title: this.property().title }),
   );
 
   protected readonly googleMapsUrl = computed(() => {

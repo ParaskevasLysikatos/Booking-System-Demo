@@ -1,3 +1,5 @@
+import { translate } from '../../core/i18n/translation.service';
+
 /**
  * Pure pieces of the shared map (TICKET-034) - no Leaflet import here, so
  * they're cheap to use and to test.
@@ -68,7 +70,7 @@ export function clusterHtml(count: number): string {
 
 /** Screen-reader name of a cluster bubble. */
 export function clusterTitle(count: number): string {
-  return `${count} stays here - zoom in`;
+  return translate('map.cluster', { count });
 }
 
 /** Only markers with usable coordinates (the API sends null when a place has no position). */

@@ -2,32 +2,32 @@
   <form class="search" role="search" [formGroup]="form" (ngSubmit)="search()" novalidate>
     <div class="main">
       <mat-form-field appearance="outline" class="dates" subscriptSizing="dynamic">
-        <mat-label>Check-in – check-out</mat-label>
+        <mat-label>{{ 'listings.dates' | t }}</mat-label>
         <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate">
-          <input matStartDate formControlName="start" placeholder="Check-in" />
-          <input matEndDate formControlName="end" placeholder="Check-out" />
+          <input matStartDate formControlName="start" [placeholder]="'common.checkIn' | t" />
+          <input matEndDate formControlName="end" [placeholder]="'common.checkOut' | t" />
         </mat-date-range-input>
         <mat-datepicker-toggle matIconSuffix [for]="picker" />
         <mat-date-range-picker #picker />
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="location" subscriptSizing="dynamic">
-        <mat-label>Where</mat-label>
+        <mat-label>{{ 'listings.where' | t }}</mat-label>
         <mat-icon matIconPrefix>place</mat-icon>
-        <input matInput formControlName="location" placeholder="e.g. Chania" />
+        <input matInput formControlName="location" [placeholder]="'listings.wherePlaceholder' | t" />
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="guests" subscriptSizing="dynamic">
-        <mat-label>Guests</mat-label>
+        <mat-label>{{ 'listings.guests' | t }}</mat-label>
         <mat-select formControlName="guests">
-          <mat-option [value]="null">Any</mat-option>
+          <mat-option [value]="null">{{ 'listings.anyGuests' | t }}</mat-option>
           @for (n of guestOptions; track n) {
-            <mat-option [value]="n">{{ n }} {{ n === 1 ? 'guest' : 'guests' }}</mat-option>
+            <mat-option [value]="n">{{ 'common.guests' | t: { count: n } }}</mat-option>
           }
         </mat-select>
       </mat-form-field>
 
-      <button mat-flat-button type="submit" class="go"><mat-icon>search</mat-icon> Search</button>
+      <button mat-flat-button type="submit" class="go"><mat-icon>search</mat-icon> {{ 'listings.search' | t }}</button>
     </div>
 
     @if (dateError(); as msg) {
@@ -36,27 +36,27 @@
 
     <div class="refine">
       <mat-form-field appearance="outline" class="price" subscriptSizing="dynamic">
-        <mat-label>Min €/night</mat-label>
+        <mat-label>{{ 'listings.minPrice' | t }}</mat-label>
         <input matInput type="number" min="0" formControlName="minPrice" />
       </mat-form-field>
       <mat-form-field appearance="outline" class="price" subscriptSizing="dynamic">
-        <mat-label>Max €/night</mat-label>
+        <mat-label>{{ 'listings.maxPrice' | t }}</mat-label>
         <input matInput type="number" min="0" formControlName="maxPrice" />
       </mat-form-field>
       <mat-form-field appearance="outline" class="sort" subscriptSizing="dynamic">
-        <mat-label>Sort by</mat-label>
+        <mat-label>{{ 'listings.sortBy' | t }}</mat-label>
         <mat-select formControlName="ordering">
           @for (o of sortOptions; track o.value) {
-            <mat-option [value]="o.value">{{ o.label }}</mat-option>
+            <mat-option [value]="o.value">{{ o.label | t }}</mat-option>
           }
         </mat-select>
       </mat-form-field>
       @if (hasFilters()) {
-        <button mat-button type="button" (click)="clearFilters()">Clear filters</button>
+        <button mat-button type="button" (click)="clearFilters()">{{ 'listings.clearFilters' | t }}</button>
       }
     </div>
     @if (form.hasError('priceRange')) {
-      <p class="form-error" role="alert">Min price can't be higher than max price.</p>
+      <p class="form-error" role="alert">{{ 'listings.priceRange' | t }}</p>
     }
   </form>
 
@@ -65,7 +65,7 @@
   @switch (state().status) {
     @case ('loading') {
       @if (showList()) {
-      <div class="grid" aria-busy="true" aria-label="Loading stays">
+      <div class="grid" aria-busy="true" [attr.aria-label]="'listings.loading' | t">
         @for (i of [1, 2, 3, 4, 5, 6, 7, 8]; track i) {
           <div class="skeleton"><div class="ph-img"></div><div class="ph-line"></div><div class="ph-line short"></div></div>
         }
@@ -76,11 +76,11 @@
     @case ('error') {
       <div class="message" role="alert">
         <mat-icon>cloud_off</mat-icon>
-        <p>{{ $any(state()).message }}</p>
+        <p>{{ $any(state()).message || ('listings.loadFailed' | t) }}</p>
         @if ($any(state()).badRequest) {
-          <button mat-stroked-button type="button" (click)="clearFilters()">Clear filters</button>
+          <button mat-stroked-button type="button" (click)="clearFilters()">{{ 'listings.clearFilters' | t }}</button>
         } @else {
-          <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+          <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
         }
       </div>
     }
@@ -90,16 +90,16 @@
       @if (data.count === 0) {
         <div class="message">
           <mat-icon>travel_explore</mat-icon>
-          <p>No stays match your search.</p>
+          <p>{{ 'listings.noMatch' | t }}</p>
           @if (hasFilters()) {
-            <button mat-stroked-button type="button" (click)="clearFilters()">Clear filters</button>
+            <button mat-stroked-button type="button" (click)="clearFilters()">{{ 'listings.clearFilters' | t }}</button>
           }
         </div>
       } @else {
         <p class="summary">
-          {{ data.count }} {{ data.count === 1 ? 'stay' : 'stays' }}
+          {{ 'common.stays' | t: { count: data.count } }}
           @if (nights(); as n) {
-            available for {{ n }} {{ n === 1 ? 'night' : 'nights' }}
+            {{ 'listings.availableFor' | t: { count: data.count, nights: ('common.nights' | t: { count: n }) } }}
           }
         </p>
         @if (showList()) {
@@ -125,7 +125,7 @@
             [pageSize]="query.page.pageSize"
             [pageSizeOptions]="pageSizes"
             (page)="onPage($event)"
-            aria-label="Choose results page"
+            [attr.aria-label]="'listings.pages' | t"
           />
         }
       }
@@ -138,24 +138,24 @@
     <div class="map-col">
       @if (pins().status === 'error') {
         <p class="map-note" role="alert">
-          Couldn't load the map's stays.
-          <button mat-button type="button" (click)="retryPins()">Try again</button>
+          {{ 'listings.mapError' | t }}
+          <button mat-button type="button" (click)="retryPins()">{{ 'common.tryAgain' | t }}</button>
         </p>
       } @else if (missingOnMap(); as missing) {
         <p class="map-note">
-          {{ missing }} {{ missing === 1 ? "stay isn't" : "stays aren't" }} on the map (no location set yet).
+          {{ 'listings.missingOnMap' | t: { count: missing } }}
         </p>
       }
       @if (pinsTruncated()) {
-        <p class="map-note">Showing the first {{ markers().length }} stays - narrow the search to see the rest.</p>
+        <p class="map-note">{{ 'listings.truncated' | t: { count: markers().length } }}</p>
       }
       <div class="map-box">
         @if (pins().status === 'loading') {
-          <mat-progress-bar class="map-progress" mode="indeterminate" aria-label="Loading the map's stays" />
+          <mat-progress-bar class="map-progress" mode="indeterminate" [attr.aria-label]="'listings.mapLoading' | t" />
         }
         <app-map
           class="map"
-          ariaLabel="Map of the stays that match your search"
+          [ariaLabel]="'listings.mapLabel' | t"
           [markers]="markers()"
           [highlightedId]="hoveredId()"
         >
@@ -172,7 +172,7 @@
     <!-- Phones/tablets: switch between the list and the map (?view=map). -->
     <button mat-flat-button type="button" class="view-toggle" (click)="toggleView()">
       <mat-icon>{{ mapOnly() ? 'view_list' : 'map' }}</mat-icon>
-      {{ mapOnly() ? 'Show list' : 'Show map' }}
+      {{ (mapOnly() ? 'listings.showList' : 'listings.showMap') | t }}
     </button>
   }
 </section>

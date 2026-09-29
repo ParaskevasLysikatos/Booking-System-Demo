@@ -63,5 +63,321 @@
       "completed": "Completed",
       "editable": "Editable"
     }
+  },
+  "footer": {
+    "checking": "Checking API…",
+    "ok": "API & database connected",
+    "down": "API unreachable"
+  },
+  "wake": {
+    "text": "Waking up the demo server - this can take up to a minute on the free plan."
+  },
+  "roles": {
+    "guest": "guest",
+    "admin": "admin"
+  },
+  "forbidden": {
+    "loggedInAs": "You're logged in as",
+    "cantOpen": "({role}), which can't open this page.",
+    "backToStays": "Back to stays",
+    "switchAccount": "Log in as someone else"
+  },
+  "installIos": {
+    "title": "Install the app",
+    "tap": "Tap",
+    "share": "Share",
+    "inToolbar": "in the browser's toolbar.",
+    "choose": "Choose",
+    "addToHome": "Add to Home Screen",
+    "scrollHint": "(scroll down if you don't see it).",
+    "add": "Add",
+    "after": "The app then opens full-screen from its icon, like any other app.",
+    "gotIt": "Got it"
+  },
+  "auth": {
+    "email": "Email",
+    "emailRequired": "Email is required.",
+    "emailInvalid": "Enter a valid email address.",
+    "password": "Password",
+    "passwordRequired": "Password is required.",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "login": {
+      "title": "Log in",
+      "subtitle": "Welcome back",
+      "sessionExpired": "Your session expired. Please log in again.",
+      "savingFavorite": "Log in to save this place - it's saved as soon as you're in.",
+      "submit": "Log in",
+      "failed": "Login failed.",
+      "demoTitle": "Demo logins",
+      "demoFill": "Fill in the {role} demo login",
+      "demoAnyUpTo": "any up to {email}",
+      "noAccount": "No account yet?",
+      "createOne": "Create one"
+    },
+    "register": {
+      "title": "Create an account",
+      "subtitle": "Book stays in a few clicks",
+      "passwordHint": "At least 8 characters, not too common, not all numbers.",
+      "passwordMin": "At least 8 characters.",
+      "confirm": "Confirm password",
+      "confirmRequired": "Please repeat the password.",
+      "mismatch": "Passwords don't match.",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "phone": "Phone (optional)",
+      "submit": "Create account",
+      "haveAccount": "Already have an account?",
+      "logIn": "Log in"
+    }
+  },
+  "common": {
+    "tryAgain": "Try again",
+    "guests": {
+      "one": "{count} guest",
+      "other": "{count} guests"
+    },
+    "nights": {
+      "one": "{count} night",
+      "other": "{count} nights"
+    },
+    "stays": {
+      "one": "{count} stay",
+      "other": "{count} stays"
+    },
+    "reviews": {
+      "one": "{count} review",
+      "other": "{count} reviews"
+    },
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "perNight": "/ night",
+    "new": "New",
+    "noReviewsYet": "No reviews yet",
+    "outOf5": "{rating} out of 5",
+    "sleeps": "Sleeps {count}",
+    "close": "Close"
+  },
+  "listings": {
+    "dates": "Check-in – check-out",
+    "where": "Where",
+    "wherePlaceholder": "e.g. Chania",
+    "guests": "Guests",
+    "anyGuests": "Any",
+    "search": "Search",
+    "minPrice": "Min €/night",
+    "maxPrice": "Max €/night",
+    "sortBy": "Sort by",
+    "sort": {
+      "newest": "Newest",
+      "priceAsc": "Price: low to high",
+      "priceDesc": "Price: high to low",
+      "capacityDesc": "Most guests",
+      "capacityAsc": "Fewest guests"
+    },
+    "clearFilters": "Clear filters",
+    "priceRange": "Min price can't be higher than max price.",
+    "loading": "Loading stays",
+    "loadFailed": "Could not load stays.",
+    "noMatch": "No stays match your search.",
+    "availableFor": {
+      "one": "available for {nights}",
+      "other": "available for {nights}"
+    },
+    "pages": "Choose results page",
+    "mapError": "Couldn't load the map's stays.",
+    "missingOnMap": {
+      "one": "{count} stay isn't on the map (no location set yet).",
+      "other": "{count} stays aren't on the map (no location set yet)."
+    },
+    "truncated": "Showing the first {count} stays - narrow the search to see the rest.",
+    "mapLoading": "Loading the map's stays",
+    "mapLabel": "Map of the stays that match your search",
+    "showList": "Show list",
+    "showMap": "Show map",
+    "markerTitle": "{title}, {price} a night",
+    "dateIncomplete": "Pick both a check-in and a check-out date.",
+    "noNights": "Check-out must be after check-in.",
+    "field": {
+      "check_in": "Check-in",
+      "check_out": "Check-out",
+      "min_price": "Min price",
+      "max_price": "Max price"
+    }
+  },
+  "amenities": {
+    "wifi": "Wi-Fi",
+    "parking": "Parking",
+    "pool": "Pool",
+    "kitchen": "Kitchen",
+    "air_conditioning": "Air conditioning",
+    "heating": "Heating",
+    "washer": "Washer",
+    "tv": "TV",
+    "balcony": "Balcony",
+    "sea_view": "Sea view",
+    "pets_allowed": "Pets allowed",
+    "gym": "Gym",
+    "elevator": "Elevator"
+  },
+  "card": {
+    "unavailable": "No longer available",
+    "removeFromSaved": "Remove {title} from saved",
+    "remove": "Remove",
+    "totalFor": "{total} for {nights}"
+  },
+  "stars": {
+    "label": "{rating} out of 5 stars"
+  },
+  "favorite": {
+    "save": "Save",
+    "saved": "Saved",
+    "label": "Save {title}",
+    "ok": "OK",
+    "gone": "This place is no longer available, so it can’t be saved.",
+    "saveFailed": "Couldn’t save this place.",
+    "removeFailed": "Couldn’t remove this place.",
+    "savedAfterLogin": "Saved “{title}”."
+  },
+  "stay": {
+    "pickCheckOut": "Pick a check-out date.",
+    "pickCheckIn": "Pick a check-in date.",
+    "noNights": "Check-out must be after check-in.",
+    "past": "Check-in can't be in the past.",
+    "tooFarAhead": "Bookings open at most {days} days ahead.",
+    "tooLong": "A stay can be at most {nights} nights.",
+    "booked": "Some of these nights are already booked."
+  },
+  "detail": {
+    "title": "Stay",
+    "back": "Back to results",
+    "loading": "Loading stay",
+    "notFound": "This stay doesn't exist or is no longer available.",
+    "browse": "Browse stays",
+    "loadFailed": "Couldn't load this stay.",
+    "hidden": "Hidden from guests - this property is inactive, so it can't be booked.",
+    "about": "About this stay",
+    "offers": "What this place offers",
+    "availability": "Availability",
+    "where": "Where you'll be",
+    "reviews": "Reviews",
+    "youRated": "You rated this place",
+    "writeReview": "Write a review",
+    "reviewPosted": "Thanks - your review is posted.",
+    "ok": "OK",
+    "bookPanel": "Book this stay",
+    "checking": "Checking availability…",
+    "available": "Available for your dates",
+    "unavailable": "Not available for these dates",
+    "checkFailed": "Couldn't check availability. Try again.",
+    "total": "Total",
+    "estimate": "Estimate - the final price is confirmed when you book. You won't be charged yet.",
+    "bookNow": "Book now",
+    "mobileBar": "Price and booking",
+    "barTotal": "{total} total",
+    "checkDates": "Check dates",
+    "chooseDates": "Choose dates"
+  },
+  "gallery": {
+    "openPhoto": "Open photo {n} of {count} full screen",
+    "photoAlt": "{title} - photo {n}",
+    "previous": "Previous photo",
+    "next": "Next photo",
+    "show": "Show photo {n}",
+    "none": "No photos yet"
+  },
+  "location": {
+    "approxNote": "Shown within about {radius} to protect the host's privacy.",
+    "exactNote": "Exact location - only admins see this. Guests see a {radius} area.",
+    "openGoogle": "Open in Google Maps",
+    "newTab": "(opens in a new tab)",
+    "areaOf": "Approximate area of {title}",
+    "exactOf": "Exact location of {title}",
+    "mapArea": "Map: the area around {title}",
+    "mapExact": "Map: exact location of {title}"
+  },
+  "calendar": {
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "selectCheckIn": "Select a check-in date",
+    "selectCheckOut": "Select a check-out date",
+    "selected": "Selected stay",
+    "clear": "Clear dates",
+    "legend": "Booked · you can check out on the day someone else checks in"
+  },
+  "reviews": {
+    "loading": "Loading reviews",
+    "loadFailed": "Couldn't load the reviews.",
+    "howRated": "How guests rated this stay",
+    "barLabel": {
+      "one": "{stars}: {count} review",
+      "other": "{stars}: {count} reviews"
+    },
+    "stars": {
+      "one": "{count} star",
+      "other": "{count} stars"
+    },
+    "moreFailed": "Couldn't load more reviews.",
+    "loadingMore": "Loading more reviews",
+    "showMore": "Show more reviews",
+    "showing": "Showing {shown} of {total}",
+    "empty": "No reviews yet. Guests can leave one after their stay."
+  },
+  "status": {
+    "pending": "Pending",
+    "confirmed": "Confirmed",
+    "cancelled": "Cancelled"
+  },
+  "booking": {
+    "title": "Book your stay",
+    "titleFor": "Book {title}",
+    "titlePayment": "Secure payment",
+    "titleSent": "Booking request sent",
+    "unavailable": "This stay can't be booked - it doesn't exist or is no longer available.",
+    "redirecting": "Taking you to secure payment…",
+    "payOnStripe": "You'll pay <strong>{amount}</strong> on Stripe's payment page.",
+    "heldNotStarted": "Your dates are held - payment not started",
+    "heldUntil": "Reference <strong>#{id}</strong> · held until <strong>{time}</strong>",
+    "requestSent": "Booking request sent",
+    "reference": "Reference <strong>#{id}</strong> · Status",
+    "hostWillConfirm": "The host will confirm your stay. You haven't been charged.",
+    "browseMore": "Browse more stays",
+    "backToStay": "Back to the stay",
+    "stepTrip": "Your trip",
+    "stepReview": "Review & confirm",
+    "pickDates": "Pick your dates to see the price.",
+    "checkFailed": "Couldn't check availability.",
+    "continue": "Continue",
+    "fromTime": "{date} · from {time}",
+    "nights": "Nights",
+    "freeCancel": "Free cancellation until <strong>{deadline}</strong> ({hours} hours before check-in){refund}. After that, only the host can cancel.",
+    "fullRefundSuffix": " - full refund",
+    "tooLate": "Check-in is less than {hours} hours away - this booking can't be cancelled online.",
+    "payPolicy": "You'll pay <strong>{total}</strong> securely on Stripe's payment page. Your dates are held for about {minutes} minutes while you pay - if you don't finish, they're released. Your booking is confirmed as soon as the payment goes through.",
+    "pendingNote": "Your booking starts as <strong>pending</strong> until the host confirms it. You won't be charged now.",
+    "back": "Back",
+    "confirmPay": "Confirm and pay",
+    "confirm": "Confirm booking",
+    "estimateServer": "Estimate - the final price is calculated by the server when you confirm.",
+    "justBooked": "These dates were just booked by someone else. Please pick different dates.",
+    "failed": "Something went wrong. Please try again.",
+    "paymentPageFailed": "We couldn't open the payment page. Please try again.",
+    "summary": {
+      "paid": "Paid",
+      "freeCancel": "Free cancellation until <strong>{deadline}</strong>{refund}",
+      "refundEnd": " - full refund.",
+      "end": ".",
+      "tooLate": "Check-in is less than {hours} hours away, so this booking can't be cancelled online."
+    }
+  },
+  "map": {
+    "loadFailed": "The map couldn't load.",
+    "label": "Map",
+    "cluster": {
+      "one": "{count} stay here - zoom in",
+      "other": "{count} stays here - zoom in"
+    },
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out"
   }
 }

@@ -74,6 +74,21 @@ export function resolve(dict: Dictionary, key: string, locale: string, params?: 
   return undefined;
 }
 
+/**
+ * The text for `key` in the chosen language - the same as
+ * `TranslationService.t`, for plain helper functions (labels built outside a
+ * component, e.g. amenity names, payment and period labels). It reads the
+ * language signal, so a `computed()` or template calling it follows a switch.
+ * Falls back to English, then to the key itself (with a warning in dev).
+ */
+export function translate(key: string, params?: TParams): string {
+  const lang = currentLang();
+  const text = resolve(DICTIONARIES[lang], key, LOCALES[lang], params) ?? resolve(DICTIONARIES.en, key, LOCALES.en, params);
+  if (text !== undefined) return text;
+  if (isDevMode()) console.warn(`[i18n] missing text for "${key}"`);
+  return key;
+}
+
 function readStoredLang(): Lang | null {
   try {
     const stored = localStorage.getItem(LANG_STORAGE_KEY);
@@ -135,11 +150,7 @@ export class TranslationService implements OnDestroy {
    * re-runs on a switch.
    */
   t(key: string, params?: TParams): string {
-    const lang = currentLang();
-    const text = resolve(DICTIONARIES[lang], key, LOCALES[lang], params) ?? resolve(DICTIONARIES.en, key, LOCALES.en, params);
-    if (text !== undefined) return text;
-    if (isDevMode()) console.warn(`[i18n] missing text for "${key}"`);
-    return key;
+    return translate(key, params);
   }
 
   /** Whether `key` names a text (or plural object) in the English dictionary. */

@@ -3,6 +3,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
 import { FavoriteService, FavoriteTarget } from '../core/favorites/favorite.service';
+import { TranslatePipe } from '../core/i18n/translate.pipe';
+import { translate } from '../core/i18n/translation.service';
 
 /**
  * The heart (TICKET-033). A toggle button (`aria-pressed`) with a fixed
@@ -17,7 +19,7 @@ import { FavoriteService, FavoriteTarget } from '../core/favorites/favorite.serv
  */
 @Component({
   selector: 'app-favorite-button',
-  imports: [MatButtonModule, MatIconModule],
+  imports: [MatButtonModule, MatIconModule, TranslatePipe],
   template: `
     @if (favorites.available()) {
       @if (variant() === 'overlay') {
@@ -28,7 +30,7 @@ import { FavoriteService, FavoriteTarget } from '../core/favorites/favorite.serv
           [attr.aria-pressed]="saved()"
           [attr.aria-label]="label()"
           [attr.aria-busy]="busy() || null"
-          [title]="saved() ? 'Saved' : 'Save'"
+          [title]="(saved() ? 'favorite.saved' : 'favorite.save') | t"
           (click)="toggle($event)"
         >
           <mat-icon aria-hidden="true">{{ saved() ? 'favorite' : 'favorite_border' }}</mat-icon>
@@ -45,7 +47,7 @@ import { FavoriteService, FavoriteTarget } from '../core/favorites/favorite.serv
           (click)="toggle($event)"
         >
           <mat-icon aria-hidden="true">{{ saved() ? 'favorite' : 'favorite_border' }}</mat-icon>
-          <span aria-hidden="true">{{ saved() ? 'Saved' : 'Save' }}</span>
+          <span aria-hidden="true">{{ (saved() ? 'favorite.saved' : 'favorite.save') | t }}</span>
         </button>
       }
     }
@@ -109,7 +111,7 @@ export class FavoriteButtonComponent {
 
   protected readonly saved = computed(() => this.favorites.isSaved(this.property()));
   protected readonly busy = computed(() => this.favorites.isBusy(this.property().id));
-  protected readonly label = computed(() => `Save ${this.property().title}`);
+  protected readonly label = computed(() => translate('favorite.label', { title: this.property().title }));
 
   protected toggle(event: Event): void {
     // Never let the tap reach a surrounding link or card.

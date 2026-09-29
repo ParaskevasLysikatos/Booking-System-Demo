@@ -1,10 +1,11 @@
 import { Component, computed, input } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 
-import { formatDeadline, GUEST_CANCELLATION_HOURS } from '../core/bookings/booking-policy';
+import { CHECK_IN_HOUR, formatDeadline, GUEST_CANCELLATION_HOURS } from '../core/bookings/booking-policy';
 import { Booking } from '../core/bookings/booking.models';
 import { formatPrice } from '../core/money';
 import { formatDate } from '../core/i18n/format';
+import { TranslatePipe } from '../core/i18n/translate.pipe';
 
 /**
  * The booking summary card shown after booking - on the booking form's
@@ -14,18 +15,18 @@ import { formatDate } from '../core/i18n/format';
  */
 @Component({
   selector: 'app-booking-summary',
-  imports: [MatIconModule],
+  imports: [MatIconModule, TranslatePipe],
   template: `
     @let b = booking();
     <div class="summary">
       <h2>{{ b.property.title }}</h2>
       <p class="muted">{{ b.property.location }}</p>
       <dl>
-        <div><dt>Check-in</dt><dd>{{ date(b.check_in) }} · from 15:00</dd></div>
-        <div><dt>Check-out</dt><dd>{{ date(b.check_out) }}</dd></div>
-        <div><dt>Guests</dt><dd>{{ b.guests }}</dd></div>
-        <div><dt>Nights</dt><dd>{{ b.nights }}</dd></div>
-        <div class="sum"><dt>{{ paid() ? 'Paid' : 'Total' }}</dt><dd>{{ total() }}</dd></div>
+        <div><dt>{{ 'common.checkIn' | t }}</dt><dd>{{ 'booking.fromTime' | t: { date: date(b.check_in), time: checkInTime } }}</dd></div>
+        <div><dt>{{ 'common.checkOut' | t }}</dt><dd>{{ date(b.check_out) }}</dd></div>
+        <div><dt>{{ 'listings.guests' | t }}</dt><dd>{{ b.guests }}</dd></div>
+        <div><dt>{{ 'booking.nights' | t }}</dt><dd>{{ b.nights }}</dd></div>
+        <div class="sum"><dt>{{ (paid() ? 'booking.summary.paid' : 'detail.total') | t }}</dt><dd>{{ total() }}</dd></div>
       </dl>
       <!-- The cancellation policy only means something while the booking is
            still active (found in the TICKET-029 end-to-end run: a cancelled
@@ -35,9 +36,9 @@ import { formatDate } from '../core/i18n/format';
           <mat-icon>event_available</mat-icon>
           <span>
             @if (b.can_cancel) {
-              Free cancellation until <strong>{{ deadline() }}</strong>{{ paid() ? ' - full refund.' : '.' }}
+              <span [innerHTML]="'booking.summary.freeCancel' | t: { deadline: deadline(), refund: ((paid() ? 'booking.summary.refundEnd' : 'booking.summary.end') | t) }"></span>
             } @else {
-              Check-in is less than {{ hours }} hours away, so this booking can't be cancelled online.
+              {{ 'booking.summary.tooLate' | t: { hours } }}
             }
           </span>
         </p>
@@ -60,6 +61,7 @@ import { formatDate } from '../core/i18n/format';
 export class BookingSummary {
   readonly booking = input.required<Booking>();
   readonly hours = GUEST_CANCELLATION_HOURS;
+  readonly checkInTime = `${CHECK_IN_HOUR}:00`;
 
   readonly paid = computed(() => this.booking().payment?.status === 'paid');
   readonly total = computed(() => formatPrice(this.booking().payment?.amount ?? this.booking().total_price));

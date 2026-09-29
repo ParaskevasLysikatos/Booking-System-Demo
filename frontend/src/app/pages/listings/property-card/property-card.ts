@@ -10,10 +10,11 @@ import { formatPrice } from '../../../core/money';
 import { PropertySummary } from '../../../core/properties/property.models';
 import { FavoriteButtonComponent } from '../../../shared/favorite-button';
 import { formatNumber } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 @Component({
   selector: 'app-property-card',
-  imports: [FavoriteButtonComponent, MatButtonModule, MatIconModule, NgTemplateOutlet, RouterLink],
+  imports: [FavoriteButtonComponent, MatButtonModule, MatIconModule, NgTemplateOutlet, RouterLink, TranslatePipe],
   templateUrl: './property-card.html',
   styleUrl: './property-card.scss',
 })

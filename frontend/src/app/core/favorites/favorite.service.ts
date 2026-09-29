@@ -8,6 +8,7 @@ import { environment } from '../../../environments/environment';
 import { parseApiErrors } from '../api-errors';
 import { AuthService } from '../auth/auth.service';
 import { Paginated, PropertySummary } from '../properties/property.models';
+import { translate } from '../i18n/translation.service';
 
 export const FAVORITES_URL = `${environment.apiUrl}/favorites/`;
 
@@ -135,18 +136,18 @@ export class FavoriteService {
       error: (err: unknown) => {
         this.setBusy(target.id, false);
         this.setOverride(target.id, !saved);
-        this.snackBar.open(this.failureMessage(err, saved), 'OK', { duration: 6000 });
+        this.snackBar.open(this.failureMessage(err, saved), translate('favorite.ok'), { duration: 6000 });
       },
     });
   }
 
   private failureMessage(err: unknown, saving: boolean): string {
     if (err instanceof HttpErrorResponse && err.status === 404 && saving) {
-      return 'This place is no longer available, so it can’t be saved.';
+      return translate('favorite.gone');
     }
-    const action = saving ? 'save' : 'remove';
+    const failed = translate(saving ? 'favorite.saveFailed' : 'favorite.removeFailed');
     const reason = parseApiErrors(err).general;
-    return reason ? `Couldn’t ${action} this place. ${reason}` : `Couldn’t ${action} this place.`;
+    return reason ? `${failed} ${reason}` : failed;
   }
 
   // --- logged out -> log in -> save ------------------------------------------
@@ -192,7 +193,7 @@ export class FavoriteService {
     if (!pending || isAdmin) return;
     this.setOverride(pending.id, true);
     this.send(pending, true, () =>
-      this.snackBar.open(`Saved “${pending.title}”.`, 'OK', { duration: 4000 }),
+      this.snackBar.open(translate('favorite.savedAfterLogin', { title: pending.title }), translate('favorite.ok'), { duration: 4000 }),
     );
   }
 

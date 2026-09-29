@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { ServerWakeService } from '../../core/server-wake';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 
 /**
  * TICKET-027: a slim banner under the toolbar while the (free, sleeping)
@@ -10,13 +11,13 @@ import { ServerWakeService } from '../../core/server-wake';
  */
 @Component({
   selector: 'app-wake-notice',
-  imports: [MatProgressSpinnerModule],
+  imports: [MatProgressSpinnerModule, TranslatePipe],
   template: `
     <div role="status" aria-live="polite">
       @if (wake.slow()) {
         <div class="wake">
           <mat-spinner diameter="18" strokeWidth="2" aria-hidden="true" />
-          <span>Waking up the demo server - this can take up to a minute on the free plan.</span>
+          <span>{{ 'wake.text' | t }}</span>
         </div>
       }
     </div>

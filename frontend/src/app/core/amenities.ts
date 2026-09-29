@@ -1,6 +1,10 @@
-/** Human labels + Material icons for the amenity keys the API uses. */
+import { translate } from './i18n/translation.service';
 
-const LABELS: Record<string, string> = { wifi: 'Wi-Fi', tv: 'TV', air_conditioning: 'Air conditioning' };
+/**
+ * Human labels + Material icons for the amenity keys the API uses. The known
+ * ones are translated (`amenities.<key>` in en.json / el.json, TICKET-038);
+ * a custom key an admin typed is shown as it was typed, in any language.
+ */
 
 const ICONS: Record<string, string> = {
   wifi: 'wifi',
@@ -18,9 +22,9 @@ const ICONS: Record<string, string> = {
   elevator: 'elevator',
 };
 
-/** "sea_view" -> "Sea view", "wifi" -> "Wi-Fi". */
+/** "sea_view" -> "Sea view" / "Θέα στη θάλασσα", "wifi" -> "Wi-Fi"; "hot_tub" (custom) -> "Hot tub". */
 export function amenityLabel(key: string): string {
-  if (LABELS[key]) return LABELS[key];
+  if (key in ICONS) return translate(`amenities.${key}`);
   const text = key.replace(/_/g, ' ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

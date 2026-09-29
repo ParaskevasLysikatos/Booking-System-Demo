@@ -14,6 +14,9 @@ const pin: MapPin = {
 };
 
 describe('MapPopupCardComponent (TICKET-034)', () => {
+  // A session another spec left in localStorage (e.g. an admin) would hide the heart.
+  beforeEach(() => localStorage.clear());
+
   function render(overrides: Partial<MapPin> = {}, nights: number | null = null, admin = false) {
     TestBed.configureTestingModule({
       imports: [MapPopupCardComponent],

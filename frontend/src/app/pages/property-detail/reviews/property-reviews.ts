@@ -10,6 +10,7 @@ import { ReviewService } from '../../../core/reviews/review.service';
 import { StarRatingComponent } from '../../../shared/star-rating';
 import { formatDate } from '../../../core/i18n/format';
 import { formatNumber } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ok'; page: ReviewPage };
 
@@ -24,7 +25,7 @@ type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ok'; p
  */
 @Component({
   selector: 'app-property-reviews',
-  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule, StarRatingComponent],
+  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule, StarRatingComponent, TranslatePipe],
   templateUrl: './property-reviews.html',
   styleUrl: './property-reviews.scss',
 })

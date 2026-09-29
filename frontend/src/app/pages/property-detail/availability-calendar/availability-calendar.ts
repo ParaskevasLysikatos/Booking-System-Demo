@@ -6,6 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { BookedNights } from '../../../core/properties/availability';
 import { stayDateFilter } from '../../../core/properties/stay-rules';
 import { formatDate } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 export interface DateSelection {
   start: Date | null;
@@ -27,7 +28,7 @@ const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth()
  */
 @Component({
   selector: 'app-availability-calendar',
-  imports: [MatButtonModule, MatDatepickerModule, MatIconModule],
+  imports: [MatButtonModule, MatDatepickerModule, MatIconModule, TranslatePipe],
   templateUrl: './availability-calendar.html',
   styleUrl: './availability-calendar.scss',
 })

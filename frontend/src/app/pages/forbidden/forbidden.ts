@@ -4,21 +4,22 @@ import { MatIconModule } from '@angular/material/icon';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { AuthService, safeReturnUrl } from '../../core/auth/auth.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 
 /** 403 - shown when a logged-in non-admin opens an /admin URL (adminGuard). */
 @Component({
   selector: 'app-forbidden',
-  imports: [MatButtonModule, MatIconModule, RouterLink],
+  imports: [MatButtonModule, MatIconModule, RouterLink, TranslatePipe],
   template: `
     <section class="forbidden">
       <mat-icon class="big">lock</mat-icon>
-      <h1>Admins only</h1>
+      <h1>{{ 'titles.forbidden' | t }}</h1>
       @if (auth.currentUser(); as user) {
-        <p>You're logged in as <strong>{{ user.email }}</strong> ({{ user.role }}), which can't open this page.</p>
+        <p>{{ 'forbidden.loggedInAs' | t }} <strong>{{ user.email }}</strong> {{ 'forbidden.cantOpen' | t: { role: ('roles.' + user.role | t) } }}</p>
       }
       <div class="actions">
-        <a mat-flat-button routerLink="/listings">Back to stays</a>
-        <button mat-stroked-button type="button" (click)="switchAccount()">Log in as someone else</button>
+        <a mat-flat-button routerLink="/listings">{{ 'forbidden.backToStays' | t }}</a>
+        <button mat-stroked-button type="button" (click)="switchAccount()">{{ 'forbidden.switchAccount' | t }}</button>
       </div>
     </section>
   `,

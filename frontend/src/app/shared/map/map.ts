@@ -35,6 +35,9 @@ import {
   markerHtml,
   withPosition,
 } from './map-markers';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { translate } from '../../core/i18n/translation.service';
+import { currentLang } from '../../core/i18n/locale';
 
 type MarkerId = MapMarker['id'];
 export type MapStatus = 'loading' | 'ready' | 'error';
@@ -59,7 +62,7 @@ export type MapStatus = 'loading' | 'ready' | 'error';
  */
 @Component({
   selector: 'app-map',
-  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule, TranslatePipe],
   template: `
     <div #mapEl class="app-map-canvas" role="region" [attr.aria-label]="ariaLabel()"></div>
     @switch (status()) {
@@ -69,8 +72,8 @@ export type MapStatus = 'loading' | 'ready' | 'error';
       @case ('error') {
         <div class="app-map-overlay" role="alert">
           <mat-icon>map</mat-icon>
-          <p>The map couldn't load.</p>
-          <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+          <p>{{ 'map.loadFailed' | t }}</p>
+          <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
         </div>
       }
     }
@@ -91,7 +94,7 @@ export class MapComponent<T = unknown> {
   readonly maxFitZoom = input(DEFAULT_MAX_FIT_ZOOM);
   /** Off for small embedded maps, so scrolling the page doesn't zoom the map. */
   readonly scrollWheelZoom = input(true);
-  readonly ariaLabel = input('Map');
+  readonly ariaLabel = input(translate('map.label'));
 
   readonly markerSelect = output<MapMarker<T>>();
   readonly mapClick = output<LatLng>();
@@ -116,6 +119,7 @@ export class MapComponent<T = unknown> {
   private lastHighlighted: HTMLElement[] = [];
   private popupView?: EmbeddedViewRef<unknown>;
   private resizeObserver?: ResizeObserver;
+  private zoomControl?: Leaflet.Control.Zoom;
   private destroyed = false;
 
   constructor() {
@@ -135,7 +139,25 @@ export class MapComponent<T = unknown> {
       untracked(() => this.highlight(id));
     });
 
+    // Language switch (TICKET-038): the zoom buttons' titles and the cluster
+    // bubbles' names are Leaflet DOM, outside Angular's templates.
+    effect(() => {
+      currentLang();
+      if (this.status() !== 'ready') return;
+      untracked(() => {
+        this.setZoomControl();
+        this.refreshDecorations();
+      });
+    });
+
     inject(DestroyRef).onDestroy(() => this.teardown());
+  }
+
+  /** (Re)place Leaflet's + / - buttons with titles in the chosen language. */
+  private setZoomControl(): void {
+    if (!this.L || !this.map) return;
+    this.zoomControl?.remove();
+    this.zoomControl = this.L.control.zoom({ zoomInTitle: translate('map.zoomIn'), zoomOutTitle: translate('map.zoomOut') }).addTo(this.map);
   }
 
   retry(): void {
@@ -162,9 +184,10 @@ export class MapComponent<T = unknown> {
       center: [GREECE_VIEW.center.lat, GREECE_VIEW.center.lng],
       zoom: GREECE_VIEW.zoom,
       scrollWheelZoom: this.scrollWheelZoom(),
-      zoomControl: true,
+      zoomControl: false, // added below with translated titles (TICKET-038)
       worldCopyJump: false,
     });
+    this.setZoomControl();
     L.tileLayer(TILE_URL, {
       maxZoom: TILE_MAX_ZOOM,
       attribution: TILE_ATTRIBUTION,

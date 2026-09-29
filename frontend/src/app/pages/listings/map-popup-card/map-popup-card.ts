@@ -6,6 +6,7 @@ import { formatPrice } from '../../../core/money';
 import { MapPin } from '../../../core/properties/property.models';
 import { FavoriteButtonComponent } from '../../../shared/favorite-button';
 import { formatNumber } from '../../../core/i18n/format';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 /**
  * The card that opens when a price tag on the listings map is clicked
@@ -16,7 +17,7 @@ import { formatNumber } from '../../../core/i18n/format';
  */
 @Component({
   selector: 'app-map-popup-card',
-  imports: [FavoriteButtonComponent, MatIconModule, RouterLink],
+  imports: [FavoriteButtonComponent, MatIconModule, RouterLink, TranslatePipe],
   template: `
     <a class="pop" [routerLink]="['/listings', pin().id]" [queryParams]="linkParams()">
       <div class="photo">
@@ -29,20 +30,20 @@ import { formatNumber } from '../../../core/i18n/format';
       <div class="body">
         <div class="top">
           <span class="title">{{ pin().title }}</span>
-          <span class="rating" [attr.aria-label]="pin().rating_avg ? pin().rating_avg + ' out of 5' : 'No reviews yet'">
+          <span class="rating" [attr.aria-label]="pin().rating_avg ? ('common.outOf5' | t: { rating: formatNumber(pin().rating_avg!, 1) }) : ('common.noReviewsYet' | t)">
             @if (pin().rating_avg; as avg) {
               <mat-icon aria-hidden="true">star</mat-icon>{{ formatNumber(avg, 1) }}
               <span class="muted">({{ pin().review_count }})</span>
             } @else {
-              <span class="new">New</span>
+              <span class="new">{{ 'common.new' | t }}</span>
             }
           </span>
         </div>
         <span class="location">{{ pin().location }}</span>
         <span class="price">
-          <strong>{{ nightly() }}</strong><span class="muted">&nbsp;/ night</span>
+          <strong>{{ nightly() }}</strong><span class="muted">&nbsp;{{ 'common.perNight' | t }}</span>
           @if (stayTotal(); as total) {
-            <span class="total">{{ total }} for {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</span>
+            <span class="total">{{ 'card.totalFor' | t: { total, nights: ('common.nights' | t: { count: nights()! }) } }}</span>
           }
         </span>
       </div>

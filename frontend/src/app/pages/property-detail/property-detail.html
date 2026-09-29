@@ -1,9 +1,9 @@
 <section class="detail">
-  <a mat-button class="back" [routerLink]="backUrl" [attr.href]="backUrl"><mat-icon>arrow_back</mat-icon> Back to results</a>
+  <a mat-button class="back" [routerLink]="backUrl" [attr.href]="backUrl"><mat-icon>arrow_back</mat-icon> {{ 'detail.back' | t }}</a>
 
   @switch (state().status) {
     @case ('loading') {
-      <div class="skeleton" aria-busy="true" aria-label="Loading stay">
+      <div class="skeleton" aria-busy="true" [attr.aria-label]="'detail.loading' | t">
         <div class="ph title"></div>
         <div class="ph hero"></div>
       </div>
@@ -12,23 +12,23 @@
     @case ('notFound') {
       <div class="message">
         <mat-icon>search_off</mat-icon>
-        <p>This stay doesn't exist or is no longer available.</p>
-        <a mat-stroked-button routerLink="/listings">Browse stays</a>
+        <p>{{ 'detail.notFound' | t }}</p>
+        <a mat-stroked-button routerLink="/listings">{{ 'detail.browse' | t }}</a>
       </div>
     }
 
     @case ('error') {
       <div class="message" role="alert">
         <mat-icon>cloud_off</mat-icon>
-        <p>Couldn't load this stay.</p>
-        <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+        <p>{{ 'detail.loadFailed' | t }}</p>
+        <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
       </div>
     }
 
     @case ('ok') {
       @let p = property()!;
       @if (!p.is_active) {
-        <p class="banner" role="status"><mat-icon>visibility_off</mat-icon> Hidden from guests - this property is inactive, so it can't be booked.</p>
+        <p class="banner" role="status"><mat-icon>visibility_off</mat-icon> {{ 'detail.hidden' | t }}</p>
       }
 
       <header class="head">
@@ -43,13 +43,13 @@
             @if (headerRating().avg; as avg) {
               @let count = headerRating().count;
               <a class="rating-link" href="#reviews" (click)="goToReviews($event)">
-                <mat-icon class="star">star</mat-icon>{{ formatNumber(avg, 1) }} · {{ count }} {{ count === 1 ? 'review' : 'reviews' }}
+                <mat-icon class="star">star</mat-icon>{{ formatNumber(avg, 1) }} · {{ 'common.reviews' | t: { count } }}
               </a>
             } @else {
-              <span class="new">New</span>
+              <span class="new">{{ 'common.new' | t }}</span>
             }
           </span>
-          <span><mat-icon>group</mat-icon>Sleeps {{ p.capacity }}</span>
+          <span><mat-icon>group</mat-icon>{{ 'common.sleeps' | t: { count: p.capacity } }}</span>
         </p>
       </header>
 
@@ -59,14 +59,14 @@
         <div class="main">
           @if (p.description) {
             <section>
-              <h2>About this stay</h2>
+              <h2>{{ 'detail.about' | t }}</h2>
               <p class="description">{{ p.description }}</p>
             </section>
           }
 
           @if (p.amenities.length) {
             <section>
-              <h2>What this place offers</h2>
+              <h2>{{ 'detail.offers' | t }}</h2>
               <ul class="amenities">
                 @for (a of p.amenities; track a) {
                   <li><mat-icon>{{ amenityIcon(a) }}</mat-icon>{{ amenityLabel(a) }}</li>
@@ -76,7 +76,7 @@
           }
 
           <section>
-            <h2>Availability</h2>
+            <h2>{{ 'detail.availability' | t }}</h2>
             <app-availability-calendar
               [booked]="booked()"
               [start]="checkIn()"
@@ -89,42 +89,42 @@
 
           <!-- TICKET-034: the area on a map (exact pin for admins) + Open in Google Maps. -->
           <section class="location" aria-labelledby="location-heading">
-            <h2 id="location-heading">Where you'll be</h2>
+            <h2 id="location-heading">{{ 'detail.where' | t }}</h2>
             <app-property-location [property]="p" />
           </section>
 
           <section #reviews id="reviews" class="reviews" aria-labelledby="reviews-heading" tabindex="-1">
             <div class="reviews-head">
-              <h2 id="reviews-heading">Reviews</h2>
+              <h2 id="reviews-heading">{{ 'detail.reviews' | t }}</h2>
               @if (myReview(); as mine) {
-                <p class="my-review"><mat-icon>check_circle</mat-icon>You rated this place <app-star-rating [rating]="mine.rating" [size]="16" /></p>
+                <p class="my-review"><mat-icon>check_circle</mat-icon>{{ 'detail.youRated' | t }} <app-star-rating [rating]="mine.rating" [size]="16" /></p>
               } @else if (canReview()) {
-                <button mat-stroked-button type="button" class="write-review" (click)="writeReview()"><mat-icon>rate_review</mat-icon>Write a review</button>
+                <button mat-stroked-button type="button" class="write-review" (click)="writeReview()"><mat-icon>rate_review</mat-icon>{{ 'detail.writeReview' | t }}</button>
               }
             </div>
             <app-property-reviews [propertyId]="p.id" (summaryChange)="reviewSummary.set({ id: p.id, summary: $event })" />
           </section>
         </div>
 
-        <aside #panel class="panel" aria-label="Book this stay" tabindex="-1">
-          <p class="price"><strong>{{ nightly() }}</strong>&nbsp;/ night</p>
+        <aside #panel class="panel" [attr.aria-label]="'detail.bookPanel' | t" tabindex="-1">
+          <p class="price"><strong>{{ nightly() }}</strong>&nbsp;{{ 'common.perNight' | t }}</p>
 
           <form [formGroup]="form" (ngSubmit)="bookNow()">
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Check-in – check-out</mat-label>
+              <mat-label>{{ 'listings.dates' | t }}</mat-label>
               <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate" [dateFilter]="pickerFilter()">
-                <input matStartDate formControlName="start" placeholder="Check-in" />
-                <input matEndDate formControlName="end" placeholder="Check-out" />
+                <input matStartDate formControlName="start" [placeholder]="'common.checkIn' | t" />
+                <input matEndDate formControlName="end" [placeholder]="'common.checkOut' | t" />
               </mat-date-range-input>
               <mat-datepicker-toggle matIconSuffix [for]="picker" />
               <mat-date-range-picker #picker />
             </mat-form-field>
 
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Guests</mat-label>
+              <mat-label>{{ 'listings.guests' | t }}</mat-label>
               <mat-select formControlName="guests">
                 @for (n of guestOptions(); track n) {
-                  <mat-option [value]="n">{{ n }} {{ n === 1 ? 'guest' : 'guests' }}</mat-option>
+                  <mat-option [value]="n">{{ 'common.guests' | t: { count: n } }}</mat-option>
                 }
               </mat-select>
             </mat-form-field>
@@ -133,22 +133,22 @@
               <p class="status warn" role="alert"><mat-icon>info</mat-icon>{{ problem }}</p>
             } @else {
               @switch (availability()) {
-                @case ('checking') { <p class="status" role="status"><mat-icon>hourglass_top</mat-icon>Checking availability…</p> }
-                @case ('available') { <p class="status ok" role="status"><mat-icon>check_circle</mat-icon>Available for your dates</p> }
-                @case ('unavailable') { <p class="status warn" role="alert"><mat-icon>event_busy</mat-icon>Not available for these dates</p> }
-                @case ('error') { <p class="status warn" role="alert"><mat-icon>cloud_off</mat-icon>Couldn't check availability. Try again.</p> }
+                @case ('checking') { <p class="status" role="status"><mat-icon>hourglass_top</mat-icon>{{ 'detail.checking' | t }}</p> }
+                @case ('available') { <p class="status ok" role="status"><mat-icon>check_circle</mat-icon>{{ 'detail.available' | t }}</p> }
+                @case ('unavailable') { <p class="status warn" role="alert"><mat-icon>event_busy</mat-icon>{{ 'detail.unavailable' | t }}</p> }
+                @case ('error') { <p class="status warn" role="alert"><mat-icon>cloud_off</mat-icon>{{ 'detail.checkFailed' | t }}</p> }
               }
             }
 
             @if (total(); as t) {
               <dl class="breakdown">
-                <div><dt>{{ nightly() }} × {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</dt><dd>{{ t }}</dd></div>
-                <div class="sum"><dt>Total</dt><dd>{{ t }}</dd></div>
+                <div><dt>{{ nightly() }} × {{ 'common.nights' | t: { count: nights() } }}</dt><dd>{{ t }}</dd></div>
+                <div class="sum"><dt>{{ 'detail.total' | t }}</dt><dd>{{ t }}</dd></div>
               </dl>
-              <p class="note">Estimate - the final price is confirmed when you book. You won't be charged yet.</p>
+              <p class="note">{{ 'detail.estimate' | t }}</p>
             }
 
-            <button mat-flat-button type="submit" class="book" [disabled]="!canBook()">Book now</button>
+            <button mat-flat-button type="submit" class="book" [disabled]="!canBook()">{{ 'detail.bookNow' | t }}</button>
           </form>
         </aside>
       </div>
@@ -156,15 +156,15 @@
       <!-- Tablets/phones (TICKET-031): the panel sits below the calendar, so this bar keeps the
            price and the next step in reach. Hidden by CSS on wide screens, and while the panel is visible. -->
       @if (!panelInView()) {
-        <div class="mobile-bar" role="region" aria-label="Price and booking">
+        <div class="mobile-bar" role="region" [attr.aria-label]="'detail.mobileBar' | t">
           <p>
-            <span><strong>{{ nightly() }}</strong>&nbsp;/ night</span>
-            @if (total(); as t) { <span class="bar-total">{{ t }} total</span> }
+            <span><strong>{{ nightly() }}</strong>&nbsp;{{ 'common.perNight' | t }}</span>
+            @if (total(); as t) { <span class="bar-total">{{ 'detail.barTotal' | t: { total: t } }}</span> }
           </p>
           @if (canBook()) {
-            <button mat-flat-button type="button" (click)="bookNow()">Book now</button>
+            <button mat-flat-button type="button" (click)="bookNow()">{{ 'detail.bookNow' | t }}</button>
           } @else {
-            <button mat-flat-button type="button" (click)="goToPanel()">{{ checkIn() ? 'Check dates' : 'Choose dates' }}</button>
+            <button mat-flat-button type="button" (click)="goToPanel()">{{ (checkIn() ? 'detail.checkDates' : 'detail.chooseDates') | t }}</button>
           }
         </div>
       }

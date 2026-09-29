@@ -7,6 +7,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { DemoLogin } from '../../core/auth/auth.models';
 import { AUTH_URL } from '../../core/auth/auth.service';
 import { tokenExpiringIn } from '../../testing/fake-jwt';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { LoginPage } from './login';
 
 describe('LoginPage', () => {
@@ -24,7 +25,10 @@ describe('LoginPage', () => {
     vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    http.verify();
+    localStorage.clear();
+  });
 
   const DEMO_URL = `${AUTH_URL}/demo-logins/`;
   const GUEST: DemoLogin = {
@@ -82,6 +86,23 @@ describe('LoginPage', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[role=alert]')?.textContent).toContain(
       'No active account found',
     );
+  });
+
+  it('in Greek (TICKET-038): labels, button and the demo box, switched without a reload', async () => {
+    const fixture = await render([GUEST, ADMIN]);
+    TestBed.inject(TranslationService).setLang('el');
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('mat-card-title')!.textContent).toContain('Σύνδεση');
+    expect([...el.querySelectorAll('mat-label')].map((l) => l.textContent!.trim())).toEqual(['Email', 'Κωδικός πρόσβασης']);
+    expect(demoBox(fixture)!.textContent).toContain('Λογαριασμοί επίδειξης');
+    expect(demoBox(fixture)!.textContent).toContain('οποιοσδήποτε έως guest10@demo.com');
+    const buttons = [...demoBox(fixture)!.querySelectorAll('button')];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Συμπλήρωση του λογαριασμού επίδειξης (επισκέπτης)',
+      'Συμπλήρωση του λογαριασμού επίδειξης (διαχειριστής)',
+    ]);
+    expect(el.textContent).toContain('Δεν έχετε λογαριασμό;');
   });
 
   describe('demo logins (TICKET-041)', () => {

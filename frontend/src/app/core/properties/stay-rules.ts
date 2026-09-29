@@ -1,11 +1,13 @@
 import { addDays, nightsBetween, todayLocal } from '../dates';
+import { translate } from '../i18n/translation.service';
 import { BookedNights } from './availability';
 import { MAX_DAYS_AHEAD, MAX_NIGHTS } from './property.models';
 
 /**
  * Instant client-side verdict on a chosen stay (null = fine so far),
  * mirroring the backend's validation. Shared by the detail page and the
- * booking form so both say exactly the same thing.
+ * booking form so both say exactly the same thing. In the chosen language
+ * (TICKET-038); called from `computed()`s, so it follows a switch.
  */
 export function stayProblem(
   checkIn: Date | null,
@@ -14,14 +16,14 @@ export function stayProblem(
   today: Date = todayLocal(),
 ): string | null {
   if (!checkIn && !checkOut) return null;
-  if (checkIn && !checkOut) return 'Pick a check-out date.';
-  if (!checkIn || !checkOut) return 'Pick a check-in date.';
+  if (checkIn && !checkOut) return translate('stay.pickCheckOut');
+  if (!checkIn || !checkOut) return translate('stay.pickCheckIn');
   const nights = nightsBetween(checkIn, checkOut);
-  if (nights < 1) return 'Check-out must be after check-in.';
-  if (checkIn < today) return "Check-in can't be in the past.";
-  if (checkIn > addDays(today, MAX_DAYS_AHEAD)) return `Bookings open at most ${MAX_DAYS_AHEAD} days ahead.`;
-  if (nights > MAX_NIGHTS) return `A stay can be at most ${MAX_NIGHTS} nights.`;
-  if (!booked.isFree(checkIn, checkOut)) return 'Some of these nights are already booked.';
+  if (nights < 1) return translate('stay.noNights');
+  if (checkIn < today) return translate('stay.past');
+  if (checkIn > addDays(today, MAX_DAYS_AHEAD)) return translate('stay.tooFarAhead', { days: MAX_DAYS_AHEAD });
+  if (nights > MAX_NIGHTS) return translate('stay.tooLong', { nights: MAX_NIGHTS });
+  if (!booked.isFree(checkIn, checkOut)) return translate('stay.booked');
   return null;
 }
 

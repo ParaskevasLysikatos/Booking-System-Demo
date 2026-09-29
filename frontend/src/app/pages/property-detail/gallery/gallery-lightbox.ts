@@ -4,6 +4,7 @@ import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 
 import { PropertyImage } from '../../../core/properties/property.models';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 export interface LightboxData {
   images: PropertyImage[];
@@ -14,14 +15,14 @@ export interface LightboxData {
 /** Full-screen photo viewer: arrows / ← → keys / swipe, Esc or ✕ to close. */
 @Component({
   selector: 'app-gallery-lightbox',
-  imports: [MatButtonModule, MatIconModule],
+  imports: [MatButtonModule, MatIconModule, TranslatePipe],
   template: `
     <div class="lightbox" (touchstart)="touchStart($event)" (touchend)="touchEnd($event)">
-      <button mat-icon-button class="close" type="button" (click)="close()" aria-label="Close"><mat-icon>close</mat-icon></button>
-      <img [src]="current().image" [alt]="data.title + ' - photo ' + (index() + 1)" />
+      <button mat-icon-button class="close" type="button" (click)="close()" [attr.aria-label]="'common.close' | t"><mat-icon>close</mat-icon></button>
+      <img [src]="current().image" [alt]="'gallery.photoAlt' | t: { title: data.title, n: index() + 1 }" />
       @if (data.images.length > 1) {
-        <button mat-icon-button class="nav prev" type="button" (click)="go(-1)" aria-label="Previous photo"><mat-icon>chevron_left</mat-icon></button>
-        <button mat-icon-button class="nav next" type="button" (click)="go(1)" aria-label="Next photo"><mat-icon>chevron_right</mat-icon></button>
+        <button mat-icon-button class="nav prev" type="button" (click)="go(-1)" [attr.aria-label]="'gallery.previous' | t"><mat-icon>chevron_left</mat-icon></button>
+        <button mat-icon-button class="nav next" type="button" (click)="go(1)" [attr.aria-label]="'gallery.next' | t"><mat-icon>chevron_right</mat-icon></button>
       }
       <p class="caption">{{ data.title }} · {{ index() + 1 }} / {{ data.images.length }}</p>
     </div>

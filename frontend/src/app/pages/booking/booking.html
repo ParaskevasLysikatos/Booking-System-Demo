@@ -6,15 +6,15 @@
     @case ('unavailable') {
       <div class="message">
         <mat-icon>event_busy</mat-icon>
-        <p>This stay can't be booked - it doesn't exist or is no longer available.</p>
-        <a mat-stroked-button routerLink="/listings">Browse stays</a>
+        <p>{{ 'booking.unavailable' | t }}</p>
+        <a mat-stroked-button routerLink="/listings">{{ 'detail.browse' | t }}</a>
       </div>
     }
     @case ('error') {
       <div class="message" role="alert">
         <mat-icon>cloud_off</mat-icon>
-        <p>Couldn't load this stay.</p>
-        <button mat-stroked-button type="button" (click)="loadProperty()">Try again</button>
+        <p>{{ 'detail.loadFailed' | t }}</p>
+        <button mat-stroked-button type="button" (click)="loadProperty()">{{ 'common.tryAgain' | t }}</button>
       </div>
     }
     @case ('ok') {
@@ -26,18 +26,18 @@
           <div class="done">
             @if (redirecting()) {
               <mat-spinner diameter="48" class="big-spinner" />
-              <h1>Taking you to secure payment…</h1>
-              <p>You'll pay <strong>{{ formatPrice(b.payment!.amount) }}</strong> on Stripe's payment page.</p>
+              <h1>{{ 'booking.redirecting' | t }}</h1>
+              <p [innerHTML]="'booking.payOnStripe' | t: { amount: formatPrice(b.payment!.amount) }"></p>
             } @else {
               <mat-icon class="big warn">credit_card_off</mat-icon>
-              <h1>Your dates are held - payment not started</h1>
+              <h1>{{ 'booking.heldNotStarted' | t }}</h1>
               @if (checkoutError(); as e) {
                 <p class="error" role="alert">{{ e }}</p>
               }
-              <p class="muted">Reference <strong>#{{ b.id }}</strong> · held until <strong>{{ clockTime(b.payment!.expires_at) }}</strong></p>
+              <p class="muted" [innerHTML]="'booking.heldUntil' | t: { id: b.id, time: clockTime(b.payment!.expires_at) }"></p>
               <div class="actions">
-                <button mat-flat-button type="button" (click)="goToPayment(b)">Try again</button>
-                <a mat-stroked-button routerLink="/my-bookings">My bookings</a>
+                <button mat-flat-button type="button" (click)="goToPayment(b)">{{ 'common.tryAgain' | t }}</button>
+                <a mat-stroked-button routerLink="/my-bookings">{{ 'toolbar.myBookings' | t }}</a>
               </div>
             }
           </div>
@@ -45,42 +45,42 @@
           <!-- Confirmation screen, built from the server's response. -->
           <div class="done">
             <mat-icon class="big">task_alt</mat-icon>
-            <h1>Booking request sent</h1>
-            <p class="muted">Reference <strong>#{{ b.id }}</strong> · Status <span class="pill">{{ b.status === 'pending' ? 'Pending' : b.status }}</span></p>
-            <p>The host will confirm your stay. You haven't been charged.</p>
+            <h1>{{ 'booking.requestSent' | t }}</h1>
+            <p class="muted"><span [innerHTML]="'booking.reference' | t: { id: b.id }"></span> <span class="pill">{{ 'status.' + b.status | t }}</span></p>
+            <p>{{ 'booking.hostWillConfirm' | t }}</p>
 
             <app-booking-summary class="summary" [booking]="b" />
 
             <div class="actions">
-              <a mat-flat-button routerLink="/my-bookings">My bookings</a>
-              <a mat-stroked-button routerLink="/listings">Browse more stays</a>
+              <a mat-flat-button routerLink="/my-bookings">{{ 'toolbar.myBookings' | t }}</a>
+              <a mat-stroked-button routerLink="/listings">{{ 'booking.browseMore' | t }}</a>
             </div>
           </div>
         }
       } @else {
-        <a mat-button class="back" [routerLink]="['/listings', p.id]" [queryParams]="backParams()"><mat-icon>arrow_back</mat-icon> Back to the stay</a>
-        <h1>Book your stay</h1>
+        <a mat-button class="back" [routerLink]="['/listings', p.id]" [queryParams]="backParams()"><mat-icon>arrow_back</mat-icon> {{ 'booking.backToStay' | t }}</a>
+        <h1>{{ 'booking.title' | t }}</h1>
 
         <div class="layout">
           <mat-stepper [linear]="true" orientation="vertical" class="steps" #stepper>
             <!-- Step 1 -->
-            <mat-step [completed]="tripReady()" label="Your trip">
+            <mat-step [completed]="tripReady()" [label]="'booking.stepTrip' | t">
               <form [formGroup]="form" class="trip" (ngSubmit)="tripReady() && stepper.next()">
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                  <mat-label>Check-in – check-out</mat-label>
+                  <mat-label>{{ 'listings.dates' | t }}</mat-label>
                   <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate" [dateFilter]="pickerFilter()">
-                    <input matStartDate formControlName="start" placeholder="Check-in" />
-                    <input matEndDate formControlName="end" placeholder="Check-out" />
+                    <input matStartDate formControlName="start" [placeholder]="'common.checkIn' | t" />
+                    <input matEndDate formControlName="end" [placeholder]="'common.checkOut' | t" />
                   </mat-date-range-input>
                   <mat-datepicker-toggle matIconSuffix [for]="picker" />
                   <mat-date-range-picker #picker />
                 </mat-form-field>
 
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                  <mat-label>Guests</mat-label>
+                  <mat-label>{{ 'listings.guests' | t }}</mat-label>
                   <mat-select formControlName="guests">
                     @for (n of guestOptions(); track n) {
-                      <mat-option [value]="n">{{ n }} {{ n === 1 ? 'guest' : 'guests' }}</mat-option>
+                      <mat-option [value]="n">{{ 'common.guests' | t: { count: n } }}</mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
@@ -91,38 +91,38 @@
                 @if (dateProblem(); as problem) {
                   <p class="status warn" role="alert"><mat-icon>info</mat-icon>{{ problem }}</p>
                 } @else if (!checkIn()) {
-                  <p class="status"><mat-icon>calendar_month</mat-icon>Pick your dates to see the price.</p>
+                  <p class="status"><mat-icon>calendar_month</mat-icon>{{ 'booking.pickDates' | t }}</p>
                 } @else {
                   @switch (availability()) {
-                    @case ('checking') { <p class="status" role="status"><mat-icon>hourglass_top</mat-icon>Checking availability…</p> }
-                    @case ('available') { <p class="status ok" role="status"><mat-icon>check_circle</mat-icon>Available for your dates</p> }
-                    @case ('unavailable') { <p class="status warn" role="alert"><mat-icon>event_busy</mat-icon>Not available for these dates</p> }
-                    @case ('error') { <p class="status warn" role="alert"><mat-icon>cloud_off</mat-icon>Couldn't check availability.</p> }
+                    @case ('checking') { <p class="status" role="status"><mat-icon>hourglass_top</mat-icon>{{ 'detail.checking' | t }}</p> }
+                    @case ('available') { <p class="status ok" role="status"><mat-icon>check_circle</mat-icon>{{ 'detail.available' | t }}</p> }
+                    @case ('unavailable') { <p class="status warn" role="alert"><mat-icon>event_busy</mat-icon>{{ 'detail.unavailable' | t }}</p> }
+                    @case ('error') { <p class="status warn" role="alert"><mat-icon>cloud_off</mat-icon>{{ 'booking.checkFailed' | t }}</p> }
                   }
                 }
 
                 <div class="step-actions">
-                  <button mat-flat-button type="submit" [disabled]="!tripReady()">Continue</button>
+                  <button mat-flat-button type="submit" [disabled]="!tripReady()">{{ 'booking.continue' | t }}</button>
                 </div>
               </form>
             </mat-step>
 
             <!-- Step 2 -->
-            <mat-step label="Review & confirm">
+            <mat-step [label]="'booking.stepReview' | t">
               @if (checkIn() && checkOut()) {
                 <dl class="review">
-                  <div><dt>Check-in</dt><dd>{{ dateText(checkIn()!) }} · from 15:00</dd></div>
-                  <div><dt>Check-out</dt><dd>{{ dateText(checkOut()!) }}</dd></div>
-                  <div><dt>Guests</dt><dd>{{ guests() }}</dd></div>
+                  <div><dt>{{ 'common.checkIn' | t }}</dt><dd>{{ 'booking.fromTime' | t: { date: dateText(checkIn()!), time: checkInTime } }}</dd></div>
+                  <div><dt>{{ 'common.checkOut' | t }}</dt><dd>{{ dateText(checkOut()!) }}</dd></div>
+                  <div><dt>{{ 'listings.guests' | t }}</dt><dd>{{ guests() }}</dd></div>
                 </dl>
                 @if (deadline(); as d) {
                   <p class="policy">
                     <mat-icon>event_available</mat-icon>
                     <span>
                       @if (!d.passed) {
-                        Free cancellation until <strong>{{ d.text }}</strong> ({{ cancellationHours }} hours before check-in){{ paymentsOn() ? ' - full refund' : '' }}. After that, only the host can cancel.
+                        <span [innerHTML]="'booking.freeCancel' | t: { deadline: d.text, hours: cancellationHours, refund: paymentsOn() ? ('booking.fullRefundSuffix' | t) : '' }"></span>
                       } @else {
-                        Check-in is less than {{ cancellationHours }} hours away - this booking can't be cancelled online.
+                        {{ 'booking.tooLate' | t: { hours: cancellationHours } }}
                       }
                     </span>
                   </p>
@@ -130,25 +130,21 @@
                 @if (paymentsOn()) {
                   <p class="policy">
                     <mat-icon>lock</mat-icon>
-                    <span>
-                      You'll pay <strong>{{ total() }}</strong> securely on Stripe's payment page. Your dates are held for about
-                      {{ holdMinutes() }} minutes while you pay - if you don't finish, they're released. Your booking is
-                      confirmed as soon as the payment goes through.
-                    </span>
+                    <span [innerHTML]="'booking.payPolicy' | t: { total: total() ?? '', minutes: holdMinutes() }"></span>
                   </p>
                 } @else {
-                  <p class="note">Your booking starts as <strong>pending</strong> until the host confirms it. You won't be charged now.</p>
+                  <p class="note" [innerHTML]="'booking.pendingNote' | t"></p>
                 }
               }
               <div class="step-actions">
-                <button mat-button type="button" matStepperPrevious [disabled]="submitting()">Back</button>
+                <button mat-button type="button" matStepperPrevious [disabled]="submitting()">{{ 'booking.back' | t }}</button>
                 <button mat-flat-button type="button" class="confirm" (click)="confirm()" [disabled]="submitting() || !tripReady()">
                   @if (submitting()) {
                     <mat-spinner diameter="20" />
                   } @else if (paymentsOn()) {
-                    Confirm and pay
+                    {{ 'booking.confirmPay' | t }}
                   } @else {
-                    Confirm booking
+                    {{ 'booking.confirm' | t }}
                   }
                 </button>
               </div>
@@ -165,14 +161,14 @@
               }
             </div>
             <h2>{{ p.title }}</h2>
-            <p class="muted"><mat-icon>place</mat-icon>{{ p.location }} · Sleeps {{ p.capacity }}</p>
-            <p class="price"><strong>{{ nightly() }}</strong>&nbsp;/ night</p>
+            <p class="muted"><mat-icon>place</mat-icon>{{ p.location }} · {{ 'common.sleeps' | t: { count: p.capacity } }}</p>
+            <p class="price"><strong>{{ nightly() }}</strong>&nbsp;{{ 'common.perNight' | t }}</p>
             @if (total(); as t) {
               <dl class="breakdown">
-                <div><dt>{{ nightly() }} × {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</dt><dd>{{ t }}</dd></div>
-                <div class="sum"><dt>Total</dt><dd>{{ t }}</dd></div>
+                <div><dt>{{ nightly() }} × {{ 'common.nights' | t: { count: nights() } }}</dt><dd>{{ t }}</dd></div>
+                <div class="sum"><dt>{{ 'detail.total' | t }}</dt><dd>{{ t }}</dd></div>
               </dl>
-              <p class="note">Estimate - the final price is calculated by the server when you confirm.</p>
+              <p class="note">{{ 'booking.estimateServer' | t }}</p>
             }
           </aside>
         </div>

@@ -12,6 +12,8 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { parseApiErrors } from '../../core/api-errors';
 import { DemoLogin } from '../../core/auth/auth.models';
 import { AuthService, safeReturnUrl } from '../../core/auth/auth.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 @Component({
   selector: 'app-login',
@@ -24,11 +26,13 @@ import { AuthService, safeReturnUrl } from '../../core/auth/auth.service';
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    TranslatePipe,
   ],
   templateUrl: './login.html',
   styleUrl: '../auth-page.scss',
 })
 export class LoginPage {
+  private readonly i18n = inject(TranslationService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -74,7 +78,7 @@ export class LoginPage {
         this.submitting.set(false);
         const parsed = parseApiErrors(err);
         this.error.set(
-          parsed.general ?? Object.values(parsed.fields).flat().join(' ') ?? 'Login failed.',
+          parsed.general ?? Object.values(parsed.fields).flat().join(' ') ?? this.i18n.t('auth.login.failed'),
         );
       },
     });

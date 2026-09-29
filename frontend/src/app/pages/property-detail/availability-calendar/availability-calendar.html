@@ -1,19 +1,19 @@
 <div class="cal">
   <div class="bar">
-    <button mat-icon-button type="button" (click)="shift(-1)" [disabled]="!canGoBack()" aria-label="Previous month">
+    <button mat-icon-button type="button" (click)="shift(-1)" [disabled]="!canGoBack()" [attr.aria-label]="'calendar.previousMonth' | t">
       <mat-icon>chevron_left</mat-icon>
     </button>
     <p class="hint">
       @if (!start()) {
-        Select a check-in date
+        {{ 'calendar.selectCheckIn' | t }}
       } @else if (!end()) {
-        Select a check-out date
+        {{ 'calendar.selectCheckOut' | t }}
       } @else {
-        Selected stay
-        <button mat-button type="button" (click)="clear()">Clear dates</button>
+        {{ 'calendar.selected' | t }}
+        <button mat-button type="button" (click)="clear()">{{ 'calendar.clear' | t }}</button>
       }
     </p>
-    <button mat-icon-button type="button" (click)="shift(1)" [disabled]="!canGoForward()" aria-label="Next month">
+    <button mat-icon-button type="button" (click)="shift(1)" [disabled]="!canGoForward()" [attr.aria-label]="'calendar.nextMonth' | t">
       <mat-icon>chevron_right</mat-icon>
     </button>
   </div>
@@ -37,5 +37,5 @@
     }
   </div>
 
-  <p class="legend"><span class="swatch"></span> Booked · you can check out on the day someone else checks in</p>
+  <p class="legend"><span class="swatch"></span> {{ 'calendar.legend' | t }}</p>
 </div>

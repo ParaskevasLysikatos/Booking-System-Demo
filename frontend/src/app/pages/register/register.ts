@@ -19,6 +19,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { parseApiErrors } from '../../core/api-errors';
 import { RegisterRequest } from '../../core/auth/auth.models';
 import { AuthService, safeReturnUrl } from '../../core/auth/auth.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 
 /** confirmPassword must equal its sibling `password`. */
 export const matchesPassword: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
@@ -46,6 +47,7 @@ const FIELD_MAP: Record<string, string> = {
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    TranslatePipe,
   ],
   templateUrl: './register.html',
   styleUrl: '../auth-page.scss',

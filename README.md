@@ -99,8 +99,10 @@ pipe. Tab titles, Material's own texts (paginator, date pickers, stepper)
 and the date pickers' month/day names follow the language, and every API
 call says `Accept-Language`. The toolbar is translated; the pages come in
 steps 3-5. Step 2 is done - every date, time, price, rating and percentage
-follows the language ("Τετ 10 Μαρ 2027", "1.234,50 €", "4,7", "12,5%"). See
-"Two languages (English / Greek, TICKET-038)".
+follows the language ("Τετ 10 Μαρ 2027", "1.234,50 €", "4,7", "12,5%"). Step
+3 is done - the guest pages are in Greek: listings (search, cards, map), the
+property page, the booking form, login, register and the smaller pieces
+around them. See "Two languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -6162,7 +6164,7 @@ build or site.
 2. Dates and money in the chosen language (`el-GR`: "Τετ 10 Μαρ 2027",
    "364,00 €") - **done**.
 3. Guest pages, part 1 (listings, property page, booking form, login,
-   register, ...).
+   register, ...) - **done**.
 4. Guest pages, part 2 (My bookings, dialogs, Saved, payment screens,
    messages picked by the API's error `code`).
 5. The admin pages.
@@ -6273,6 +6275,75 @@ Tests (10 new, **453 frontend tests**):
 
 The 443 existing tests pass unchanged, so English output is the same as
 before. The initial bundle is 610 kB (+0.1 kB).
+
+### Guest pages (step 3)
+
+In Greek now:
+- **Layout:** the footer's status dot and the "waking up the server" notice
+- **Listings:** the search form, sort options, result counts ("3 καταλύματα
+  διαθέσιμα για 4 νύχτες"), empty and error states, and the map (its notes,
+  price-tag titles, cluster bubbles, zoom buttons)
+- **Cards and map pop-ups:** "Έως 4 άτομα", "/ νύχτα", "366 € για 4 νύχτες",
+  "Νέο", the heart, and the amenity names (known ones translated; a custom
+  amenity an admin typed is shown as typed)
+- **The property page:** every heading, the gallery, the two-month calendar,
+  the booking panel and its messages, "Where you'll be", the reviews section
+  (star bars, Show more), and the mobile bottom bar
+- **The booking form:** both steps, the cancellation and payment policies,
+  the confirmation screen and the booking summary card
+- **Login / register:** all labels, hints, validation messages and the
+  "Demo logins" box. **Forbidden page** and the **iPhone install dialog**.
+- **Tab titles:** the property's own name, "Κράτηση: Harbour Loft",
+  "Ασφαλής πληρωμή", ...
+
+Error messages that come from the server (e.g. "Check-in can't be in the
+past.") are still English until step 6.
+
+How it's done:
+- **Plurals** use `{count}` keys (`common.nights`: "1 νύχτα" / "4 νύχτες").
+  Greek adjectives agree with the count too: "1 κατάλυμα διαθέσιμο" vs
+  "3 καταλύματα διαθέσιμα".
+- **Bold words inside a sentence** ("Δωρεάν ακύρωση έως **Τετ 7 Οκτ,
+  15:00**"): the text keeps its `<strong>` in both dictionaries and is shown
+  with `[innerHTML]`. This way the Greek sentence can put the bold part
+  wherever Greek grammar needs it. Two rules:
+  - Only texts whose `{params}` are values the app formats itself (dates,
+    prices, numbers, ids), never text a user typed.
+  - `dictionaries.spec.ts` checks that both languages have the same tags.
+- **`translate(key, params)`** (in `translation.service.ts`) is
+  `TranslationService.t` as a plain function. It's used for texts built
+  outside a template: stay-rule messages, amenity names, the heart's label,
+  snackbars, map titles. It reads the language signal, so it follows a
+  switch inside `computed()`s.
+- **The map:** Leaflet's zoom buttons and cluster bubbles are Leaflet's own
+  DOM, not Angular's, so `<app-map>` re-titles them on a switch.
+- **`npm run check:i18n`** (`frontend/scripts/check-i18n.mjs`) checks that
+  every literal key in the code (`'a.b' | t`, `t('a.b')`, `translate('a.b')`,
+  `setKey('a.b')`, option `label: 'a.b'`) exists in `en.json`. Right now
+  that's 287 uses, all found.
+
+Tests (7 new, **460 frontend tests**; every existing test still passes in
+English):
+- **Listings:** counts, stay totals, buttons and the date message in Greek.
+- **Booking form:** step names, the payment policy, and the bold deadline
+  and amount.
+- **Login:** labels, the demo box, and its buttons' labels.
+- **`pages-el.spec.ts`:** stay rules, amenity names (a custom one is kept as
+  typed), cluster titles, plurals.
+- **`dictionaries.spec.ts`:** the same HTML tags in both languages.
+- A language picked in one test no longer leaks into the next (specs clear
+  `localStorage`). The map pop-up spec was also made independent of a
+  session another spec left behind (an intermittent failure seen once).
+
+Checked in a browser (production build, API answers mocked, Greek chosen):
+listings, property page, booking step 2 and login at 1280 px and 390 px.
+No sideways scroll, no console errors, and Greek tab titles.
+
+**Bundle:** the initial bundle is 636 kB (+26 kB). Both dictionaries are in
+the main bundle, and Greek takes about twice the bytes of English (2 bytes
+per letter in UTF-8). Steps 4-5 will add roughly as much again. If that
+nears the 700 kB warning, `el.json` will be loaded only when Greek is
+chosen.
 
 ### Material's own texts, per page
 
@@ -7163,7 +7234,10 @@ language, `Accept-Language` on API calls, the toolbar in Greek) is done;
 see "Two languages (English / Greek, TICKET-038)"; step 2 (every date,
 time, price, rating and percentage in the chosen language, through
 `core/i18n/format.ts` and `formatPrice`, which read the language signal) is
-done; see "Two languages → Dates and money". Next: the pages (steps 3-5),
+done; see "Two languages → Dates and money"; step 3 (the guest pages -
+listings, cards, map, property page, booking form, login, register - in
+Greek, plus `npm run check:i18n`) is done; see "Two languages → Guest
+pages". Next: the rest of the guest pages (step 4), the admin pages (step 5),
 the backend in Greek (step 6), Stripe's page language (step 7) and the
 final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has

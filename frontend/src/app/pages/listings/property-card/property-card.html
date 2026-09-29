@@ -3,11 +3,11 @@
     <!-- Saved page only (TICKET-033): a place an admin deactivated. Not a
          link - it can't be opened or booked - just shown greyed out. -->
     <div class="card unavailable">
-      <span class="gone-badge">No longer available</span>
+      <span class="gone-badge">{{ 'card.unavailable' | t }}</span>
       <ng-container *ngTemplateOutlet="content" />
       <div class="unavailable-actions">
-        <button mat-stroked-button type="button" class="remove" [attr.aria-label]="'Remove ' + property().title + ' from saved'" (click)="remove()">
-          <mat-icon>delete_outline</mat-icon>Remove
+        <button mat-stroked-button type="button" class="remove" [attr.aria-label]="'card.removeFromSaved' | t: { title: property().title }" (click)="remove()">
+          <mat-icon>delete_outline</mat-icon>{{ 'card.remove' | t }}
         </button>
       </div>
     </div>
@@ -39,17 +39,17 @@
   <div class="body">
     <div class="top">
       <h3 class="title">{{ property().title }}</h3>
-      <span class="rating" [attr.aria-label]="property().rating_avg ? property().rating_avg + ' out of 5' : 'No reviews yet'">
+      <span class="rating" [attr.aria-label]="property().rating_avg ? ('common.outOf5' | t: { rating: formatNumber(property().rating_avg!, 1) }) : ('common.noReviewsYet' | t)">
         @if (property().rating_avg; as avg) {
           <mat-icon>star</mat-icon> {{ formatNumber(avg, 1) }} <span class="muted">({{ property().review_count }})</span>
         } @else {
-          <span class="new">New</span>
+          <span class="new">{{ 'common.new' | t }}</span>
         }
       </span>
     </div>
 
     <p class="location"><mat-icon>place</mat-icon>{{ property().location }}</p>
-    <p class="meta"><mat-icon>group</mat-icon>Sleeps {{ property().capacity }}</p>
+    <p class="meta"><mat-icon>group</mat-icon>{{ 'common.sleeps' | t: { count: property().capacity } }}</p>
 
     @if (amenities().length) {
       <ul class="chips">
@@ -63,9 +63,9 @@
     }
 
     <p class="price">
-      <strong>{{ nightly() }}</strong><span class="muted">&nbsp;/ night</span>
+      <strong>{{ nightly() }}</strong><span class="muted">&nbsp;{{ 'common.perNight' | t }}</span>
       @if (stayTotal(); as total) {
-        <span class="total">{{ total }} for {{ nights() }} {{ nights() === 1 ? 'night' : 'nights' }}</span>
+        <span class="total">{{ 'card.totalFor' | t: { total, nights: ('common.nights' | t: { count: nights()! }) } }}</span>
       }
     </p>
   </div>

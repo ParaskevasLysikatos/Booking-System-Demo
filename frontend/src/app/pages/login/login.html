@@ -1,19 +1,19 @@
 <div class="auth-page">
   <mat-card class="auth-card" appearance="outlined">
     <mat-card-header>
-      <mat-card-title>Log in</mat-card-title>
-      <mat-card-subtitle>Welcome back</mat-card-subtitle>
+      <mat-card-title>{{ 'auth.login.title' | t }}</mat-card-title>
+      <mat-card-subtitle>{{ 'auth.login.subtitle' | t }}</mat-card-subtitle>
     </mat-card-header>
 
     <mat-card-content>
       @if (sessionExpired && !error()) {
         <p class="banner info" role="status">
-          <mat-icon>schedule</mat-icon> Your session expired. Please log in again.
+          <mat-icon>schedule</mat-icon> {{ 'auth.login.sessionExpired' | t }}
         </p>
       }
       @if (savingFavorite && !error()) {
         <p class="banner info" role="status">
-          <mat-icon>favorite_border</mat-icon> Log in to save this place - it's saved as soon as you're in.
+          <mat-icon>favorite_border</mat-icon> {{ 'auth.login.savingFavorite' | t }}
         </p>
       }
       @if (error(); as message) {
@@ -22,17 +22,17 @@
 
       <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
         <mat-form-field appearance="outline">
-          <mat-label>Email</mat-label>
+          <mat-label>{{ 'auth.email' | t }}</mat-label>
           <input matInput type="email" formControlName="email" autocomplete="email" required />
           @if (form.controls.email.hasError('required')) {
-            <mat-error>Email is required.</mat-error>
+            <mat-error>{{ 'auth.emailRequired' | t }}</mat-error>
           } @else if (form.controls.email.hasError('email')) {
-            <mat-error>Enter a valid email address.</mat-error>
+            <mat-error>{{ 'auth.emailInvalid' | t }}</mat-error>
           }
         </mat-form-field>
 
         <mat-form-field appearance="outline">
-          <mat-label>Password</mat-label>
+          <mat-label>{{ 'auth.password' | t }}</mat-label>
           <input
             matInput
             [type]="hidePassword() ? 'password' : 'text'"
@@ -45,12 +45,12 @@
             matSuffix
             type="button"
             (click)="hidePassword.set(!hidePassword())"
-            [attr.aria-label]="hidePassword() ? 'Show password' : 'Hide password'"
+            [attr.aria-label]="(hidePassword() ? 'auth.showPassword' : 'auth.hidePassword') | t"
           >
             <mat-icon>{{ hidePassword() ? 'visibility' : 'visibility_off' }}</mat-icon>
           </button>
           @if (form.controls.password.hasError('required')) {
-            <mat-error>Password is required.</mat-error>
+            <mat-error>{{ 'auth.passwordRequired' | t }}</mat-error>
           }
         </mat-form-field>
 
@@ -58,14 +58,14 @@
           @if (submitting()) {
             <mat-spinner diameter="20" />
           } @else {
-            Log in
+            {{ 'auth.login.submit' | t }}
           }
         </button>
       </form>
 
       @if (demoLogins().length) {
         <section class="demo-logins" aria-labelledby="demo-logins-title">
-          <h2 id="demo-logins-title"><mat-icon>key</mat-icon> Demo logins</h2>
+          <h2 id="demo-logins-title"><mat-icon>key</mat-icon> {{ 'auth.login.demoTitle' | t }}</h2>
           <ul>
             @for (login of demoLogins(); track login.role) {
               <li>
@@ -73,15 +73,15 @@
                   mat-stroked-button
                   type="button"
                   (click)="useDemoLogin(login)"
-                  [attr.aria-label]="'Fill in the ' + login.role + ' demo login'"
+                  [attr.aria-label]="'auth.login.demoFill' | t: { role: ('roles.' + login.role | t) }"
                 >
                   <mat-icon>{{ login.role === 'admin' ? 'admin_panel_settings' : 'person' }}</mat-icon>
-                  {{ login.role === 'admin' ? 'Admin' : 'Guest' }}
+                  {{ (login.role === 'admin' ? 'toolbar.roleAdmin' : 'toolbar.roleGuest') | t }}
                 </button>
                 <span class="creds">
                   <span><code>{{ login.email }}</code> / <code>{{ login.password }}</code></span>
                   @if (login.role === 'guest' && (login.count ?? 0) > 1) {
-                    <small>any up to {{ login.last_email }}</small>
+                    <small>{{ 'auth.login.demoAnyUpTo' | t: { email: login.last_email ?? '' } }}</small>
                   }
                 </span>
               </li>
@@ -92,8 +92,8 @@
     </mat-card-content>
 
     <mat-card-actions class="switch">
-      <span>No account yet?</span>
-      <a mat-button routerLink="/register" queryParamsHandling="preserve">Create one</a>
+      <span>{{ 'auth.login.noAccount' | t }}</span>
+      <a mat-button routerLink="/register" queryParamsHandling="preserve">{{ 'auth.login.createOne' | t }}</a>
     </mat-card-actions>
   </mat-card>
 </div>

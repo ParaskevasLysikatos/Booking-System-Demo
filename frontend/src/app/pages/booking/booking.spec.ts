@@ -162,6 +162,7 @@ describe('BookingFormPage', () => {
 
 import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { PAYMENTS_URL } from '../../core/payments/payment.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 describe('BookingFormPage with online payments', () => {
   let harness: RouterTestingHarness;
@@ -202,6 +203,8 @@ describe('BookingFormPage with online payments', () => {
     await settle();
     return page;
   }
+
+  afterEach(() => localStorage.clear()); // e.g. the Greek test's bsd.lang
 
   const checkoutUrl = `${BOOKINGS_URL}77/checkout/`;
 
@@ -267,5 +270,23 @@ describe('BookingFormPage with online payments', () => {
     expect(text()).toContain("You haven't been charged");
     http.expectNone(checkoutUrl);
     expect(redirectTo).not.toHaveBeenCalled();
+  });
+
+  it('in Greek (TICKET-038): step 2, the payment policy and the price', async () => {
+    const page = await ready();
+    TestBed.inject(TranslationService).setLang('el');
+    page.stepper()!.next();
+    await settle();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('Το ταξίδι σας');
+    expect(el).toContain('Έλεγχος και επιβεβαίωση');
+    expect(el).toContain('Επιβεβαίωση και πληρωμή');
+    expect(el).toContain('Θα πληρώσετε 182 € με ασφάλεια στη σελίδα πληρωμής της Stripe');
+    expect(el).toContain('περίπου 30 λεπτά');
+    expect(el).toContain('πλήρης επιστροφή χρημάτων');
+    expect(el).toContain('91 € × 2 νύχτες');
+    // The amount is still bold: the text keeps its <strong> in the translation.
+    const bold = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('.policy strong')].map((b) => b.textContent!.replace(/[\u00a0\u202f]/g, ' '));
+    expect(bold).toEqual([expect.stringMatching(/^[Α-Ωά-ώ]{3} \d+ [Α-Ωά-ώ]{3}, 15:00$/), '182 €']);
   });
 });

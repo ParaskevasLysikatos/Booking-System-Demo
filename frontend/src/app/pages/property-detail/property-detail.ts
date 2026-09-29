@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, signal, viewChild, untracked } from '@angular/core';
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -10,7 +10,6 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   BehaviorSubject,
@@ -43,6 +42,9 @@ import { PropertyLocationComponent } from './location/property-location';
 import { PropertyReviewsComponent } from './reviews/property-reviews';
 import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
 import { formatNumber } from '../../core/i18n/format';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { PageTitle } from '../../core/i18n/page-title';
 
 type DetailState =
   | { status: 'loading' }
@@ -69,19 +71,21 @@ export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailabl
     PropertyLocationComponent,
     PropertyReviewsComponent,
     StarRatingComponent,
+    TranslatePipe,
   ],
   providers: [provideLocalizedDatepicker()], // date pickers in the chosen language (TICKET-038)
   templateUrl: './property-detail.html',
   styleUrl: './property-detail.scss',
 })
 export class PropertyDetailPage {
+  private readonly i18n = inject(TranslationService);
   /** In the chosen language (TICKET-038). */
   protected readonly formatNumber = formatNumber;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly properties = inject(PropertyService);
   private readonly auth = inject(AuthService);
-  private readonly titleService = inject(Title);
+  private readonly pageTitle = inject(PageTitle);
   private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
 
@@ -177,7 +181,7 @@ export class PropertyDetailPage {
   );
 
   constructor() {
-    this.titleService.setTitle('Stay · Booking System Demo');
+    this.pageTitle.setKey('detail.title');
 
     // Pre-fill from the URL once (card link / reload / shared link).
     const q = this.route.snapshot.queryParamMap;
@@ -193,7 +197,8 @@ export class PropertyDetailPage {
     effect(() => {
       const p = this.property();
       if (!p) return;
-      this.titleService.setTitle(`${p.title} · Booking System Demo`);
+      const title = p.title;
+      untracked(() => this.pageTitle.set(() => title)); // "<title> · Booking System Demo"
       if (this.form.controls.guests.value > p.capacity) this.form.controls.guests.setValue(p.capacity);
     });
 
@@ -301,7 +306,7 @@ export class PropertyDetailPage {
           viewer: { can_review: false, my_review: { id: review.id, rating: review.rating, comment: review.comment, created_at: review.created_at } },
         });
         this.reviewsList()?.reload();
-        this.snackBar.open('Thanks - your review is posted.', 'OK', { duration: 5000 });
+        this.snackBar.open(this.i18n.t('detail.reviewPosted'), this.i18n.t('detail.ok'), { duration: 5000 });
       });
   }
 

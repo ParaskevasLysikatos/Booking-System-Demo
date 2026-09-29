@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { catchError, map, of, startWith } from 'rxjs';
 
 import { ApiHealthService } from '../../core/api-health.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 
 type Health = 'checking' | 'ok' | 'down';
 
@@ -13,11 +14,12 @@ type Health = 'checking' | 'ok' | 'down';
  */
 @Component({
   selector: 'app-footer',
+  imports: [TranslatePipe],
   template: `
     <footer class="footer">
-      <span>Booking System Demo</span>
-      <span class="status" [class]="health()" [attr.title]="label()">
-        <span class="dot" aria-hidden="true"></span>{{ label() }}
+      <span>{{ 'app.name' | t }}</span>
+      <span class="status" [class]="health()" [attr.title]="'footer.' + health() | t">
+        <span class="dot" aria-hidden="true"></span>{{ 'footer.' + health() | t }}
       </span>
     </footer>
   `,
@@ -48,7 +50,5 @@ export class FooterComponent {
     { initialValue: 'checking' as Health },
   );
 
-  label(): string {
-    return { checking: 'Checking API…', ok: 'API & database connected', down: 'API unreachable' }[this.health()];
-  }
+  // Texts: footer.checking / footer.ok / footer.down (TICKET-038).
 }

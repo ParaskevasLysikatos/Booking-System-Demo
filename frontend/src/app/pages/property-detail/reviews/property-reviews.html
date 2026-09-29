@@ -1,6 +1,6 @@
 @switch (state().status) {
   @case ('loading') {
-    <div class="skeleton" aria-busy="true" aria-label="Loading reviews">
+    <div class="skeleton" aria-busy="true" [attr.aria-label]="'reviews.loading' | t">
       <div class="ph score"></div>
       <div class="ph line"></div>
       <div class="ph line short"></div>
@@ -10,8 +10,8 @@
   @case ('error') {
     <p class="message" role="alert">
       <mat-icon>cloud_off</mat-icon>
-      <span>Couldn't load the reviews.</span>
-      <button mat-button type="button" (click)="reload()">Try again</button>
+      <span>{{ 'reviews.loadFailed' | t }}</span>
+      <button mat-button type="button" (click)="reload()">{{ 'common.tryAgain' | t }}</button>
     </p>
   }
 
@@ -22,14 +22,14 @@
           <div class="score">
             <span class="avg">{{ formatNumber(s.rating_avg, 1) }}</span>
             <app-star-rating [rating]="s.rating_avg" [size]="20" />
-            <span class="count">{{ s.review_count }} {{ s.review_count === 1 ? 'review' : 'reviews' }}</span>
+            <span class="count">{{ 'common.reviews' | t: { count: s.review_count } }}</span>
           </div>
 
           <!-- One bar per star rating: the share of all reviews that gave it.
                The count is printed beside each bar, so nothing relies on the bar alone. -->
-          <ul class="bars" aria-label="How guests rated this stay">
+          <ul class="bars" [attr.aria-label]="'reviews.howRated' | t">
             @for (row of bars(); track row.rating) {
-              <li [attr.aria-label]="row.rating + (row.rating === 1 ? ' star: ' : ' stars: ') + row.count + (row.count === 1 ? ' review' : ' reviews')">
+              <li [attr.aria-label]="'reviews.barLabel' | t: { count: row.count, stars: ('reviews.stars' | t: { count: row.rating }) }">
                 <span class="label" aria-hidden="true">{{ row.rating }}<mat-icon>star</mat-icon></span>
                 <span class="track" aria-hidden="true"><span class="fill" [style.width.%]="row.pct"></span></span>
                 <span class="n" aria-hidden="true">{{ row.count }}</span>
@@ -59,22 +59,22 @@
         @if (hasMore() || moreFailed()) {
           <div class="more">
             @if (moreFailed()) {
-              <p class="more-error" role="alert"><mat-icon>cloud_off</mat-icon>Couldn't load more reviews.</p>
+              <p class="more-error" role="alert"><mat-icon>cloud_off</mat-icon>{{ 'reviews.moreFailed' | t }}</p>
             }
             <button mat-stroked-button type="button" (click)="showMore()" [disabled]="loadingMore()">
               @if (loadingMore()) {
-                <mat-spinner diameter="18" aria-label="Loading more reviews" />
+                <mat-spinner diameter="18" [attr.aria-label]="'reviews.loadingMore' | t" />
               } @else {
-                {{ moreFailed() ? 'Try again' : 'Show more reviews' }}
+                {{ (moreFailed() ? 'common.tryAgain' : 'reviews.showMore') | t }}
               }
             </button>
-            <span class="shown">Showing {{ reviews().length }} of {{ total() }}</span>
+            <span class="shown">{{ 'reviews.showing' | t: { shown: reviews().length, total: total() } }}</span>
           </div>
         }
       } @else {
         <p class="empty">
           <mat-icon>rate_review</mat-icon>
-          <span>No reviews yet. Guests can leave one after their stay.</span>
+          <span>{{ 'reviews.empty' | t }}</span>
         </p>
       }
     }

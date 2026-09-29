@@ -10,12 +10,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
-import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, debounceTime, distinctUntilChanged, map, of, startWith, switchMap } from 'rxjs';
 
 import { parseApiErrors } from '../../core/api-errors';
-import { cancelDeadline, formatDeadline, GUEST_CANCELLATION_HOURS } from '../../core/bookings/booking-policy';
+import { cancelDeadline, CHECK_IN_HOUR, formatDeadline, GUEST_CANCELLATION_HOURS } from '../../core/bookings/booking-policy';
 import { Booking } from '../../core/bookings/booking.models';
 import { BookingService } from '../../core/bookings/booking.service';
 import { addDays, nightsBetween, parseIsoDate, todayLocal, toIsoDate } from '../../core/dates';
@@ -31,13 +30,16 @@ import { BookingSummary } from '../../shared/booking-summary';
 import { provideLocalizedDatepicker } from '../../core/i18n/datepicker-i18n';
 import { provideStepperI18n } from '../../core/i18n/stepper-i18n';
 import { formatDate } from '../../core/i18n/format';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { PageTitle } from '../../core/i18n/page-title';
+import { translate } from '../../core/i18n/translation.service';
 
 type LoadStatus = 'loading' | 'ok' | 'unavailable' | 'error';
 export type AvailabilityStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'error';
 
-/** API field names -> words for error messages. */
+/** API field names -> words for error messages (in the chosen language). */
 function humanize(message: string): string {
-  return message.replace(/\bcheck_in\b/g, 'Check-in').replace(/\bcheck_out\b/g, 'Check-out');
+  return message.replace(/\b(check_in|check_out)\b/g, (field) => translate(`listings.field.${field}`));
 }
 
 /**
@@ -66,6 +68,7 @@ function humanize(message: string): string {
     MatProgressSpinnerModule,
     MatSelectModule,
     MatStepperModule,
+    TranslatePipe,
   ],
   // date pickers and the stepper's texts in the chosen language (TICKET-038)
   providers: [provideLocalizedDatepicker(), provideStepperI18n()],
@@ -77,7 +80,7 @@ export class BookingFormPage {
   private readonly router = inject(Router);
   private readonly properties = inject(PropertyService);
   private readonly bookings = inject(BookingService);
-  private readonly titleService = inject(Title);
+  private readonly pageTitle = inject(PageTitle);
   private readonly payments = inject(PaymentService);
   private readonly redirect = inject(BrowserRedirect);
 
@@ -167,7 +170,7 @@ export class BookingFormPage {
   readonly checkoutError = signal<string | null>(null);
 
   constructor() {
-    this.titleService.setTitle('Book your stay · Booking System Demo');
+    this.pageTitle.setKey('booking.title');
     if (!Number.isInteger(this.propertyId) || this.propertyId <= 0) {
       void this.router.navigateByUrl('/listings');
       return;
@@ -233,7 +236,7 @@ export class BookingFormPage {
       next: (p) => {
         this.property.set(p);
         this.loadStatus.set(p.is_active ? 'ok' : 'unavailable');
-        this.titleService.setTitle(`Book ${p.title} · Booking System Demo`);
+        this.pageTitle.setKey('booking.titleFor', { title: p.title });
       },
       error: (err) => {
         if (this.property()) return; // keep what we have on a failed refresh
@@ -266,10 +269,10 @@ export class BookingFormPage {
           this.booking.set(booking);
           window.scrollTo?.({ top: 0, behavior: 'smooth' });
           if (booking.payment?.status === 'open') {
-            this.titleService.setTitle('Secure payment · Booking System Demo');
+            this.pageTitle.setKey('booking.titlePayment');
             this.goToPayment(booking);
           } else {
-            this.titleService.setTitle('Booking request sent · Booking System Demo');
+            this.pageTitle.setKey('booking.titleSent');
           }
         },
         error: (err) => {
@@ -279,11 +282,11 @@ export class BookingFormPage {
           if (err instanceof HttpErrorResponse && err.status === 409) {
             // Someone booked (some of) these nights meanwhile: show it, refresh the
             // booked nights so they appear struck through, and go back to step 1.
-            this.submitError.set(message || 'These dates were just booked by someone else. Please pick different dates.');
+            this.submitError.set(message || translate('booking.justBooked'));
             this.availability.set('unavailable');
             this.loadProperty();
           } else {
-            this.submitError.set(message || 'Something went wrong. Please try again.');
+            this.submitError.set(message || translate('booking.failed'));
           }
           this.stepper()?.previous();
         },
@@ -303,7 +306,7 @@ export class BookingFormPage {
       next: (res) => this.redirect.to(res.checkout_url), // stays "redirecting" while the browser leaves
       error: (err) => {
         this.redirecting.set(false);
-        this.checkoutError.set(parseApiErrors(err).general ?? "We couldn't open the payment page. Please try again.");
+        this.checkoutError.set(parseApiErrors(err).general ?? translate('booking.paymentPageFailed'));
       },
     });
   }
@@ -318,6 +321,8 @@ export class BookingFormPage {
   });
 
   formatPrice = formatPrice;
+  /** "15:00" - the check-in time the backend uses. */
+  readonly checkInTime = `${CHECK_IN_HOUR}:00`;
   dateText(iso: string | Date): string {
     return formatDate(iso, 'full');
   }

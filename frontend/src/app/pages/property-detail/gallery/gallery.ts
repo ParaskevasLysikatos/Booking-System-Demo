@@ -5,11 +5,12 @@ import { MatIconModule } from '@angular/material/icon';
 
 import { PropertyImage } from '../../../core/properties/property.models';
 import { GalleryLightbox, LightboxData } from './gallery-lightbox';
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 
 /** Hero photo with prev/next + thumbnail strip; click the hero for full screen. */
 @Component({
   selector: 'app-gallery',
-  imports: [MatButtonModule, MatIconModule],
+  imports: [MatButtonModule, MatIconModule, TranslatePipe],
   templateUrl: './gallery.html',
   styleUrl: './gallery.scss',
 })

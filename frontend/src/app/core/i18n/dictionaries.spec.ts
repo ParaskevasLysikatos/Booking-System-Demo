@@ -31,6 +31,12 @@ describe('en.json / el.json (TICKET-038)', () => {
     expect(mismatched).toEqual([]);
   });
 
+  it('keep the same HTML tags (texts shown with [innerHTML], e.g. <strong>)', () => {
+    const tags = (text: string) => [...text.matchAll(/<\/?[a-z]+>/g)].map((m) => m[0]).join('');
+    const mismatched = [...en.keys()].filter((k) => tags(en.get(k)!) !== tags(el.get(k) ?? ''));
+    expect(mismatched).toEqual([]);
+  });
+
   it('have no empty texts', () => {
     for (const lang of LANGUAGES) {
       const empty = [...flatten(DICTIONARIES[lang])].filter(([, text]) => !text.trim()).map(([k]) => k);

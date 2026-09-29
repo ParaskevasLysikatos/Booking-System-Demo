@@ -7,6 +7,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { PropertySummary } from '../../core/properties/property.models';
 import { PROPERTIES_URL } from '../../core/properties/property.service';
 import { PropertyListPage } from './listings';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 const card = (id: number, price = '80.00'): PropertySummary => ({
   id, title: `Stay ${id}`, location: 'Chania, Greece', price_per_night: price, capacity: 4,
@@ -36,7 +37,10 @@ describe('PropertyListPage', () => {
   const apiCall = (): TestRequest => http.expectOne((r) => r.url === PROPERTIES_URL);
   const text = () => (harness.routeNativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    http.verify();
+    localStorage.clear(); // a language chosen in one test (bsd.lang) must not leak into the next
+  });
 
   it('reads the search from the URL, calls the API once, shows cards + stay totals', async () => {
     const pageCmp = await open('/listings?location=chania&guests=2&check_in=2026-11-02&check_out=2026-11-07');
@@ -122,5 +126,21 @@ describe('PropertyListPage', () => {
     await harness.fixture.whenStable();
     expect(router.url).toBe('/listings?page=2');
     apiCall().flush(page(30, []));
+  });
+
+  it('in Greek (TICKET-038): counts, stay totals, messages and buttons', async () => {
+    const pageCmp = await open('/listings?location=chania&check_in=2026-11-02&check_out=2026-11-07');
+    apiCall().flush(page(2, [card(1, '91.00'), card(2)]));
+    TestBed.inject(TranslationService).setLang('el');
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('2 καταλύματα διαθέσιμα για 5 νύχτες');
+    expect(el).toContain('455 € για 5 νύχτες');
+    expect(el).toContain('Καθαρισμός φίλτρων');
+    expect(el).toContain('Αναζήτηση');
+    pageCmp.form.controls.dates.setValue({ start: new Date(2026, 10, 2), end: null });
+    pageCmp.form.controls.dates.markAsTouched();
+    expect(pageCmp.dateError()).toBe('Επιλέξτε ημερομηνία άφιξης και αναχώρησης.');
   });
 });

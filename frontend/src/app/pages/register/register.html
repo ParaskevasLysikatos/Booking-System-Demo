@@ -1,8 +1,8 @@
 <div class="auth-page">
   <mat-card class="auth-card" appearance="outlined">
     <mat-card-header>
-      <mat-card-title>Create an account</mat-card-title>
-      <mat-card-subtitle>Book stays in a few clicks</mat-card-subtitle>
+      <mat-card-title>{{ 'auth.register.title' | t }}</mat-card-title>
+      <mat-card-subtitle>{{ 'auth.register.subtitle' | t }}</mat-card-subtitle>
     </mat-card-header>
 
     <mat-card-content>
@@ -12,19 +12,19 @@
 
       <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
         <mat-form-field appearance="outline">
-          <mat-label>Email</mat-label>
+          <mat-label>{{ 'auth.email' | t }}</mat-label>
           <input matInput type="email" formControlName="email" autocomplete="email" required />
           @if (form.controls.email.hasError('required')) {
-            <mat-error>Email is required.</mat-error>
+            <mat-error>{{ 'auth.emailRequired' | t }}</mat-error>
           } @else if (form.controls.email.hasError('email')) {
-            <mat-error>Enter a valid email address.</mat-error>
+            <mat-error>{{ 'auth.emailInvalid' | t }}</mat-error>
           } @else if (form.controls.email.hasError('server')) {
             <mat-error>{{ form.controls.email.getError('server') }}</mat-error>
           }
         </mat-form-field>
 
         <mat-form-field appearance="outline">
-          <mat-label>Password</mat-label>
+          <mat-label>{{ 'auth.password' | t }}</mat-label>
           <input
             matInput
             [type]="hidePassword() ? 'password' : 'text'"
@@ -37,22 +37,22 @@
             matSuffix
             type="button"
             (click)="hidePassword.set(!hidePassword())"
-            [attr.aria-label]="hidePassword() ? 'Show password' : 'Hide password'"
+            [attr.aria-label]="(hidePassword() ? 'auth.showPassword' : 'auth.hidePassword') | t"
           >
             <mat-icon>{{ hidePassword() ? 'visibility' : 'visibility_off' }}</mat-icon>
           </button>
-          <mat-hint>At least 8 characters, not too common, not all numbers.</mat-hint>
+          <mat-hint>{{ 'auth.register.passwordHint' | t }}</mat-hint>
           @if (form.controls.password.hasError('required')) {
-            <mat-error>Password is required.</mat-error>
+            <mat-error>{{ 'auth.passwordRequired' | t }}</mat-error>
           } @else if (form.controls.password.hasError('minlength')) {
-            <mat-error>At least 8 characters.</mat-error>
+            <mat-error>{{ 'auth.register.passwordMin' | t }}</mat-error>
           } @else if (form.controls.password.hasError('server')) {
             <mat-error>{{ form.controls.password.getError('server') }}</mat-error>
           }
         </mat-form-field>
 
         <mat-form-field appearance="outline">
-          <mat-label>Confirm password</mat-label>
+          <mat-label>{{ 'auth.register.confirm' | t }}</mat-label>
           <input
             matInput
             [type]="hidePassword() ? 'password' : 'text'"
@@ -61,22 +61,22 @@
             required
           />
           @if (form.controls.confirmPassword.hasError('required')) {
-            <mat-error>Please repeat the password.</mat-error>
+            <mat-error>{{ 'auth.register.confirmRequired' | t }}</mat-error>
           } @else if (form.controls.confirmPassword.hasError('mismatch')) {
-            <mat-error>Passwords don't match.</mat-error>
+            <mat-error>{{ 'auth.register.mismatch' | t }}</mat-error>
           }
         </mat-form-field>
 
         <div class="row">
           <mat-form-field appearance="outline">
-            <mat-label>First name</mat-label>
+            <mat-label>{{ 'auth.register.firstName' | t }}</mat-label>
             <input matInput formControlName="firstName" autocomplete="given-name" />
             @if (form.controls.firstName.hasError('server')) {
               <mat-error>{{ form.controls.firstName.getError('server') }}</mat-error>
             }
           </mat-form-field>
           <mat-form-field appearance="outline">
-            <mat-label>Last name</mat-label>
+            <mat-label>{{ 'auth.register.lastName' | t }}</mat-label>
             <input matInput formControlName="lastName" autocomplete="family-name" />
             @if (form.controls.lastName.hasError('server')) {
               <mat-error>{{ form.controls.lastName.getError('server') }}</mat-error>
@@ -85,7 +85,7 @@
         </div>
 
         <mat-form-field appearance="outline">
-          <mat-label>Phone (optional)</mat-label>
+          <mat-label>{{ 'auth.register.phone' | t }}</mat-label>
           <input matInput type="tel" formControlName="phone" autocomplete="tel" />
           @if (form.controls.phone.hasError('server')) {
             <mat-error>{{ form.controls.phone.getError('server') }}</mat-error>
@@ -96,15 +96,15 @@
           @if (submitting()) {
             <mat-spinner diameter="20" />
           } @else {
-            Create account
+            {{ 'auth.register.submit' | t }}
           }
         </button>
       </form>
     </mat-card-content>
 
     <mat-card-actions class="switch">
-      <span>Already have an account?</span>
-      <a mat-button routerLink="/login" queryParamsHandling="preserve">Log in</a>
+      <span>{{ 'auth.register.haveAccount' | t }}</span>
+      <a mat-button routerLink="/login" queryParamsHandling="preserve">{{ 'auth.register.logIn' | t }}</a>
     </mat-card-actions>
   </mat-card>
 </div>
