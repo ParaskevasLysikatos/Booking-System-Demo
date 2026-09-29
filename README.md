@@ -7266,6 +7266,8 @@ recruiters the **hosted link** to try afterwards.
 - [x] TICKET-038 (English / Greek) is done - checked locally and on
       Render (29 Sep). To show it: the **EN / ΕΛ** pill in the toolbar; a
       first visit is always English.
+- [ ] TICKET-044 (test-card hint) and TICKET-045 (admin closed dates)
+      are done
 - [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -7628,7 +7630,11 @@ messages in Greek"; step 7 (Stripe's payment page in the app's language:
 `locale` plus a Greek line item, the language in the idempotency key, "Pay
 now" keeps the page's language) is done; see "Two languages → Stripe's
 payment page"; step 8 (the final check in both languages, locally and on
-Render, in Chrome) is done; see "Two languages → Final check". Next:
-TICKET-039 (final redeploy + smoke test); after the
+Render, in Chrome) is done; see "Two languages → Final check". Next,
+before the meetup: TICKET-044 (a test-card hint shown only in Stripe test
+mode) and TICKET-045 (the admin closes dates of a property); then
+TICKET-039 (final redeploy + smoke test); a suggestion for later, not
+planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see
+TICKETS.md); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").

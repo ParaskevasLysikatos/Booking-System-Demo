@@ -920,6 +920,31 @@ test, always last).
     - 8 new tests (`CheckoutLanguageTests`, **516 backend tests** pass on Postgres) + the exact-request test now checks `locale: "en"` and the full English description. README: new "Two languages → Stripe's payment page (step 7)", CHK-09 in the payments test table, phase 1 note on the key, status and next steps. A real Stripe page is checked in step 8.
   - Step 8 done - final check (29 Sep), Chrome. **Local:** ΕΛ + wrong password -> Greek server message; guest booking flow in Greek; Stripe page in Greek ("Modern Retreat in Athens - 3 νύχτες", "192,00 €", Greek dates, "2 άτομα", Κάρτα/Πληρωμή); back -> Greek "payment not completed"; switch to EN + Pay now -> the same Greek page (agreed); a new English booking -> English Stripe page with "1 guest"; "already cancelled" in Greek. **Render** (auto-deployed `bf3aa42`): first visit English; ΕΛ loads the Greek chunk; wrong login / taken email in Greek with `Content-Language: el`; Django Admin English with `Accept-Language: el`; admin dashboard in Greek; an admin booking (emails to the owner's inbox) -> Stripe page in Greek ("Quiet Villa in Heraklion - 3 νύχτες", "531,00 €"); no console errors. All test bookings cancelled; the browser's saved language and sessions cleared afterwards. README: "Two languages → Final check", status, Demo day checklist (TICKET-038 ticked). **TICKET-038 done.**
 
+- [ ] **TICKET-044** — Test-card hint for the demo (Stripe test mode only)
+  - Priority: P1 · Depends on: TICKET-029, TICKET-038 · Before the meetup, before TICKET-039 (requested 29 Sep)
+  - Goal: a visitor who tries the hosted demo knows which card to type on Stripe's page, without the README.
+  - Backend: `GET /api/payments/config/` also returns `test_mode` - true only when the Stripe key is a test key (`sk_test_…` / `rk_test_…`), false for a live key or when payments are off. Worked out on the server from the key's prefix; the key itself never leaves the server.
+  - Frontend: a short note, shown **only when `test_mode` is true**, in both languages: "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC." with a copy button. Places: booking step 2 (next to "You'll pay … on Stripe's payment page") and the payment page shown after "not completed" (next to Pay now).
+  - With a live key the note disappears by itself, so it can never reach a real guest.
+  - Decisions when the ticket starts:
+    - Only the success card, or also a decline card (4000 0000 0000 0002) and a 3-D Secure card (4000 0027 6000 3184) behind a "More test cards" toggle?
+    - Also show the hint **on Stripe's own page** (Checkout `custom_text.submit.message`, in the page's language, test mode only), or only in our app? (Stripe's page is where the card is typed, so it's the most useful place; it becomes part of the fixed request, like the language.)
+  - Tests: `test_mode` for test / restricted-test / live / missing keys; the note shown / hidden, both languages, the copy button. README: "Payments" + "Demo day".
+
+- [ ] **TICKET-045** — Admin closes dates of a property (blocked periods)
+  - Priority: P1 · Depends on: TICKET-015, TICKET-024, TICKET-038 · Before the meetup, before TICKET-039 (requested 29 Sep)
+  - Goal: the admin can close some days of a property (maintenance, own use, booked elsewhere), so guests can't book them; reopening is one click.
+  - **Suggested design** (to agree when the ticket starts). After looking at every place bookings are used, a **separate model is safer than storing a block as a special booking**. A booking without a guest would have to be kept out of the revenue/occupancy stats, emails, payments, refunds, the admin bookings list and reviews - many places to miss a day before the meetup.
+    - New model `BlockedPeriod` (listings app): `property`, `start`, `end` (end exclusive, like check-out), optional `note`, `created_by`, `created_at`. `end > start` (DB constraint), and an exclusion constraint so two blocks of one property never overlap.
+    - **No race between a booking and a block:** creating a booking and creating a block both lock the property's row first (`select_for_update`), then check the other table. Bookings keep their own exclusion constraint for booking-vs-booking.
+    - **Everything guests see respects blocks:** the property page calendar (blocked days look like booked ones - guests never see the note), the search by dates, the booking page's "available" check, and `POST /api/bookings/` (409, the same `dates_unavailable` code and message, so the frontend needs no new case).
+    - **Rules:** a block can't overlap a pending or confirmed booking (409 with a clear message in both languages - cancel or move the booking first); past days can't be blocked; at most 365 days ahead, like bookings.
+    - **Admin API:** `GET/POST /api/admin/properties/{id}/blocks/`, `DELETE …/blocks/{block_id}/` (admin only).
+    - **Admin UI:** a "Closed dates" section on the property edit page: the list of upcoming blocks (dates, nights, note, Remove), and "Close dates" with a date-range picker (booked and already-closed days disabled) and an optional note. Both languages.
+    - Stats: blocked nights are left out of occupancy's available nights? (decision - simplest is to leave occupancy unchanged).
+  - Tests: overlaps both ways, the race (lock), availability / search / booking create respect blocks, removing a block reopens the dates, admin-only, both languages; frontend section + calendar. README: data model, API, admin pages, test cases.
+  - Also the foundation for TICKET-046 (an imported Airbnb / Booking.com calendar would become blocks).
+
 - [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket before the meetup**
   - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)
   - Redeploy both Render services from the final `master`, run the local and hosted smoke tests (the "Payments: business rules & test cases" E2E cases + the TICKET-028 hosted demo check), and tick off the README's "Demo day" checklist.
@@ -937,6 +962,15 @@ test, always last).
     - Decisions when the ticket starts: fall back only on auth errors vs on any Gmail failure; whether the fallback should also cover network errors / Google outages; how the owner is told the token expired.
     - Tests for the switch-over (Gmail `invalid_grant` → Brevo used, recorded; ordinary 4xx → no fallback; no Brevo key → current behaviour) + README "Emails" and `render.yaml` (`BREVO_API_KEY` as `sync: false`).
 
+- [ ] **TICKET-046** — Calendar sync with Airbnb / Booking.com (future suggestion, production only)
+  - Priority: P3 · Depends on: TICKET-045 · **Not planned to be built** - a recommendation for if the app ever runs a real property listed on several platforms (this app + Airbnb + Booking.com), where a night sold on one must close on the others.
+  - **Option 1 - iCal calendar sync (free, what individual hosts use):**
+    - Export: a secret per-property link `GET /api/properties/{id}/calendar/<token>.ics` listing booked and blocked nights; pasted into Airbnb and Booking.com as an imported calendar.
+    - Import: each platform's own `.ics` link stored per property; a scheduled job (every 15-30 min) reads them and turns their events into `BlockedPeriod`s (TICKET-045) marked with their source, updating / removing them when the feed changes.
+    - Limits: the platforms refresh the calendars they import only every few hours, so a double booking can slip through in that window; only "busy" dates travel (no prices, guests or cancellations).
+  - **Option 2 - a channel manager (what professional hosts use):** Guesty, Hostaway, Smoobu, Rentals United, Beds24 and similar connect to Airbnb and Booking.com through their official APIs (near real time; also prices and availability rules). Those APIs are open to approved partners, so this app would connect to the channel manager's API, not to Airbnb / Booking.com directly.
+  - Recommendation: iCal first (small, builds on TICKET-045); a channel manager once double-booking risk or the number of properties makes the hours-long delay unacceptable.
+
 ---
 
 ## Explicitly cut unless way ahead of schedule
@@ -950,7 +984,8 @@ with time to spare:
 
 ## If a day slips
 
-Trim from the bottom up: Epic 7 first, then Epic 6, then TICKET-038 (two
-languages), then reduce Epic 8 to just TICKET-039 (final redeploy + smoke
+Trim from the bottom up: Epic 7 first, then Epic 6, then TICKET-045
+(admin closed dates), then TICKET-044 (test-card hint), then reduce Epic 8
+to just TICKET-039 (final redeploy + smoke
 test). Do not cut anything in Epic 0–5 — the core booking flow,
 admin visibility, and a stable public URL are what make the demo credible.
