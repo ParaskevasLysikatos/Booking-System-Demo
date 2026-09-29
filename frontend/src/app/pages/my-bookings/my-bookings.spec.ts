@@ -222,6 +222,7 @@ import { MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { PaymentStatus } from '../../core/payments/payment.models';
 import { CancelBookingDialog } from './cancel-dialog';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 const withPayment = (id: number, status: Booking['status'], pay: PaymentStatus, extra: Partial<NonNullable<Booking['payment']>> = {}) =>
   booking(id, {
@@ -340,6 +341,21 @@ describe('MyBookingsPage - online payments', () => {
     expect(snack.mock.calls[0][0]).toBe('Booking #9 cancelled. Refund of €182 on its way.');
     listReq().flush(page_([]));
   });
+
+  it('in Greek (TICKET-038): tabs, countdown line, Pay now, cancel snackbar', async () => {
+    const page = await open();
+    TestBed.inject(TranslationService).setLang('el');
+    listReq().flush(page_([withPayment(77, 'pending', 'open')]));
+    await settle();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('Οι κρατήσεις μου');
+    expect(el).toContain('Επερχόμενες');
+    expect(el).toMatch(/Αναμένεται πληρωμή · οι ημερομηνίες δεσμεύονται για 2[34]:\d\d/);
+    expect(el).toContain('Πληρωμή τώρα 182 €');
+    expect(el).toContain('Σε αναμονή');
+    expect(el).toContain('2 νύχτες · 2 επισκέπτες');
+    localStorage.clear();
+  });
 });
 
 const page_ = (results: Booking[]) => ({ count: results.length, next: null, previous: null, results });
@@ -357,5 +373,16 @@ describe('CancelBookingDialog - what happens to the money', () => {
     expect(render(withPayment(1, 'confirmed', 'paid'))).toContain('full refund of €182, back to your card within 5–10 business days');
     expect(render(withPayment(1, 'pending', 'open'))).toContain('Your payment page will be closed');
     expect(render(booking(1))).toContain("You haven't been charged");
+  });
+
+  it('in Greek (TICKET-038)', () => {
+    localStorage.setItem('bsd.lang', 'el');
+    const paid = render(withPayment(1, 'confirmed', 'paid')).replace(/[\u00a0\u202f]/g, ' ');
+    expect(paid).toContain('Ακύρωση αυτής της κράτησης;');
+    expect(paid).toContain('Η διαμονή σας στο Harbour Loft');
+    expect(paid).toContain('(2 νύχτες, 182 €), θα ακυρωθεί');
+    expect(paid).toContain('πλήρη επιστροφή 182 €');
+    expect(paid).toContain('Διατήρηση κράτησης');
+    localStorage.clear();
   });
 });

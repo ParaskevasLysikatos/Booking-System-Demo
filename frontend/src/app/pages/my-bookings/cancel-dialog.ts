@@ -6,33 +6,34 @@ import { MatIconModule } from '@angular/material/icon';
 import { Booking } from '../../core/bookings/booking.models';
 import { formatPrice } from '../../core/money';
 import { formatDate } from '../../core/i18n/format';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 
 /** "Cancel your stay at …?" - closes with `true` to cancel, anything else keeps it. */
 @Component({
   selector: 'app-cancel-booking-dialog',
-  imports: [MatButtonModule, MatDialogModule, MatIconModule],
+  imports: [MatButtonModule, MatDialogModule, MatIconModule, TranslatePipe],
   template: `
-    <h2 mat-dialog-title>Cancel this booking?</h2>
+    <h2 mat-dialog-title>{{ 'myBookings.dialog.title' | t }}</h2>
     <mat-dialog-content>
       <p>
-        Your stay at <strong>{{ b.property.title }}</strong>,
-        {{ date(b.check_in) }} – {{ date(b.check_out) }} ({{ b.nights }} {{ b.nights === 1 ? 'night' : 'nights' }},
-        {{ total }}), will be cancelled and the dates released.
+        {{ 'myBookings.dialog.stayAt' | t }} <strong>{{ b.property.title }}</strong>{{
+          'myBookings.dialog.willCancel' | t: { from: date(b.check_in), to: date(b.check_out), nights: ('common.nights' | t: { count: b.nights }), total }
+        }}
       </p>
       <p class="muted">
         <mat-icon>info</mat-icon>
-        <span>This can't be undone - to go back you'd need to book again (if the dates are still free).
+        <span>{{ 'myBookings.dialog.final' | t }}
           @switch (b.payment?.status) {
-            @case ('paid') { You'll get a <strong>full refund of {{ paid }}</strong>, back to your card within 5–10 business days. }
-            @case ('open') { Your payment page will be closed, and you won't be charged. }
-            @default { You haven't been charged, so there's nothing to refund. }
+            @case ('paid') { <span [innerHTML]="'myBookings.dialog.paid' | t: { amount: paid }"></span> }
+            @case ('open') { {{ 'myBookings.dialog.open' | t }} }
+            @default { {{ 'myBookings.dialog.nothing' | t }} }
           }
         </span>
       </p>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      <button mat-button [mat-dialog-close]="false" cdkFocusInitial>Keep booking</button>
-      <button mat-flat-button class="danger" [mat-dialog-close]="true">Cancel booking</button>
+      <button mat-button [mat-dialog-close]="false" cdkFocusInitial>{{ 'myBookings.dialog.keep' | t }}</button>
+      <button mat-flat-button class="danger" [mat-dialog-close]="true">{{ 'myBookings.cancel' | t }}</button>
     </mat-dialog-actions>
   `,
   styles: `

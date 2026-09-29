@@ -11,6 +11,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { parseApiErrors } from '../core/api-errors';
 import { MAX_REVIEW_COMMENT, RATING_WORDS, Review } from '../core/reviews/review.models';
 import { ReviewService } from '../core/reviews/review.service';
+import { TranslatePipe } from '../core/i18n/translate.pipe';
 
 export interface ReviewDialogData {
   propertyId: number;
@@ -37,35 +38,36 @@ export interface ReviewDialogData {
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    TranslatePipe,
   ],
   template: `
-    <h2 mat-dialog-title>Review your stay</h2>
+    <h2 mat-dialog-title>{{ 'reviewDialog.title' | t }}</h2>
     <form [formGroup]="form" (ngSubmit)="submit()">
       <mat-dialog-content>
-        <p class="intro">How was your stay at <strong>{{ data.propertyTitle }}</strong>?</p>
+        <p class="intro">{{ 'reviewDialog.introBefore' | t }} <strong>{{ data.propertyTitle }}</strong>{{ 'reviewDialog.introAfter' | t }}</p>
 
         @if (error(); as message) {
           <p class="error" role="alert"><mat-icon>error</mat-icon>{{ message }}</p>
         }
 
         <fieldset class="stars" (mouseleave)="hover.set(0)">
-          <legend>Your rating</legend>
+          <legend>{{ 'reviewDialog.legend' | t }}</legend>
           <div class="row">
             @for (n of [1, 2, 3, 4, 5]; track n) {
               <label [class.on]="n <= shown()" (mouseenter)="hover.set(n)">
-                <input type="radio" formControlName="rating" [value]="n" [attr.aria-label]="n + (n === 1 ? ' star' : ' stars') + ' - ' + words[n]" />
+                <input type="radio" formControlName="rating" [value]="n" [attr.aria-label]="'reviewDialog.starOption' | t: { stars: ('reviews.stars' | t: { count: n }), word: ('reviewDialog.word.' + n | t) }" />
                 <mat-icon aria-hidden="true">{{ n <= shown() ? 'star' : 'star_border' }}</mat-icon>
               </label>
             }
-            <span class="word" aria-hidden="true">{{ shown() ? words[shown()] : '' }}</span>
+            <span class="word" aria-hidden="true">{{ shown() ? ('reviewDialog.word.' + shown() | t) : '' }}</span>
           </div>
           @if (showRatingError()) {
-            <p class="field-error" role="alert">Choose a rating from 1 to 5 stars.</p>
+            <p class="field-error" role="alert">{{ 'reviewDialog.ratingRequired' | t }}</p>
           }
         </fieldset>
 
         <mat-form-field appearance="outline" class="comment">
-          <mat-label>Tell other guests about it (optional)</mat-label>
+          <mat-label>{{ 'reviewDialog.comment' | t }}</mat-label>
           <textarea matInput formControlName="comment" rows="4" [maxlength]="maxComment"></textarea>
           <mat-hint align="end">{{ commentLength() }} / {{ maxComment }}</mat-hint>
         </mat-form-field>
@@ -73,13 +75,13 @@ export interface ReviewDialogData {
           <p class="field-error" role="alert">{{ e }}</p>
         }
 
-        <p class="final"><mat-icon>info</mat-icon><span>Reviews are final: once posted you can't edit or delete it. It shows your first name and last initial.</span></p>
+        <p class="final"><mat-icon>info</mat-icon><span>{{ 'reviewDialog.final' | t }}</span></p>
       </mat-dialog-content>
 
       <mat-dialog-actions align="end">
-        <button mat-button type="button" [mat-dialog-close]="undefined" [disabled]="posting()">Cancel</button>
+        <button mat-button type="button" [mat-dialog-close]="undefined" [disabled]="posting()">{{ 'common.cancel' | t }}</button>
         <button mat-flat-button type="submit" class="post" [disabled]="posting()">
-          @if (posting()) { <mat-spinner diameter="18" aria-label="Posting your review" /> } @else { Post review }
+          @if (posting()) { <mat-spinner diameter="18" [attr.aria-label]="'reviewDialog.posting' | t" /> } @else { {{ 'reviewDialog.post' | t }} }
         </button>
       </mat-dialog-actions>
     </form>

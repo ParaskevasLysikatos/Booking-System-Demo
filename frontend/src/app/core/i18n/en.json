@@ -156,7 +156,11 @@
     "noReviewsYet": "No reviews yet",
     "outOf5": "{rating} out of 5",
     "sleeps": "Sleeps {count}",
-    "close": "Close"
+    "close": "Close",
+    "ok": "OK",
+    "reviewPosted": "Thanks - your review is posted.",
+    "paymentPageFailed": "Couldn't open the payment page.",
+    "cancel": "Cancel"
   },
   "listings": {
     "dates": "Check-in – check-out",
@@ -379,5 +383,146 @@
     },
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out"
+  },
+  "payment": {
+    "label": {
+      "paid": "Paid",
+      "open": "Awaiting payment",
+      "processing": "Processing",
+      "expired": "Expired",
+      "failed": "Failed",
+      "waived": "Waived",
+      "notPaid": "Not paid",
+      "refundDue": "Refund due",
+      "refundPending": "Refund pending",
+      "refunded": "Refunded",
+      "refundFailed": "Refund failed"
+    },
+    "refund": {
+      "pending": "Refund of {amount} on its way - back to your card within 5–10 business days.",
+      "refundedOn": "Refunded {amount} on {date}.",
+      "refunded": "Refunded {amount}.",
+      "arranging": "Full refund of {amount} - the host is arranging your refund."
+    }
+  },
+  "myBookings": {
+    "tab": {
+      "upcoming": "Upcoming",
+      "past": "Past",
+      "cancelled": "Cancelled"
+    },
+    "empty": {
+      "upcoming": "No upcoming trips yet.",
+      "past": "No past trips yet.",
+      "cancelled": "No cancelled bookings."
+    },
+    "loading": "Loading bookings",
+    "loadFailed": "Couldn't load your bookings.",
+    "stayingNow": "Staying now",
+    "booked": "#{id} · booked {date}",
+    "awaiting": "Awaiting payment · dates held for <strong class=\"countdown\" role=\"timer\">{time}</strong>",
+    "payNow": "Pay now {amount}",
+    "ranOutReleasing": "Time to pay ran out - the dates are being released. You weren't charged.",
+    "processing": "Payment processing at your bank - your dates stay held.",
+    "paid": "Paid <strong>{amount}</strong>",
+    "ranOut": "Time to pay ran out - dates released. You weren't charged.",
+    "failed": "Payment failed - you weren't charged.",
+    "hostConfirmed": "Confirmed by the host - nothing to pay online.",
+    "notCharged": "You weren't charged.",
+    "waitingHost": "Waiting for the host to confirm.",
+    "freeCancel": "Free cancellation until <strong>{deadline}</strong>{refund}",
+    "cancel": "Cancel booking",
+    "cancelAfterBank": "Can be cancelled once the bank has finished processing the payment.",
+    "tooLate": "Can no longer be cancelled online (less than {hours} hours before check-in).",
+    "youRated": "You rated this place",
+    "howWasIt": "How was your stay?",
+    "leaveReview": "Leave a review",
+    "pages": "Choose bookings page",
+    "cancelled": "Booking #{id} cancelled.",
+    "refundOnWay": "Refund of {amount} on its way.",
+    "cancelFailed": "Couldn't cancel this booking.",
+    "dialog": {
+      "title": "Cancel this booking?",
+      "stayAt": "Your stay at",
+      "willCancel": ", {from} – {to} ({nights}, {total}), will be cancelled and the dates released.",
+      "final": "This can't be undone - to go back you'd need to book again (if the dates are still free).",
+      "paid": "You'll get a <strong>full refund of {amount}</strong>, back to your card within 5–10 business days.",
+      "open": "Your payment page will be closed, and you won't be charged.",
+      "nothing": "You haven't been charged, so there's nothing to refund.",
+      "keep": "Keep booking"
+    }
+  },
+  "reviewDialog": {
+    "title": "Review your stay",
+    "introBefore": "How was your stay at",
+    "introAfter": "?",
+    "legend": "Your rating",
+    "starOption": "{stars} - {word}",
+    "word": {
+      "1": "Terrible",
+      "2": "Poor",
+      "3": "Okay",
+      "4": "Good",
+      "5": "Excellent"
+    },
+    "ratingRequired": "Choose a rating from 1 to 5 stars.",
+    "comment": "Tell other guests about it (optional)",
+    "final": "Reviews are final: once posted you can't edit or delete it. It shows your first name and last initial.",
+    "posting": "Posting your review",
+    "post": "Post review"
+  },
+  "saved": {
+    "loading": "Loading saved places",
+    "loadFailed": "Couldn't load your saved places.",
+    "empty": "No saved places yet.",
+    "emptyHint": "Tap the heart on any stay to save it here.",
+    "count": {
+      "one": "{count} saved place",
+      "other": "{count} saved places"
+    },
+    "pages": "Choose saved places page",
+    "removed": "Removed “{title}” from saved.",
+    "undo": "Undo"
+  },
+  "paymentReturn": {
+    "title": {
+      "default": "Payment",
+      "confirming": "Confirming your payment",
+      "confirmed": "Booking confirmed",
+      "processing": "Payment processing",
+      "not_yet": "Waiting for confirmation",
+      "unpaid": "Payment not completed",
+      "released": "Payment not completed",
+      "cancelled": "Booking cancelled"
+    },
+    "notFound": "We couldn't find this booking.",
+    "loadFailed": "Couldn't load your booking.",
+    "confirming": "Confirming your payment…",
+    "confirmingLead": "This usually takes a few seconds. Please don't close this page.",
+    "paidTitle": "Payment received - you're booked!",
+    "reference": "Reference <strong>#{id}</strong> ·",
+    "confirmedTitle": "Your booking is confirmed",
+    "confirmedByHost": "Reference <strong>#{id}</strong> · confirmed by the host.",
+    "processingTitle": "Your payment is being processed",
+    "processingLead": "Your bank is still processing the payment. Your dates stay held, and your booking is confirmed as soon as it goes through - we'll show it in My bookings.",
+    "notYetTitle": "Waiting for confirmation",
+    "notYetLead": "Stripe hasn't confirmed your payment to us yet. This can take a minute - your booking will show as confirmed in My bookings once it has.",
+    "checkAgain": "Check again",
+    "unpaidTitle": "Payment not completed",
+    "unpaidLead": "Your dates are held for <strong class=\"countdown\" role=\"timer\" aria-live=\"off\">{remaining}</strong> (until {time}). Pay now to confirm your booking - after that the dates are released.",
+    "timeRanOut": "Time ran out",
+    "timedOutLead": "The time to pay for booking <strong>#{id}</strong> has run out, so the dates are being released. You weren't charged.",
+    "paymentFailed": "Payment failed",
+    "declinedLead": "Your bank declined the payment, so booking <strong>#{id}</strong> was cancelled and the dates released. You weren't charged.",
+    "expiredLead": "The time to pay for booking <strong>#{id}</strong> ran out, so it was cancelled and the dates released. You weren't charged.",
+    "cancelledTitle": "This booking was cancelled",
+    "bookAgain": "Book again",
+    "cancelFailed": "Couldn't cancel the booking. Please try again."
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "offline": "Can't reach the server. Check your connection and try again.",
+    "server": "Server error. Please try again in a moment.",
+    "request": "Request failed."
   }
 }

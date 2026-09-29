@@ -102,7 +102,10 @@ steps 3-5. Step 2 is done - every date, time, price, rating and percentage
 follows the language ("Τετ 10 Μαρ 2027", "1.234,50 €", "4,7", "12,5%"). Step
 3 is done - the guest pages are in Greek: listings (search, cards, map), the
 property page, the booking form, login, register and the smaller pieces
-around them. See "Two languages (English / Greek, TICKET-038)".
+around them. Step 4 is done - My bookings (with the cancel and review
+dialogs), the Saved page, the payment return page, the payment and refund
+labels and the app's own error messages are in Greek too. See "Two
+languages (English / Greek, TICKET-038)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -6166,7 +6169,7 @@ build or site.
 3. Guest pages, part 1 (listings, property page, booking form, login,
    register, ...) - **done**.
 4. Guest pages, part 2 (My bookings, dialogs, Saved, payment screens,
-   messages picked by the API's error `code`).
+   the app's own error messages) - **done**.
 5. The admin pages.
 6. The backend in Greek (Django `LocaleMiddleware`, `gettext`, `el` `.po`).
 7. Stripe's payment page in the same language (`locale` on the Checkout
@@ -6344,6 +6347,66 @@ the main bundle, and Greek takes about twice the bytes of English (2 bytes
 per letter in UTF-8). Steps 4-5 will add roughly as much again. If that
 nears the 700 kB warning, `el.json` will be loaded only when Greek is
 chosen.
+
+### Guest pages, part 2 (step 4)
+
+In Greek now:
+- **My bookings:**
+  - the tabs (Επερχόμενες / Παλαιότερες / Ακυρωμένες) and the status chips
+  - every payment line: the hold countdown, "Πληρωμή τώρα 182 €", processing,
+    paid, expired, failed, waived
+  - refund lines ("Επιστράφηκαν 182 € στις 27 Σεπ 2026")
+  - the cancel rules, and "Leave a review"
+  - the snackbars
+- **The cancel dialog:** what gets cancelled, and what happens to the money.
+- **The review dialog:** the question, the five star options ("4 αστέρια -
+  Καλή"), the "reviews are final" note, the buttons.
+- **The Saved page:** its count, empty state and the "Removed … Undo"
+  snackbar.
+- **The payment return page:** every state (confirming, confirmed,
+  processing, waiting, not completed with the countdown, time ran out,
+  declined, cancelled), with its tab title ("Η κράτηση επιβεβαιώθηκε").
+- **Payment chips and refund texts** (`core/payments/payment-labels.ts`,
+  shared with the admin pages).
+- **The app's own error messages** (`core/api-errors.ts`): no connection,
+  server error, request failed, something went wrong.
+- **The generic confirm dialog's** default Cancel button.
+
+Changed from the original plan: **no translation table keyed by the API's
+error `code`.** The agreed decision was Django's own translations on the
+backend (step 6), so the server's messages themselves come back in Greek.
+A second table on the frontend would only drift from them.
+
+Also fixed:
+- **A missing space:** a text node that holds only a space between two
+  elements is dropped by Angular, so "Κωδικός #77 · Επιβεβαιωμένη" and
+  "182 € · #77" lost their space. They now use `&ngsp;`.
+- **Tabs on phones:** the Greek tab names are longer, so the three My
+  bookings tabs no longer fitted a 390 px screen (arrows appeared). Tabs are
+  narrower on phones now.
+- **Test isolation:** a global test setup file (`src/test-setup.ts`,
+  `angular.json` → test → `setupFiles`) removes the saved language before
+  every test. A Greek test that fails half-way can't leave the next spec
+  file in Greek. This happened once in the first run, and it failed three
+  unrelated specs.
+
+Tests (6 new, **466 frontend tests**, the English output unchanged):
+- **My bookings in Greek:** tabs, the countdown line, Pay now, nights and
+  guests.
+- **The cancel dialog in Greek:** the paid case.
+- **The payment return page in Greek:** the confirmation, reference line
+  and tab title.
+- **The review dialog in Greek.**
+- **Payment chips, refund text and error messages in Greek**
+  (`pages-el.spec.ts`).
+
+Checked in a browser (production build, API answers mocked, Greek):
+- My bookings (all 3 tabs, with the cancel dialog open), the Saved page and
+  the payment return page, at 1280 and 390 px
+- no sideways scroll, no console errors
+
+`npm run check:i18n`: 396 key uses, all found. The initial bundle is
+651 kB.
 
 ### Material's own texts, per page
 
@@ -7237,7 +7300,10 @@ time, price, rating and percentage in the chosen language, through
 done; see "Two languages → Dates and money"; step 3 (the guest pages -
 listings, cards, map, property page, booking form, login, register - in
 Greek, plus `npm run check:i18n`) is done; see "Two languages → Guest
-pages". Next: the rest of the guest pages (step 4), the admin pages (step 5),
+pages"; step 4 (My bookings + its dialogs, the review dialog, Saved, the
+payment return page, payment/refund labels, the app's own error messages)
+is done; see "Two languages → Guest pages, part 2". Next: the admin pages
+(step 5),
 the backend in Greek (step 6), Stripe's page language (step 7) and the
 final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has

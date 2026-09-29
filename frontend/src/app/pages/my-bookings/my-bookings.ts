@@ -7,13 +7,12 @@ import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
-import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { BehaviorSubject, catchError, combineLatest, filter, map, of, startWith, switchMap } from 'rxjs';
 
 import { parseApiErrors } from '../../core/api-errors';
-import { formatDeadline } from '../../core/bookings/booking-policy';
-import { Booking, BookingListQuery, BookingStatus } from '../../core/bookings/booking.models';
+import { formatDeadline, GUEST_CANCELLATION_HOURS } from '../../core/bookings/booking-policy';
+import { Booking, BookingListQuery } from '../../core/bookings/booking.models';
 import { BookingService } from '../../core/bookings/booking.service';
 import { parseIsoDate, todayLocal } from '../../core/dates';
 import { formatPrice } from '../../core/money';
@@ -28,6 +27,8 @@ import { StarRatingComponent } from '../../shared/star-rating';
 import { CancelBookingDialog } from './cancel-dialog';
 import { providePaginatorI18n } from '../../core/i18n/paginator-i18n';
 import { formatDate } from '../../core/i18n/format';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { translate } from '../../core/i18n/translation.service';
 
 export type BookingsTab = 'upcoming' | 'past' | 'cancelled';
 
@@ -40,9 +41,10 @@ interface TabConfig {
 
 /** Tabs (agreed): Upcoming / Past = not cancelled; Cancelled = any date. Always ?mine=true. */
 export const TABS: TabConfig[] = [
-  { key: 'upcoming', label: 'Upcoming', query: { when: 'upcoming', statuses: ['pending', 'confirmed'] }, empty: 'No upcoming trips yet.' },
-  { key: 'past', label: 'Past', query: { when: 'past', statuses: ['pending', 'confirmed'] }, empty: 'No past trips yet.' },
-  { key: 'cancelled', label: 'Cancelled', query: { statuses: ['cancelled'] }, empty: 'No cancelled bookings.' },
+  // `label` and `empty` are dictionary keys (TICKET-038).
+  { key: 'upcoming', label: 'myBookings.tab.upcoming', query: { when: 'upcoming', statuses: ['pending', 'confirmed'] }, empty: 'myBookings.empty.upcoming' },
+  { key: 'past', label: 'myBookings.tab.past', query: { when: 'past', statuses: ['pending', 'confirmed'] }, empty: 'myBookings.empty.past' },
+  { key: 'cancelled', label: 'myBookings.tab.cancelled', query: { statuses: ['cancelled'] }, empty: 'myBookings.empty.cancelled' },
 ];
 
 type ListState =
@@ -50,12 +52,11 @@ type ListState =
   | { status: 'ok'; data: Paginated<Booking> }
   | { status: 'error' };
 
-const STATUS_LABEL: Record<BookingStatus, string> = { pending: 'Pending', confirmed: 'Confirmed', cancelled: 'Cancelled' };
 
 /** /my-bookings (TICKET-021) - the logged-in user's own bookings. Guarded by authGuard. */
 @Component({
   selector: 'app-my-bookings',
-  imports: [MatButtonModule, MatIconModule, MatPaginatorModule, MatProgressSpinnerModule, MatTabsModule, RouterLink, StarRatingComponent],
+  imports: [MatButtonModule, MatIconModule, MatPaginatorModule, MatProgressSpinnerModule, MatTabsModule, RouterLink, StarRatingComponent, TranslatePipe],
   templateUrl: './my-bookings.html',
   providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './my-bookings.scss',
@@ -74,7 +75,7 @@ export class MyBookingsPage {
 
   readonly tabs = TABS;
   readonly pageSize = DEFAULT_PAGE_SIZE;
-  readonly statusLabel = STATUS_LABEL;
+  readonly cancellationHours = GUEST_CANCELLATION_HOURS;
   readonly formatPrice = formatPrice;
 
   /** Tab + page live in the URL (?tab=past&page=2): reload/Back keep them. */
@@ -113,9 +114,6 @@ export class MyBookingsPage {
   /** Id of the booking whose "Pay now" is opening Stripe's page. */
   readonly paying = signal<number | null>(null);
 
-  constructor() {
-    inject(Title).setTitle('My bookings · Booking System Demo');
-  }
 
   tabIndex(): number {
     return TABS.findIndex((t) => t.key === this.view().tab);
@@ -156,15 +154,15 @@ export class MyBookingsPage {
             this.cancelling.set(null);
             // TICKET-040: a paid booking's refund starts right away
             const refund = refundView(cancelled);
-            const note = refund?.kind === 'pending' ? ` Refund of ${refund.amount} on its way.` : '';
-            this.snackBar.open(`Booking #${booking.id} cancelled.${note}`, 'OK', { duration: 5000 });
+            const note = refund?.kind === 'pending' ? ` ${translate('myBookings.refundOnWay', { amount: refund.amount })}` : '';
+            this.snackBar.open(translate('myBookings.cancelled', { id: booking.id }) + note, translate('common.ok'), { duration: 5000 });
             this.refresh$.next(); // it leaves this tab and shows under "Cancelled"
           },
           error: (err) => {
             this.cancelling.set(null);
             const parsed = parseApiErrors(err);
             const message = parsed.general ?? Object.values(parsed.fields).flat().join(' ');
-            this.snackBar.open(message || "Couldn't cancel this booking.", 'OK', { duration: 8000 });
+            this.snackBar.open(message || translate('myBookings.cancelFailed'), translate('common.ok'), { duration: 8000 });
             this.refresh$.next(); // e.g. the deadline passed meanwhile - show the current state
           },
         });
@@ -182,7 +180,7 @@ export class MyBookingsPage {
       .afterClosed()
       .pipe(filter((review): review is Review => !!review))
       .subscribe(() => {
-        this.snackBar.open('Thanks - your review is posted.', 'OK', { duration: 5000 });
+        this.snackBar.open(translate('common.reviewPosted'), translate('common.ok'), { duration: 5000 });
         this.refresh$.next(); // every stay at that place now shows "You rated this place"
       });
   }
@@ -195,7 +193,7 @@ export class MyBookingsPage {
       next: (res) => this.redirect.to(res.checkout_url),
       error: (err) => {
         this.paying.set(null);
-        this.snackBar.open(parseApiErrors(err).general ?? "Couldn't open the payment page.", 'OK', { duration: 8000 });
+        this.snackBar.open(parseApiErrors(err).general ?? translate('common.paymentPageFailed'), translate('common.ok'), { duration: 8000 });
         this.refresh$.next(); // e.g. it was paid or released meanwhile
       },
     });

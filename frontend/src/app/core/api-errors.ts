@@ -1,4 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
+import { translate } from './i18n/translation.service';
 
 export interface ApiErrors {
   /** Per-field messages, keyed by the API's field name (e.g. `first_name`). */
@@ -15,11 +16,11 @@ export interface ApiErrors {
 export function parseApiErrors(err: unknown): ApiErrors {
   const result: ApiErrors = { fields: {}, general: null };
   if (!(err instanceof HttpErrorResponse)) {
-    result.general = 'Something went wrong. Please try again.';
+    result.general = translate('errors.generic');
     return result;
   }
   if (err.status === 0) {
-    result.general = "Can't reach the server. Check your connection and try again.";
+    result.general = translate('errors.offline');
     return result;
   }
   const body = err.error;
@@ -34,7 +35,7 @@ export function parseApiErrors(err: unknown): ApiErrors {
     }
   }
   if (!result.general && Object.keys(result.fields).length === 0) {
-    result.general = err.status >= 500 ? 'Server error. Please try again in a moment.' : 'Request failed.';
+    result.general = translate(err.status >= 500 ? 'errors.server' : 'errors.request');
   }
   return result;
 }

@@ -11,6 +11,8 @@ import { FavoriteService, SavedProperty } from '../../core/favorites/favorite.se
 import { DEFAULT_PAGE_SIZE, Paginated } from '../../core/properties/property.models';
 import { PropertyCardComponent } from '../listings/property-card/property-card';
 import { providePaginatorI18n } from '../../core/i18n/paginator-i18n';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { translate } from '../../core/i18n/translation.service';
 
 type SavedState =
   | { status: 'loading'; page: number }
@@ -34,7 +36,7 @@ export const UNDO_MS = 5000;
  */
 @Component({
   selector: 'app-favorites',
-  imports: [MatButtonModule, MatIconModule, MatPaginatorModule, PropertyCardComponent, RouterLink],
+  imports: [MatButtonModule, MatIconModule, MatPaginatorModule, PropertyCardComponent, RouterLink, TranslatePipe],
   templateUrl: './favorites.html',
   providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
   styleUrl: './favorites.scss',
@@ -102,8 +104,8 @@ export class FavoritesPage {
     if (saved) return; // an Undo put it back
     const canUndo = property.is_active;
     const ref = this.snackBar.open(
-      `Removed “${property.title}” from saved.`,
-      canUndo ? 'Undo' : 'OK',
+      translate('saved.removed', { title: property.title }),
+      translate(canUndo ? 'saved.undo' : 'common.ok'),
       { duration: UNDO_MS },
     );
     this.undoOpen.update((n) => n + 1);

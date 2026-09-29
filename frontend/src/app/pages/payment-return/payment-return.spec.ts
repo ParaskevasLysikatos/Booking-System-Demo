@@ -12,6 +12,7 @@ import { addDays, toIsoDate, todayLocal } from '../../core/dates';
 import { BrowserRedirect } from '../../core/payments/browser-redirect';
 import { PaymentStatus } from '../../core/payments/payment.models';
 import { POLL_EVERY_MS, POLL_TIMES, PaymentReturnPage, phaseFor } from './payment-return';
+import { Title } from '@angular/platform-browser';
 
 const day = (n: number) => toIsoDate(addDays(todayLocal(), n));
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
@@ -212,5 +213,19 @@ describe('PaymentReturnPage', () => {
     await settle();
     expect(page.view()).toBe('not_found');
     expect(text()).toContain("couldn't find this booking");
+  });
+
+  it('in Greek (TICKET-038): the confirmation, its tab title and the summary', async () => {
+    localStorage.setItem('bsd.lang', 'el');
+    await open('');
+    getReq().flush(booking('confirmed', 'paid'));
+    await settle();
+    const el = text().replace(/[\u00a0\u202f]/g, ' ');
+    expect(el).toContain('Η πληρωμή ελήφθη - η κράτησή σας έγινε!');
+    expect(el).toContain('Κωδικός #77 · Επιβεβαιωμένη');
+    expect(el).toContain('Πληρώθηκε');
+    expect(el).toContain('πλήρης επιστροφή χρημάτων');
+    expect(TestBed.inject(Title).getTitle()).toBe('Η κράτηση επιβεβαιώθηκε · Booking System Demo');
+    localStorage.clear();
   });
 });

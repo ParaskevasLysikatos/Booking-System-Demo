@@ -46,7 +46,7 @@
           <div class="done">
             <mat-icon class="big">task_alt</mat-icon>
             <h1>{{ 'booking.requestSent' | t }}</h1>
-            <p class="muted"><span [innerHTML]="'booking.reference' | t: { id: b.id }"></span> <span class="pill">{{ 'status.' + b.status | t }}</span></p>
+            <p class="muted"><span [innerHTML]="'booking.reference' | t: { id: b.id }"></span>&ngsp;<span class="pill">{{ 'status.' + b.status | t }}</span></p>
             <p>{{ 'booking.hostWillConfirm' | t }}</p>
 
             <app-booking-summary class="summary" [booking]="b" />

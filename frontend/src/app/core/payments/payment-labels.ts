@@ -1,40 +1,43 @@
 import { Booking } from '../bookings/booking.models';
 import { formatPrice } from '../money';
 import { formatDate } from '../i18n/format';
+import { translate } from '../i18n/translation.service';
 
 export type PaymentTone = 'ok' | 'wait' | 'bad' | 'muted';
 
 /**
  * One short label for a booking's online payment, for chips and cards.
  * `cancelled` means "called off unpaid": the booking was cancelled, or an
- * admin confirmed it by hand (then the payment was waived).
+ * admin confirmed it by hand (then the payment was waived). In the chosen
+ * language (TICKET-038) - call it from a template or `computed()`.
  */
 export function paymentLabel(b: Booking): { text: string; tone: PaymentTone } | null {
   const p = b.payment;
   if (!p) return null;
   const refund = refundView(b);
-  if (refund) return REFUND_LABEL[refund.kind];
+  const label = (key: string, tone: PaymentTone) => ({ text: translate(`payment.label.${key}`), tone });
+  if (refund) return label(REFUND_LABEL[refund.kind].key, REFUND_LABEL[refund.kind].tone);
   switch (p.status) {
     case 'paid':
-      return { text: 'Paid', tone: 'ok' };
+      return label('paid', 'ok');
     case 'open':
-      return { text: 'Awaiting payment', tone: 'wait' };
+      return label('open', 'wait');
     case 'processing':
-      return { text: 'Processing', tone: 'wait' };
+      return label('processing', 'wait');
     case 'expired':
-      return { text: 'Expired', tone: 'muted' };
+      return label('expired', 'muted');
     case 'failed':
-      return { text: 'Failed', tone: 'bad' };
+      return label('failed', 'bad');
     case 'cancelled':
-      return b.status === 'confirmed' ? { text: 'Waived', tone: 'muted' } : { text: 'Not paid', tone: 'muted' };
+      return b.status === 'confirmed' ? label('waived', 'muted') : label('notPaid', 'muted');
   }
 }
 
-const REFUND_LABEL: Record<RefundKind, { text: string; tone: PaymentTone }> = {
-  due: { text: 'Refund due', tone: 'bad' },
-  pending: { text: 'Refund pending', tone: 'wait' },
-  refunded: { text: 'Refunded', tone: 'ok' },
-  failed: { text: 'Refund failed', tone: 'bad' },
+const REFUND_LABEL: Record<RefundKind, { key: string; tone: PaymentTone }> = {
+  due: { key: 'refundDue', tone: 'bad' },
+  pending: { key: 'refundPending', tone: 'wait' },
+  refunded: { key: 'refunded', tone: 'ok' },
+  failed: { key: 'refundFailed', tone: 'bad' },
 };
 
 /**
@@ -73,13 +76,15 @@ export function refundView(b: Booking): RefundView | null {
 export function guestRefundText(v: RefundView): string {
   switch (v.kind) {
     case 'pending':
-      return `Refund of ${v.amount} on its way - back to your card within 5–10 business days.`;
+      return translate('payment.refund.pending', { amount: v.amount });
     case 'refunded':
-      return v.refundedOn ? `Refunded ${v.amount} on ${v.refundedOn}.` : `Refunded ${v.amount}.`;
+      return v.refundedOn
+        ? translate('payment.refund.refundedOn', { amount: v.amount, date: v.refundedOn })
+        : translate('payment.refund.refunded', { amount: v.amount });
     case 'failed':
     case 'due':
       // Never the technical reason - that's for the host to act on.
-      return `Full refund of ${v.amount} - the host is arranging your refund.`;
+      return translate('payment.refund.arranging', { amount: v.amount });
   }
 }
 

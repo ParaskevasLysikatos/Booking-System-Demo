@@ -7,16 +7,16 @@
     @case ('not_found') {
       <div class="message">
         <mat-icon>search_off</mat-icon>
-        <p>We couldn't find this booking.</p>
-        <a mat-stroked-button routerLink="/my-bookings">My bookings</a>
+        <p>{{ 'paymentReturn.notFound' | t }}</p>
+        <a mat-stroked-button routerLink="/my-bookings">{{ 'toolbar.myBookings' | t }}</a>
       </div>
     }
 
     @case ('error') {
       <div class="message" role="alert">
         <mat-icon>cloud_off</mat-icon>
-        <p>Couldn't load your booking.</p>
-        <button mat-stroked-button type="button" (click)="load()">Try again</button>
+        <p>{{ 'paymentReturn.loadFailed' | t }}</p>
+        <button mat-stroked-button type="button" (click)="load()">{{ 'common.tryAgain' | t }}</button>
       </div>
     }
 
@@ -26,63 +26,53 @@
         @switch (view()) {
           @case ('confirming') {
             <mat-spinner diameter="48" class="big-spinner" />
-            <h1>Confirming your payment…</h1>
-            <p class="lead">This usually takes a few seconds. Please don't close this page.</p>
+            <h1>{{ 'paymentReturn.confirming' | t }}</h1>
+            <p class="lead">{{ 'paymentReturn.confirmingLead' | t }}</p>
           }
           @case ('confirmed') {
             <mat-icon class="big ok">task_alt</mat-icon>
             @if (b.payment?.status === 'paid') {
-              <h1>Payment received - you're booked!</h1>
-              <p class="lead">Reference <strong>#{{ b.id }}</strong> · <span class="pill ok">Confirmed</span></p>
+              <h1>{{ 'paymentReturn.paidTitle' | t }}</h1>
+              <p class="lead"><span [innerHTML]="'paymentReturn.reference' | t: { id: b.id }"></span>&ngsp;<span class="pill ok">{{ 'status.confirmed' | t }}</span></p>
             } @else {
-              <h1>Your booking is confirmed</h1>
-              <p class="lead">Reference <strong>#{{ b.id }}</strong> · confirmed by the host.</p>
+              <h1>{{ 'paymentReturn.confirmedTitle' | t }}</h1>
+              <p class="lead" [innerHTML]="'paymentReturn.confirmedByHost' | t: { id: b.id }"></p>
             }
           }
           @case ('processing') {
             <mat-icon class="big wait">hourglass_top</mat-icon>
-            <h1>Your payment is being processed</h1>
-            <p class="lead">Your bank is still processing the payment. Your dates stay held, and your booking is confirmed as soon as it goes through - we'll show it in My bookings.</p>
+            <h1>{{ 'paymentReturn.processingTitle' | t }}</h1>
+            <p class="lead">{{ 'paymentReturn.processingLead' | t }}</p>
           }
           @case ('not_yet') {
             <mat-icon class="big wait">schedule</mat-icon>
-            <h1>Waiting for confirmation</h1>
-            <p class="lead">Stripe hasn't confirmed your payment to us yet. This can take a minute - your booking will show as confirmed in My bookings once it has.</p>
-            <button mat-stroked-button type="button" (click)="load()">Check again</button>
+            <h1>{{ 'paymentReturn.notYetTitle' | t }}</h1>
+            <p class="lead">{{ 'paymentReturn.notYetLead' | t }}</p>
+            <button mat-stroked-button type="button" (click)="load()">{{ 'paymentReturn.checkAgain' | t }}</button>
           }
           @case ('unpaid') {
             <mat-icon class="big wait">credit_card_off</mat-icon>
-            <h1>Payment not completed</h1>
-            <p class="lead">
-              Your dates are held for
-              <strong class="countdown" role="timer" aria-live="off">{{ remainingText() }}</strong>
-              (until {{ clockTime(b.payment!.expires_at) }}). Pay now to confirm your booking - after that the dates are released.
-            </p>
+            <h1>{{ 'paymentReturn.unpaidTitle' | t }}</h1>
+            <p class="lead" [innerHTML]="'paymentReturn.unpaidLead' | t: { remaining: remainingText(), time: clockTime(b.payment!.expires_at) }"></p>
           }
           @case ('timed_out') {
             <mat-icon class="big muted-icon">timer_off</mat-icon>
-            <h1>Time ran out</h1>
-            <p class="lead">The time to pay for booking <strong>#{{ b.id }}</strong> has run out, so the dates are being released. You weren't charged.</p>
+            <h1>{{ 'paymentReturn.timeRanOut' | t }}</h1>
+            <p class="lead" [innerHTML]="'paymentReturn.timedOutLead' | t: { id: b.id }"></p>
           }
           @case ('released') {
             <mat-icon class="big muted-icon">event_busy</mat-icon>
-            <h1>{{ b.payment?.status === 'failed' ? 'Payment failed' : 'Time ran out' }}</h1>
-            <p class="lead">
-              @if (b.payment?.status === 'failed') {
-                Your bank declined the payment, so booking <strong>#{{ b.id }}</strong> was cancelled and the dates released. You weren't charged.
-              } @else {
-                The time to pay for booking <strong>#{{ b.id }}</strong> ran out, so it was cancelled and the dates released. You weren't charged.
-              }
-            </p>
+            <h1>{{ (b.payment?.status === 'failed' ? 'paymentReturn.paymentFailed' : 'paymentReturn.timeRanOut') | t }}</h1>
+            <p class="lead" [innerHTML]="(b.payment?.status === 'failed' ? 'paymentReturn.declinedLead' : 'paymentReturn.expiredLead') | t: { id: b.id }"></p>
           }
           @case ('cancelled') {
             <mat-icon class="big muted-icon">event_busy</mat-icon>
-            <h1>This booking was cancelled</h1>
+            <h1>{{ 'paymentReturn.cancelledTitle' | t }}</h1>
             <p class="lead">
               @if (refundView(b); as r) {
                 {{ guestRefundText(r) }}
               } @else {
-                You weren't charged.
+                {{ 'myBookings.notCharged' | t }}
               }
             </p>
           }
@@ -97,16 +87,16 @@
         <div class="actions">
           @if (view() === 'unpaid' && b.payment?.can_pay) {
             <button mat-flat-button type="button" (click)="payNow()" [disabled]="busy() !== null">
-              @if (busy() === 'pay') { <mat-spinner diameter="18" /> } @else { Pay now {{ formatPrice(b.payment!.amount) }} }
+              @if (busy() === 'pay') { <mat-spinner diameter="18" /> } @else { {{ 'myBookings.payNow' | t: { amount: formatPrice(b.payment!.amount) } }} }
             </button>
             <button mat-stroked-button type="button" class="danger" (click)="cancelBooking()" [disabled]="busy() !== null">
-              @if (busy() === 'cancel') { <mat-spinner diameter="18" /> } @else { Cancel booking }
+              @if (busy() === 'cancel') { <mat-spinner diameter="18" /> } @else { {{ 'myBookings.cancel' | t }} }
             </button>
           }
           @if ((view() === 'timed_out' || view() === 'released' || view() === 'cancelled') && bookAgain(); as again) {
-            <a mat-flat-button [routerLink]="again.link" [queryParams]="again.params">Book again</a>
+            <a mat-flat-button [routerLink]="again.link" [queryParams]="again.params">{{ 'paymentReturn.bookAgain' | t }}</a>
           }
-          <a mat-stroked-button routerLink="/my-bookings">My bookings</a>
+          <a mat-stroked-button routerLink="/my-bookings">{{ 'toolbar.myBookings' | t }}</a>
         </div>
       </div>
     }

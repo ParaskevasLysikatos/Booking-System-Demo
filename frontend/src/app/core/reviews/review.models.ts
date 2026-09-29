@@ -51,6 +51,7 @@ export interface CreateReviewRequest {
 export const MAX_REVIEW_COMMENT = 1000;
 
 /** Words shown under the star picker. */
+/** English rating words; the dialog shows `reviewDialog.word.<n>` in the chosen language (TICKET-038). */
 export const RATING_WORDS: Record<number, string> = { 1: 'Terrible', 2: 'Poor', 3: 'Okay', 4: 'Good', 5: 'Excellent' };
 
 /** Reviews shown per page under a property (backend ReviewPagination). */

@@ -142,4 +142,6 @@ mat-paginator { margin-top: 16px; background: transparent; }
 @include r.phone {
   .card { grid-template-columns: 1fr; }
   .photo { aspect-ratio: 16 / 9; }
+  /* The Greek tab names are longer: narrower tabs keep all three on a 360-390 px screen (TICKET-038). */
+  .page ::ng-deep .mat-mdc-tab { min-width: 0; padding: 0 12px; }
 }

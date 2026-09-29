@@ -4,7 +4,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { parseApiErrors } from '../../core/api-errors';
@@ -18,6 +17,9 @@ import { guestRefundText, refundView } from '../../core/payments/payment-labels'
 import { PaymentService } from '../../core/payments/payment.service';
 import { BookingSummary } from '../../shared/booking-summary';
 import { CancelBookingDialog } from '../my-bookings/cancel-dialog';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { translate } from '../../core/i18n/translation.service';
+import { PageTitle } from '../../core/i18n/page-title';
 
 /** How long "Confirming your payment…" waits for the webhook: every 2 s, 15 times (30 s). */
 export const POLL_EVERY_MS = 2000;
@@ -46,7 +48,7 @@ export type ReturnPhase =
  */
 @Component({
   selector: 'app-payment-return',
-  imports: [BookingSummary, MatButtonModule, MatIconModule, MatProgressSpinnerModule, RouterLink],
+  imports: [BookingSummary, MatButtonModule, MatIconModule, MatProgressSpinnerModule, RouterLink, TranslatePipe],
   templateUrl: './payment-return.html',
   styleUrl: './payment-return.scss',
 })
@@ -57,7 +59,7 @@ export class PaymentReturnPage {
   private readonly payments = inject(PaymentService);
   private readonly redirect = inject(BrowserRedirect);
   private readonly dialog = inject(MatDialog);
-  private readonly titleService = inject(Title);
+  private readonly pageTitle = inject(PageTitle);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly id = Number(this.route.snapshot.paramMap.get('id'));
@@ -87,7 +89,7 @@ export class PaymentReturnPage {
   readonly clockTime = clockTime;
 
   constructor() {
-    this.titleService.setTitle('Payment · Booking System Demo');
+    this.pageTitle.setKey('paymentReturn.title.default');
     if (!Number.isInteger(this.id) || this.id <= 0) {
       void this.router.navigateByUrl('/my-bookings');
       return;
@@ -113,7 +115,7 @@ export class PaymentReturnPage {
     }
     const phase = phaseFor(b, this.returnedAfterPaying);
     this.phase.set(phase);
-    this.titleService.setTitle(`${TITLES[phase] ?? 'Payment'} · Booking System Demo`);
+    this.pageTitle.setKey(TITLED.includes(phase) ? `paymentReturn.title.${phase}` : 'paymentReturn.title.default');
     if (phase === 'confirming' && first) this.poll();
   }
 
@@ -145,7 +147,7 @@ export class PaymentReturnPage {
 
   private giveUpWaiting(): void {
     this.phase.set('not_yet');
-    this.titleService.setTitle(`${TITLES.not_yet} · Booking System Demo`);
+    this.pageTitle.setKey('paymentReturn.title.not_yet');
   }
 
   private stopPolling(): void {
@@ -163,7 +165,7 @@ export class PaymentReturnPage {
       next: (res) => this.redirect.to(res.checkout_url),
       error: (err) => {
         this.busy.set(null);
-        this.actionError.set(parseApiErrors(err).general ?? "We couldn't open the payment page. Please try again.");
+        this.actionError.set(parseApiErrors(err).general ?? translate('booking.paymentPageFailed'));
         this.load(); // the server's answer may mean the state changed (e.g. paid or released)
       },
     });
@@ -186,7 +188,7 @@ export class PaymentReturnPage {
           },
           error: (err) => {
             this.busy.set(null);
-            this.actionError.set(parseApiErrors(err).general ?? "Couldn't cancel the booking. Please try again.");
+            this.actionError.set(parseApiErrors(err).general ?? translate('paymentReturn.cancelFailed'));
             this.load();
           },
         });
@@ -208,15 +210,8 @@ export class PaymentReturnPage {
   });
 }
 
-const TITLES: Partial<Record<ReturnPhase, string>> = {
-  confirming: 'Confirming your payment',
-  confirmed: 'Booking confirmed',
-  processing: 'Payment processing',
-  not_yet: 'Waiting for confirmation',
-  unpaid: 'Payment not completed',
-  released: 'Payment not completed',
-  cancelled: 'Booking cancelled',
-};
+/** Phases with their own tab title (`paymentReturn.title.<phase>`); others say "Payment". */
+const TITLED: readonly ReturnPhase[] = ['confirming', 'confirmed', 'processing', 'not_yet', 'unpaid', 'released', 'cancelled'];
 
 /** Pure: what the page shows for this booking. */
 export function phaseFor(b: Booking, returnedAfterPaying: boolean): ReturnPhase {

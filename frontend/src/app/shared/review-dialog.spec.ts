@@ -103,4 +103,16 @@ describe('ReviewDialog', () => {
     fixture.detectChanges();
     expect(el().querySelector('.field-error')!.textContent).toContain('no more than 1000 characters');
   });
+
+  it('in Greek (TICKET-038): question, star labels, note and buttons', () => {
+    localStorage.setItem('bsd.lang', 'el');
+    create();
+    expect(text()).toContain('Πώς ήταν η διαμονή σας στο Harbour Loft;');
+    expect(Array.from(el().querySelectorAll('input[type="radio"]')).map((i) => i.getAttribute('aria-label'))).toEqual([
+      '1 αστέρι - Απαίσια', '2 αστέρια - Κακή', '3 αστέρια - Μέτρια', '4 αστέρια - Καλή', '5 αστέρια - Εξαιρετική',
+    ]);
+    expect(text()).toContain('Οι κριτικές είναι οριστικές');
+    expect(text()).toContain('Δημοσίευση κριτικής');
+    localStorage.clear();
+  });
 });

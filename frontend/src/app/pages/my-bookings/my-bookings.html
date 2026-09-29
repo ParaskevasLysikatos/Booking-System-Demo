@@ -1,15 +1,15 @@
 <section class="page">
-  <h1>My bookings</h1>
+  <h1>{{ 'titles.myBookings' | t }}</h1>
 
   <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="selectTab($event)" animationDuration="0ms" mat-stretch-tabs="false">
     @for (t of tabs; track t.key) {
-      <mat-tab [label]="t.label" />
+      <mat-tab [label]="t.label | t" />
     }
   </mat-tab-group>
 
   @switch (state().status) {
     @case ('loading') {
-      <div class="list" aria-busy="true" aria-label="Loading bookings">
+      <div class="list" aria-busy="true" [attr.aria-label]="'myBookings.loading' | t">
         @for (i of [1, 2, 3]; track i) {
           <div class="card skeleton"><div class="ph-img"></div><div class="ph-body"></div></div>
         }
@@ -19,8 +19,8 @@
     @case ('error') {
       <div class="message" role="alert">
         <mat-icon>cloud_off</mat-icon>
-        <p>Couldn't load your bookings.</p>
-        <button mat-stroked-button type="button" (click)="retry()">Try again</button>
+        <p>{{ 'myBookings.loadFailed' | t }}</p>
+        <button mat-stroked-button type="button" (click)="retry()">{{ 'common.tryAgain' | t }}</button>
       </div>
     }
 
@@ -29,8 +29,8 @@
       @if (data.count === 0) {
         <div class="message">
           <mat-icon>luggage</mat-icon>
-          <p>{{ emptyText() }}</p>
-          <a mat-stroked-button routerLink="/listings">Browse stays</a>
+          <p>{{ emptyText() | t }}</p>
+          <a mat-stroked-button routerLink="/listings">{{ 'detail.browse' | t }}</a>
         </div>
       } @else {
         <ul class="list">
@@ -47,9 +47,9 @@
               <div class="body">
                 <div class="top">
                   <h2><a [routerLink]="['/listings', b.property.id]">{{ b.property.title }}</a></h2>
-                  <span class="chip" [class]="b.status">{{ statusLabel[b.status] }}</span>
+                  <span class="chip" [class]="b.status">{{ 'status.' + b.status | t }}</span>
                   @if (isOngoing(b)) {
-                    <span class="chip ongoing">Staying now</span>
+                    <span class="chip ongoing">{{ 'myBookings.stayingNow' | t }}</span>
                   }
                 </div>
                 <p class="muted"><mat-icon>place</mat-icon>{{ b.property.location }}</p>
@@ -57,12 +57,11 @@
                 <p class="dates">
                   <mat-icon>calendar_month</mat-icon>
                   {{ date(b.check_in) }} → {{ date(b.check_out) }}
-                  <span class="muted-inline">· {{ b.nights }} {{ b.nights === 1 ? 'night' : 'nights' }} · {{ b.guests }} {{ b.guests === 1 ? 'guest' : 'guests' }}</span>
+                  <span class="muted-inline">· {{ 'common.nights' | t: { count: b.nights } }} · {{ 'common.guests' | t: { count: b.guests } }}</span>
                 </p>
 
                 <p class="meta">
-                  <strong>{{ formatPrice(b.total_price) }}</strong>
-                  <span class="muted-inline">· #{{ b.id }} · booked {{ bookedOn(b.created_at) }}</span>
+                  <strong>{{ formatPrice(b.total_price) }}</strong>&ngsp;<span class="muted-inline">· {{ 'myBookings.booked' | t: { id: b.id, date: bookedOn(b.created_at) } }}</span>
                 </p>
 
                 @if (b.payment; as pay) {
@@ -73,20 +72,20 @@
                         <div class="pay-row">
                           <p class="pay wait">
                             <mat-icon>schedule</mat-icon>
-                            <span>Awaiting payment · dates held for <strong class="countdown" role="timer">{{ holdLeftText(b) }}</strong></span>
+                            <span [innerHTML]="'myBookings.awaiting' | t: { time: holdLeftText(b) }"></span>
                           </p>
                           @if (pay.can_pay) {
                             <button mat-flat-button type="button" class="pay-now" (click)="payNow(b)" [disabled]="paying() !== null">
-                              @if (paying() === b.id) { <mat-spinner diameter="18" /> } @else { Pay now {{ formatPrice(pay.amount) }} }
+                              @if (paying() === b.id) { <mat-spinner diameter="18" /> } @else { {{ 'myBookings.payNow' | t: { amount: formatPrice(pay.amount) } }} }
                             </button>
                           }
                         </div>
                       } @else if (b.status === 'pending') {
-                        <p class="pay muted"><mat-icon>timer_off</mat-icon><span>Time to pay ran out - the dates are being released. You weren't charged.</span></p>
+                        <p class="pay muted"><mat-icon>timer_off</mat-icon><span>{{ 'myBookings.ranOutReleasing' | t }}</span></p>
                       }
                     }
                     @case ('processing') {
-                      <p class="pay wait"><mat-icon>hourglass_top</mat-icon><span>Payment processing at your bank - your dates stay held.</span></p>
+                      <p class="pay wait"><mat-icon>hourglass_top</mat-icon><span>{{ 'myBookings.processing' | t }}</span></p>
                     }
                     @case ('paid') {
                       @if (refundView(b); as r) {
@@ -96,42 +95,42 @@
                           <span>{{ guestRefundText(r) }}</span>
                         </p>
                       } @else {
-                        <p class="pay ok"><mat-icon>check_circle</mat-icon><span>Paid <strong>{{ formatPrice(pay.amount) }}</strong></span></p>
+                        <p class="pay ok"><mat-icon>check_circle</mat-icon><span [innerHTML]="'myBookings.paid' | t: { amount: formatPrice(pay.amount) }"></span></p>
                       }
                     }
                     @case ('expired') {
-                      <p class="pay muted"><mat-icon>timer_off</mat-icon><span>Time to pay ran out - dates released. You weren't charged.</span></p>
+                      <p class="pay muted"><mat-icon>timer_off</mat-icon><span>{{ 'myBookings.ranOut' | t }}</span></p>
                     }
                     @case ('failed') {
-                      <p class="pay muted"><mat-icon>credit_card_off</mat-icon><span>Payment failed - you weren't charged.</span></p>
+                      <p class="pay muted"><mat-icon>credit_card_off</mat-icon><span>{{ 'myBookings.failed' | t }}</span></p>
                     }
                     @case ('cancelled') {
                       @if (b.status === 'confirmed') {
-                        <p class="pay ok"><mat-icon>check_circle</mat-icon><span>Confirmed by the host - nothing to pay online.</span></p>
+                        <p class="pay ok"><mat-icon>check_circle</mat-icon><span>{{ 'myBookings.hostConfirmed' | t }}</span></p>
                       } @else {
-                        <p class="pay muted"><mat-icon>money_off</mat-icon><span>You weren't charged.</span></p>
+                        <p class="pay muted"><mat-icon>money_off</mat-icon><span>{{ 'myBookings.notCharged' | t }}</span></p>
                       }
                     }
                   }
                 } @else if (b.status === 'pending' && isUpcoming(b)) {
-                  <p class="hint">Waiting for the host to confirm.</p>
+                  <p class="hint">{{ 'myBookings.waitingHost' | t }}</p>
                 }
 
                 @if (b.status !== 'cancelled' && isUpcoming(b)) {
                   <div class="actions">
                     @if (b.can_cancel) {
-                      <span class="hint">Free cancellation until <strong>{{ deadline(b.cancel_deadline) }}</strong>{{ b.payment?.status === 'paid' ? ' - full refund' : '' }}</span>
+                      <span class="hint" [innerHTML]="'myBookings.freeCancel' | t: { deadline: deadline(b.cancel_deadline), refund: b.payment?.status === 'paid' ? ('booking.fullRefundSuffix' | t) : '' }"></span>
                       <button mat-stroked-button type="button" class="cancel" (click)="cancel(b)" [disabled]="cancelling() !== null">
                         @if (cancelling() === b.id) {
                           <mat-spinner diameter="18" />
                         } @else {
-                          Cancel booking
+                          {{ 'myBookings.cancel' | t }}
                         }
                       </button>
                     } @else if (b.payment?.status === 'processing') {
-                      <span class="hint">Can be cancelled once the bank has finished processing the payment.</span>
+                      <span class="hint">{{ 'myBookings.cancelAfterBank' | t }}</span>
                     } @else {
-                      <span class="hint">Can no longer be cancelled online (less than 48 hours before check-in).</span>
+                      <span class="hint">{{ 'myBookings.tooLate' | t: { hours: cancellationHours } }}</span>
                     }
                   </div>
                 }
@@ -139,11 +138,11 @@
                 <!-- Reviews (TICKET-032): only after a stay; the server decides can_review. -->
                 @if (b.status !== 'cancelled' && !isUpcoming(b)) {
                   @if (b.my_review; as mine) {
-                    <p class="reviewed"><mat-icon>check_circle</mat-icon>You rated this place <app-star-rating [rating]="mine.rating" [size]="16" /></p>
+                    <p class="reviewed"><mat-icon>check_circle</mat-icon>{{ 'myBookings.youRated' | t }} <app-star-rating [rating]="mine.rating" [size]="16" /></p>
                   } @else if (b.can_review) {
                     <div class="actions">
-                      <span class="hint">How was your stay?</span>
-                      <button mat-stroked-button type="button" class="review" (click)="review(b)"><mat-icon>rate_review</mat-icon>Leave a review</button>
+                      <span class="hint">{{ 'myBookings.howWasIt' | t }}</span>
+                      <button mat-stroked-button type="button" class="review" (click)="review(b)"><mat-icon>rate_review</mat-icon>{{ 'myBookings.leaveReview' | t }}</button>
                     </div>
                   }
                 }
@@ -159,7 +158,7 @@
             [pageSize]="pageSize"
             [hidePageSize]="true"
             (page)="onPage($event)"
-            aria-label="Choose bookings page"
+            [attr.aria-label]="'myBookings.pages' | t"
           />
         }
       }
