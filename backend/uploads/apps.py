@@ -6,5 +6,6 @@ class UploadsConfig(AppConfig):
     name = 'uploads'
 
     def ready(self):
-        # Registers the S3 settings system checks (uploads/checks.py).
-        from . import checks  # noqa: F401
+        # Registers the S3 settings system checks (uploads/checks.py) and
+        # the "delete a removed photo from S3" signal (uploads/signals.py).
+        from . import checks, signals  # noqa: F401

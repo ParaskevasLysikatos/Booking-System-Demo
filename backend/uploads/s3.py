@@ -10,10 +10,14 @@ stores - so the rest of the app keeps working with plain URLs.
 No AWS settings -> uploads are off (`uploads_enabled()` is False) and the
 admin Photos editor falls back to pasting URLs, like before.
 """
+import logging
+import re
 import uuid
 
 from django.conf import settings
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 # Everything this app writes lives under this prefix - and only this prefix
 # is public (bucket policy) and writable/deletable by the IAM user.
@@ -65,7 +69,14 @@ def _client():
         # s3.amazonaws.com name can answer a fresh bucket's upload with a
         # redirect the browser won't follow for a POST.
         endpoint_url=f"https://s3.{region}.amazonaws.com",
-        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+            # Deletes run inside an admin's save request: fail fast.
+            connect_timeout=3,
+            read_timeout=5,
+            retries={"max_attempts": 2, "mode": "standard"},
+        ),
     )
 
 
@@ -115,3 +126,33 @@ def presign(content_type):
         "expires_in": PRESIGN_EXPIRES_SECONDS,
         "max_bytes": max_bytes,
     }
+
+
+# What our own keys look like (see new_key): nothing else is ever deleted.
+_OWN_KEY = re.compile(r"^property-images/\d{4}/\d{2}/[0-9a-f]{32}\.(?:jpg|png|webp)$")
+
+
+def key_from_url(url):
+    """The S3 key if `url` is a photo *this app* uploaded to the configured
+    bucket (under property-images/, in new_key's exact format), else None.
+    Pasted URLs, stock photos, other buckets or anything odd -> None, so
+    they are never touched."""
+    if not uploads_enabled() or not isinstance(url, str):
+        return None
+    base = public_base_url() + "/"
+    if not url.startswith(base):
+        return None
+    key = url[len(base):]
+    return key if _OWN_KEY.match(key) else None
+
+
+def delete_object(key):
+    """Best effort: a photo that can't be deleted only costs a few KB of
+    storage, so failures are logged, never raised."""
+    try:
+        _client().delete_object(Bucket=settings.AWS_S3_BUCKET, Key=key)
+    except Exception:  # noqa: BLE001 - botocore/network errors
+        logger.exception("Could not delete %s from S3", key)
+        return False
+    logger.info("Deleted %s from S3", key)
+    return True

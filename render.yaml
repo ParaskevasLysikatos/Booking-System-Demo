@@ -64,6 +64,19 @@ services:
         sync: false             # Booking System Demo <you@gmail.com> - the same Gmail that authorised the API
       - key: BOOKING_ALERT_EMAILS
         sync: false             # who gets the "new booking" alert + admin accounts' booking emails
+      # Photo uploads straight to the owner's S3 bucket (TICKET-036). Until
+      # all four are set, uploads are off and the admin Photos editor only
+      # takes pasted URLs (the deploy works either way). Keys of the
+      # upload-only IAM user, never root keys. See the README's
+      # "Photo uploads: setting up S3".
+      - key: AWS_ACCESS_KEY_ID
+        sync: false             # IAM user with only s3:PutObject + s3:DeleteObject on <bucket>/property-images/*
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false             # the bucket name
+      - key: AWS_S3_REGION
+        sync: false             # the bucket's region, e.g. eu-central-1
 
   # The Angular app (TICKET-027): built once per push, served from Render's CDN.
   # Static sites are free and never sleep (only the API above does).

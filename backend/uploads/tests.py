@@ -1,16 +1,21 @@
 import base64
 import json
 from datetime import datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.db import transaction
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
+from listings.models import Property, PropertyImage
+
 from . import s3
 from .checks import s3_settings_check
+from .signals import delete_if_unused
 
 User = get_user_model()
 PASSWORD = "S3cure-Booking-Pass!"
@@ -203,3 +208,138 @@ class ChecksTests(SimpleTestCase):
 
     def test_limit_must_be_positive(self):
         self.assertEqual(self.ids(UPLOADS_MAX_BYTES=0), ["uploads.E002"])
+
+
+# --- deleting removed photos from S3 (step 3) ----------------------------------
+
+BASE = "https://demo-bucket.s3.eu-central-1.amazonaws.com/"
+OURS_1 = BASE + "property-images/2026/09/" + "a" * 32 + ".webp"
+OURS_2 = BASE + "property-images/2026/09/" + "b" * 32 + ".jpg"
+PASTED = "https://picsum.photos/seed/1/800/600"
+
+
+def key_of(url):
+    return url[len(BASE):]
+
+
+def make_property(title="Loft"):
+    return Property.objects.create(
+        title=title, location="Thessaloniki, Greece", price_per_night=Decimal("80.00"), capacity=2,
+        latitude=Decimal("40.632700"), longitude=Decimal("22.943100"),
+    )
+
+
+@override_settings(**S3_ON)
+class KeyFromUrlTests(SimpleTestCase):
+    def test_own_uploads_only(self):
+        self.assertEqual(s3.key_from_url(OURS_1), key_of(OURS_1))
+        self.assertEqual(s3.key_from_url(OURS_2), key_of(OURS_2))
+        for url in (
+            PASTED,
+            "https://other-bucket.s3.eu-central-1.amazonaws.com/property-images/2026/09/" + "a" * 32 + ".webp",
+            BASE + "private/2026/09/" + "a" * 32 + ".webp",           # outside the prefix
+            BASE + "property-images/../secret.txt",
+            BASE + "property-images/2026/09/" + "a" * 32 + ".webp?x=1",
+            BASE + "property-images/2026/09/my-photo.webp",           # not a key we'd make
+            BASE + "property-images/2026/09/" + "a" * 32 + ".svg",
+            "",
+            None,
+        ):
+            with self.subTest(url):
+                self.assertIsNone(s3.key_from_url(url))
+
+    @override_settings(AWS_S3_PUBLIC_BASE_URL="https://photos.example.com")
+    def test_custom_public_base(self):
+        url = "https://photos.example.com/property-images/2026/09/" + "c" * 32 + ".png"
+        self.assertEqual(s3.key_from_url(url), url[len("https://photos.example.com/"):])
+        self.assertIsNone(s3.key_from_url(OURS_1))
+
+    @override_settings(**S3_OFF)
+    def test_nothing_is_ours_when_uploads_are_off(self):
+        self.assertIsNone(s3.key_from_url(OURS_1))
+
+
+@override_settings(**S3_ON)
+class DeleteRemovedPhotoTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_superuser("admin", "admin@example.com", PASSWORD)
+        self.client.force_authenticate(self.admin)
+        self.prop = make_property()
+        PropertyImage.objects.create(property=self.prop, image=OURS_1, is_cover=True)
+        PropertyImage.objects.create(property=self.prop, image=OURS_2)
+        PropertyImage.objects.create(property=self.prop, image=PASTED)
+        patcher = mock.patch.object(s3, "_client")
+        self.client_factory = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.s3 = self.client_factory.return_value
+
+    def deleted_keys(self):
+        return [c.kwargs["Key"] for c in self.s3.delete_object.call_args_list]
+
+    def save_images(self, images):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.patch(
+                reverse("property-detail", args=[self.prop.pk]), {"images": images}, format="json",
+            )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        return resp
+
+    def test_removed_upload_is_deleted_kept_ones_and_pasted_urls_are_not(self):
+        self.save_images([{"image": OURS_2, "is_cover": True}])  # removed OURS_1 and PASTED
+        self.assertEqual(self.deleted_keys(), [key_of(OURS_1)])
+        self.s3.delete_object.assert_called_once_with(Bucket="demo-bucket", Key=key_of(OURS_1))
+
+    def test_reordering_or_changing_the_cover_deletes_nothing(self):
+        self.save_images([
+            {"image": PASTED, "is_cover": False},
+            {"image": OURS_2, "is_cover": True},
+            {"image": OURS_1, "is_cover": False},
+        ])
+        self.assertEqual(self.deleted_keys(), [])
+
+    def test_a_photo_another_property_still_uses_is_kept(self):
+        other = make_property("Other")
+        PropertyImage.objects.create(property=other, image=OURS_1)
+        self.save_images([{"image": OURS_2, "is_cover": True}])
+        self.assertEqual(self.deleted_keys(), [])
+
+    def test_nothing_deleted_if_the_save_is_rolled_back(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(RuntimeError), transaction.atomic():
+                PropertyImage.objects.filter(image=OURS_1).delete()
+                raise RuntimeError("rollback")
+        self.s3.delete_object.assert_not_called()
+        self.assertTrue(PropertyImage.objects.filter(image=OURS_1).exists())
+
+    def test_deleting_the_property_deletes_its_uploads(self):
+        # e.g. in Django Admin (the API only retires properties)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.prop.delete()
+        self.assertCountEqual(self.deleted_keys(), [key_of(OURS_1), key_of(OURS_2)])
+
+    def test_s3_failure_is_logged_and_the_save_still_succeeds(self):
+        self.s3.delete_object.side_effect = RuntimeError("S3 down")
+        with self.assertLogs("uploads.s3", level="ERROR") as logs:
+            resp = self.save_images([{"image": OURS_2, "is_cover": True}])
+        self.assertIn(key_of(OURS_1), logs.output[0])
+        self.assertEqual([i["image"] for i in resp.data["images"]], [OURS_2])
+
+    @override_settings(**S3_OFF)
+    def test_uploads_off_deletes_nothing(self):
+        self.save_images([])
+        self.client_factory.assert_not_called()
+
+    def test_retiring_a_property_keeps_its_photos(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.delete(reverse("property-detail", args=[self.prop.pk]))
+        self.assertEqual(resp.status_code, 204)
+        self.client_factory.assert_not_called()
+
+    def test_delete_if_unused_directly(self):
+        self.assertFalse(delete_if_unused(OURS_1))  # still used
+        self.assertFalse(delete_if_unused(PASTED))  # not ours
+        self.s3.delete_object.assert_not_called()
+        PropertyImage.objects.filter(image=OURS_1).delete()
+        self.s3.delete_object.return_value = {}
+        self.assertTrue(delete_if_unused(OURS_1))

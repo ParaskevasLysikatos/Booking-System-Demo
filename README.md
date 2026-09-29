@@ -76,7 +76,10 @@ settings uploads are simply off. See "Photo uploads API (TICKET-036)".
 Step 2 is done - the admin property form's Photos card has **Upload
 photos** and drag & drop: photos are resized to 1600 px WebP in the
 browser and uploaded straight to S3 with a progress bar; see "Admin
-properties → Photo uploads".
+properties → Photo uploads". Step 3 is done - photos removed from a
+saved property are deleted from S3 (this app's own uploads only, after the
+save commits, and only when nothing uses them any more); `render.yaml` and
+a step-by-step bucket setup are ready; see "Photo uploads: setting up S3".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -242,6 +245,7 @@ backend/
   uploads/             Photo uploads to the owner's S3 bucket (TICKET-036) - no models; see "Photo uploads API"
     s3.py              uploads_enabled(), presign() (presigned POST for one new key under property-images/), public_url()
     views.py + urls.py GET /api/admin/uploads/config/, POST /api/admin/uploads/presign/ (admin only)
+    signals.py         Deletes a removed photo from S3 after commit - own uploads only, only when no row uses it (step 3)
     checks.py          Startup checks: half-configured AWS_* settings (warning), non-https public base URL
     tests.py           Permissions, config, presigned POST policy (real signing, no network), size/type checks, settings checks
 
@@ -1956,7 +1960,7 @@ redirect, and browsers don't follow a redirect for a cross-site POST.
 
 | Variable | Purpose |
 | --- | --- |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | The keys of an IAM user that can **only** put/delete objects under `property-images/` (the exact policy comes with step 3's setup guide). Never your root/admin keys |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | The keys of an IAM user that can **only** put/delete objects under `property-images/` (see "Photo uploads: setting up S3"). Never your root/admin keys |
 | `AWS_S3_BUCKET` / `AWS_S3_REGION` | The bucket name and its region, e.g. `eu-central-1` (Frankfurt) |
 | `AWS_S3_PUBLIC_BASE_URL` | Optional: another `https://` base for the photo URLs, e.g. a CloudFront domain |
 | `UPLOADS_MAX_BYTES` | Optional: the largest photo accepted (default `10485760` = 10 MB) |
@@ -1966,9 +1970,46 @@ Locally, put them in `.env` and rebuild the backend image once, because
 `uploads/checks.py` warns at startup (`uploads.W001`) if only some of the
 four are set. `uploads.E001` means the public base URL isn't `https://`.
 
+### Removed photos are deleted from S3 (step 3)
+
+`uploads/signals.py` listens to `post_delete` on `PropertyImage`. Every
+way a photo row disappears goes through it:
+
+- the admin form replacing a property's photo set (the write serializer
+  deletes and re-creates the rows)
+- a photo removed in Django Admin
+- a property deleted there
+
+For each deleted row, the S3 object is deleted **only if all** of these
+hold:
+
+1. **It's one of our own uploads.** `s3.key_from_url()` requires
+   uploads to be on and the URL to be exactly
+   `<public base>/property-images/YYYY/MM/<32 hex>.<jpg|png|webp>`, the
+   format `new_key()` makes. Pasted URLs, the seeder's stock photos,
+   other buckets, other prefixes, `..` and query strings are never
+   touched.
+2. **The save committed** (`transaction.on_commit`). A save that fails
+   and rolls back deletes nothing.
+3. **No row still uses the URL**, on any property. This is what keeps
+   the photos the admin *kept*: replacing the set re-creates their rows
+   in the same transaction, so after the commit they still exist. It
+   also covers a URL pasted into a second property.
+
+Deleting is **best effort**. `delete_object` has short timeouts (3 s
+to connect, 5 s to read, 2 attempts). A failure is logged (`uploads.s3`)
+and the save still succeeds; the only cost is a few hundred KB of
+storage. **Retiring** a property (the API's soft delete) keeps its
+photos, because it can be reactivated.
+
+Not covered: a photo uploaded in a form that is then **discarded**
+without saving. No row ever pointed at it, so nothing notices it. It
+stays in the bucket unused, which is harmless. A clean-up job would need
+`s3:ListBucket` permission, so it was left out on purpose.
+
 ### Tests
 
-`uploads/tests.py` has 24 tests. The signing is real (boto3 with fake
+`uploads/tests.py` has 36 tests. The signing is real (boto3 with fake
 keys), because presigning makes no network call. The tests decode the
 policy S3 would check. They cover:
 
@@ -1984,8 +2025,147 @@ policy S3 would check. They cover:
 - no secret in any response
 - `503` switched off, and `503` when signing fails, without leaking the error
 - the settings checks
+- step 3 (12 tests, S3 client mocked):
+  - `key_from_url` accepts our own uploads only (other buckets or
+    prefixes, `..`, query strings, other names, SVG, off)
+  - a custom public base URL
+  - a removed upload is deleted; kept ones and pasted URLs aren't
+  - reordering or a new cover deletes nothing
+  - a URL another property still uses is kept
+  - a rollback deletes nothing
+  - deleting the property deletes its uploads
+  - an S3 failure is logged and the save still returns `200`
+  - uploads off → S3 is never called
+  - retiring keeps the photos
+  - `delete_if_unused` called directly
 
-**Results:** **424** backend tests pass on Postgres.
+**Results:** **436** backend tests pass on Postgres (424 after step 1).
+
+## Photo uploads: setting up S3 (TICKET-036)
+
+This is a one-time setup in the AWS console for the owner's existing
+bucket. It takes about 10 minutes. Replace `YOUR-BUCKET` with the
+bucket's name.
+
+**1. Note the bucket's region.** S3 → Buckets → the bucket → the
+"AWS Region" column, e.g. `eu-central-1` (Frankfurt). That value is
+`AWS_S3_REGION`.
+
+**2. Allow a public-read policy.** Bucket → **Permissions** → **Block
+public access** → Edit:
+
+- untick the two **policy** options:
+  - "…granted through *new* public bucket or access point policies"
+  - "…granted through *any* public bucket or access point policies"
+- leave the two **ACL** options ticked. ACLs aren't used; Object
+  Ownership stays "Bucket owner enforced".
+
+If the account itself blocks public access (S3 → "Block Public Access
+settings for this account"), the same two options must be off there
+too.
+
+**3. Bucket policy:** public `GET` for `property-images/*` only. Bucket
+→ Permissions → **Bucket policy** → Edit:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadPropertyImages",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::YOUR-BUCKET/property-images/*"
+    }
+  ]
+}
+```
+
+Anything else you keep in the bucket stays private. Nobody can list
+the bucket either, because only `GetObject` is allowed and the keys are
+random.
+
+**4. CORS:** this lets the browser `POST` the photo straight to the
+bucket. Bucket → Permissions → **Cross-origin resource sharing (CORS)**
+→ Edit:
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:4200", "https://booking-demo-g4aw.onrender.com"],
+    "AllowedMethods": ["POST"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": [],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+Showing the photos in `<img>` tags doesn't need CORS. Only the upload
+does.
+
+**5. An upload-only IAM user.** IAM → Users → **Create user**, e.g.
+`booking-demo-uploads`, with no console access. Then Permissions → Add
+permissions → **Create inline policy** → JSON:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PropertyImagesUploadAndDelete",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::YOUR-BUCKET/property-images/*"
+    }
+  ]
+}
+```
+
+These are the only two things the app does. A leaked key can't read,
+list or touch anything outside `property-images/`, or any other AWS
+service. If the bucket's default encryption is **SSE-KMS** instead of
+the default SSE-S3, the user also needs `kms:GenerateDataKey` on that
+key.
+
+**6. An access key.** The user → Security credentials → **Create
+access key** → "Application running outside AWS". Copy the access key
+ID and the secret; the secret is shown only once.
+
+**7. Locally:** add them to `.env`. It's gitignored, so never commit
+the keys:
+
+```
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_S3_BUCKET=YOUR-BUCKET
+AWS_S3_REGION=eu-central-1
+```
+
+Then run `docker compose up -d --build backend`. The build installs
+`boto3`, and the restart reads the new `.env`.
+`docker compose exec backend python manage.py check` should print no
+`uploads.W001`.
+
+**8. On Render:** booking-demo-api → **Environment** → add the same
+four variables → Save. `render.yaml` lists them as `sync: false`, but a
+Blueprint only asks for such values when it's first created, so on the
+existing service they're added by hand. Render redeploys; no frontend
+change is needed.
+
+**Quick test:** open `/admin/properties/<id>/edit` as the admin. The
+Photos card now says "Drag photos here, or **Upload photos**". Upload a
+photo; the list then shows
+`https://YOUR-BUCKET.s3.<region>.amazonaws.com/property-images/…webp`,
+and opening that link shows the photo.
+
+| Symptom | Cause |
+| --- | --- |
+| no Upload photos button | one of the four settings is missing (see `uploads.W001` in the log), or the backend wasn't restarted |
+| "Couldn't reach the photo storage … CORS" | step 4 is missing, or the site's origin isn't in `AllowedOrigins` |
+| "refused the upload (access denied)" | step 5's policy (wrong bucket name or prefix), or the keys belong to another user |
+| uploaded, but the photo shows as broken | step 2 or 3: the public-read policy isn't in place |
 
 ## Frontend auth (Angular)
 
@@ -3689,8 +3869,9 @@ In the editor:
   light up the drop zone, and a dropped photo never opens in the tab.
 - **Unsaved changes:** an uploaded photo makes the form dirty, like any
   edit. Leaving without saving asks "Discard unsaved changes?". A
-  discarded upload stays in the bucket unused; step 3 deletes photos
-  when they're removed from a saved property.
+  discarded upload stays in the bucket unused. Photos removed from a
+  saved property are deleted from S3 (see "Photo uploads API → Removed
+  photos are deleted from S3").
 
 Tests (28 new; **403 frontend tests** pass; the production build is
 clean and the initial bundle is unchanged at 601 kB / 147 kB):
@@ -6392,6 +6573,9 @@ photo uploads) is in progress:** step 1 (the `uploads` app: `GET
 (TICKET-036)"; step 2 (Upload photos and drag & drop in the admin Photos
 editor: resized to 1600 px WebP in the browser, uploaded straight to S3
 with progress, at most 2 at a time, cancel/retry, the form can't be saved
-mid-upload) is done; see "Admin properties → Photo uploads". Next: step 3
-(removed photos deleted from S3, Render settings, the bucket setup guide,
-final check).
+mid-upload) is done; see "Admin properties → Photo uploads"; step 3
+(photos removed from a saved property deleted from S3 - own uploads only,
+after commit, only when unused; the four `AWS_*` values in `render.yaml`;
+"Photo uploads: setting up S3" with the bucket policy, CORS and an
+upload-only IAM user) is done. Next: the final check with the real
+bucket (local + Render).
