@@ -76,27 +76,49 @@ PHOTO_GROUPS = {
 # Weighted rating distribution (skewed positive, like a real demo dataset).
 RATING_WEIGHTS = {5: 45, 4: 30, 3: 15, 2: 7, 1: 3}
 
+# About a quarter of guests only leave stars (TICKET-037).
+NO_COMMENT_SHARE = 0.25
+
 COMMENTS_BY_RATING = {
     5: [
         "Absolutely wonderful stay, would book again in a heartbeat!",
         "Exceeded every expectation - spotless, comfortable, and great location.",
         "Host was fantastic and the place looked exactly like the photos.",
+        "The view alone is worth it. We had breakfast on the balcony every morning.",
+        "Perfect base for exploring the town - everything within walking distance.",
+        "Super clean, lovely little touches everywhere, and a very easy check-in.",
+        "Quiet, bright and beautifully decorated. We didn't want to leave.",
+        "Great beds, strong wifi and a fully equipped kitchen. Five stars.",
+        "Our second time here and it was just as good as the first.",
     ],
     4: [
         "Really enjoyed our stay, just a couple of minor things could improve.",
         "Great value for the price, would recommend to friends.",
         "Comfortable and well located, minor noise from the street at night.",
+        "Lovely place, the photos don't do it justice. Parking was a bit tricky.",
+        "Very nice apartment, only the shower pressure could be better.",
+        "Friendly host and good communication. A few more kitchen basics would help.",
+        "Nice and cosy, a little warm at night but the fan helped.",
+        "Good stay overall - clean, central and exactly as described.",
     ],
     3: [
         "It was fine - nothing special, but did the job for a short stay.",
         "Decent place, though a bit smaller than it looked in the pictures.",
+        "Good location, but the furniture is showing its age.",
+        "OK for one or two nights. The walls are thin.",
+        "Clean enough, but check-in instructions could be clearer.",
+        "Mixed feelings: great terrace, but the bedroom was quite dark.",
     ],
     2: [
         "Had some issues with cleanliness that weren't addressed quickly.",
         "Location was inconvenient and check-in was more complicated than expected.",
+        "The air conditioning didn't work for most of our stay.",
+        "Noisy at night and the beds were uncomfortable.",
     ],
     1: [
         "Would not stay here again, the listing didn't match the description.",
+        "Very disappointing - dirty on arrival and the host didn't reply.",
+        "Several amenities in the listing weren't actually there.",
     ],
 }
 
@@ -165,14 +187,18 @@ class Command(BaseCommand):
             admin_created = self._create_admin()
             guests = self._create_guests(fake, options["guests"])
             properties = self._create_properties(fake, options["properties"])
+            self._ensure_one_retired(properties)
             self._create_images(properties)
             self._create_bookings(properties, guests)
-            self._create_reviews(fake, properties)
+            to_review_live = self._create_unreviewed_stays(properties, guests)
+            self._create_past_stays(properties, guests, to_review_live)
+            self._create_reviews(fake, properties, to_review_live)
             favorites = self._create_favorites(properties, guests)
 
+        reviews = Review.objects.filter(property__in=properties).count()
         self.stdout.write(self.style.SUCCESS(
-            f"\nSeeded {len(properties)} properties, {len(guests)} guests "
-            f"and {favorites} saved places (favorites)."
+            f"\nSeeded {len(properties)} properties, {len(guests)} guests, "
+            f"{reviews} reviews and {favorites} saved places (favorites)."
         ))
         self.stdout.write(f"Photos: {self.photo_source}")
         if admin_created:
@@ -375,47 +401,136 @@ class Command(BaseCommand):
 
     # -- reviews -----------------------------------------------------------
 
-    def _create_reviews(self, fake, properties):
+    def _create_past_stays(self, properties, guests, skip):
+        """TICKET-037: enough ended, confirmed stays that every property gets
+        4-8 reviews (each backed by a real stay - the API's rule). Adds stays
+        in the last 12 months for guests who haven't stayed there yet, until
+        4-8 different guests have a confirmed, ended stay at the property.
+        One guest can review a place only once, so with 10 demo guests a
+        property tops out at 10 reviews."""
         today = timezone.localdate()
-        # Same rule the API enforces (TICKET-032): only a guest whose
-        # *confirmed* stay has ended can review.
+        for prop in properties:
+            target = min(random.randint(4, 8), len(guests))
+            stayed = set(Booking.objects.filter(
+                property=prop, status=Booking.Status.CONFIRMED, check_out__lte=today,
+            ).values_list("guest_id", flat=True)) - {g for (p, g) in skip if p == prop.pk}
+            candidates = [g for g in guests if g.pk not in stayed and (prop.pk, g.pk) not in skip]
+            random.shuffle(candidates)
+            for guest in candidates:
+                if len(stayed) >= target:
+                    break
+                if self._add_ended_stay(prop, guest, today, days_back=365):
+                    stayed.add(guest.pk)
+
+    def _add_ended_stay(self, prop, guest, today, days_back, attempts=25):
+        """One confirmed 2-7 night stay for `guest` that ended between
+        `days_back` days ago and yesterday, on free dates (the same
+        overlapping() check the API uses). Booked 1-8 weeks before it
+        started, so "booked on" dates look real. False if no free slot."""
+        for _ in range(attempts):
+            nights = random.randint(2, 7)
+            check_out = today - timedelta(days=random.randint(1, days_back))
+            check_in = check_out - timedelta(days=nights)
+            if Booking.objects.overlapping(prop, check_in, check_out).exists():
+                continue
+            booking = Booking.objects.create(
+                property=prop,
+                guest=guest,
+                check_in=check_in,
+                check_out=check_out,
+                guests=random.randint(1, prop.capacity),
+                total_price=prop.price_per_night * nights,
+                status=Booking.Status.CONFIRMED,
+            )
+            booked_on = timezone.now() - timedelta(
+                days=(today - check_in).days + random.randint(7, 56), hours=random.randint(0, 12),
+            )
+            Booking.objects.filter(pk=booking.pk).update(created_at=booked_on)
+            return booking
+        return None
+
+    def _create_reviews(self, fake, properties, skip=frozenset()):
+        """One review per guest per property with a confirmed, ended stay -
+        the same rule the API enforces (TICKET-032). Ratings skew positive
+        with some 1-3 stars; about a quarter have no comment. Dated a few
+        days after that guest's last stay there, so the months shown on the
+        property page are believable."""
+        today = timezone.localdate()
         past_bookings = Booking.objects.filter(
             property__in=properties,
             check_out__lte=today,
             status=Booking.Status.CONFIRMED,
-        )
+        ).order_by("check_out")
 
+        last_stay = {}  # (property, guest) -> latest check-out
         for booking in past_bookings:
+            last_stay[(booking.property_id, booking.guest_id)] = booking.check_out
+
+        now = timezone.now()
+        for (property_id, guest_id), check_out in last_stay.items():
+            if (property_id, guest_id) in skip:  # kept for a live demo review
+                continue
             rating = random.choices(
                 list(RATING_WEIGHTS.keys()), weights=list(RATING_WEIGHTS.values())
             )[0]
-            comment = random.choice(COMMENTS_BY_RATING[rating])
-            # get_or_create respects unique_review_per_guest_per_property:
-            # a guest with several past bookings for the same property only
-            # ever gets one seeded review for it.
-            Review.objects.get_or_create(
-                property=booking.property,
-                guest=booking.guest,
+            comment = "" if random.random() < NO_COMMENT_SHARE else random.choice(COMMENTS_BY_RATING[rating])
+            # get_or_create respects unique_review_per_guest_per_property (and
+            # leaves a review from an earlier run alone).
+            review, created = Review.objects.get_or_create(
+                property_id=property_id,
+                guest_id=guest_id,
                 defaults={"rating": rating, "comment": comment},
             )
+            if created:
+                written = now - timedelta(
+                    days=max((today - check_out).days - random.randint(0, 6), 0),
+                    hours=random.randint(0, 20),
+                )
+                Review.objects.filter(pk=review.pk).update(created_at=min(written, now))
+
+    def _create_unreviewed_stays(self, properties, guests):
+        """So the review flow can be shown live: every demo guest gets one
+        recent, ended stay (last 1-6 weeks) at an active place where they
+        have no other ended stay, and it is left without a review -
+        "Leave a review" in My bookings and "Write a review" on that property
+        page. Runs before the reviewed stays; returns the (property id,
+        guest id) pairs the reviews must skip."""
+        today = timezone.localdate()
+        active = [p for p in properties if p.is_active]
+        pairs = set()
+        for guest in guests:
+            stayed = set(Booking.objects.filter(
+                guest=guest, status=Booking.Status.CONFIRMED, check_out__lte=today,
+            ).values_list("property_id", flat=True))
+            options = [p for p in active if p.pk not in stayed]
+            random.shuffle(options)
+            for prop in options:
+                if self._add_ended_stay(prop, guest, today, days_back=42):
+                    pairs.add((prop.pk, guest.pk))
+                    break
+        return pairs
 
     # -- favorites (TICKET-033) ---------------------------------------------
+
+    def _ensure_one_retired(self, properties):
+        """The Saved page's "No longer available" card and the admin "Retired"
+        filter need one retired place (TICKET-033). If the random mix retired
+        none, the last one is retired - decided up front (TICKET-037) so the
+        stays and reviews below already know which places are active."""
+        if len(properties) > 1 and all(p.is_active for p in properties):
+            last = properties[-1]
+            last.is_active = False
+            last.save(update_fields=["is_active", "updated_at"])
 
     def _create_favorites(self, properties, guests):
         """Each demo guest saves 2-5 active places, so the hearts, the Saved
         page and the admin "Saved by" column have something to show. The
         first guest also keeps one *retired* place saved - the Saved page's
-        greyed-out "No longer available" card. If the random mix retired no
-        property, the last one is retired for that (a retired place is also
-        what the admin "Retired" filter shows)."""
+        greyed-out "No longer available" card (_ensure_one_retired made
+        sure there is one)."""
         if not properties or not guests:
             return 0
         retired = [p for p in properties if not p.is_active]
-        if not retired and len(properties) > 1:
-            last = properties[-1]
-            last.is_active = False
-            last.save(update_fields=["is_active", "updated_at"])
-            retired = [last]
         active = [p for p in properties if p.is_active]
 
         count = 0

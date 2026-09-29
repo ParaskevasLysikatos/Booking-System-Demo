@@ -6130,12 +6130,27 @@ the demo never starts out empty:
   conflict for the same property. Past stays are mostly `confirmed` with a
   few `cancelled`; future ones are a mix of `pending`/`confirmed`/
   `cancelled`.
-- **Reviews** - only generated for a guest who actually had a past,
-  confirmed booking for that property (the same rule the API enforces
-  since TICKET-032), with a rating distribution skewed positive
-  (mostly 4-5 stars) and realistic per-rating comment text rather than
-  Faker's default lorem-ipsum, so it looks authentic in front of an
-  audience.
+- **More ended stays** (TICKET-037) - on top of that mix, every property
+  gets extra `confirmed` stays that ended in the last 12 months, each for a
+  different guest, until **4-8 guests** have an ended, confirmed stay there
+  (a guest can review a place only once, so 10 demo guests cap a property
+  at 10). 2-7 nights, on free dates (same `overlapping()` check), "booked
+  on" 1-8 weeks before check-in.
+- **Reviews** - one per guest per property with a confirmed, ended stay
+  (the rule the API enforces since TICKET-032), so **every review is backed
+  by a real stay**. Ratings skew positive (`RATING_WEIGHTS`: 45% 5★, 30%
+  4★, 15% 3★, 7% 2★, 3% 1★); about **a quarter have no comment** (stars
+  only); the rest pick from 30 short, realistic comments matching the
+  rating. Each
+  review is dated 0-6 days after that guest's last stay there, so the
+  months on the property page look real. A default seed gives about **75-80
+  reviews, 4-8 per property**.
+- **One review left to write, per guest** (TICKET-037) - every demo guest
+  also gets one recent stay (ended in the last 6 weeks) at an active place
+  where they have no other ended stay, **without** a review, so the review
+  flow can be shown live: "Leave a review" in My bookings (Past tab) and
+  "Write a review" on that property's page. The place retired for the Saved
+  page is decided before this, so it never lands on a retired place.
 - **Favorites** (TICKET-033) - every guest saves 2-5 active places, so
   the hearts, the Saved page and the admin "Saved by" column have
   something to show (about 40 in total). The **first guest** (`guest_0_…`)

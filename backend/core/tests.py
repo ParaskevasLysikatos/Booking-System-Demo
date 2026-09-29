@@ -156,3 +156,73 @@ class SeedPhotosTests(TestCase):
                 self.assertTrue(3 <= len(images) <= 5)
                 self.assertTrue(all(img.image.startswith("https://picsum.photos/seed/") for img in images))
                 self.assertEqual(sum(img.is_cover for img in images), 1)
+
+
+class SeedReviewsTests(TestCase):
+    """TICKET-037: 4-8 reviews per property, each backed by a real ended,
+    confirmed stay, a mix of ratings, some without a comment - and every
+    guest keeps one ended stay to review live."""
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command("seed_demo_data", "--properties", "8", "--guests", "10", "--seed", "11", stdout=StringIO())
+
+    def test_every_property_has_four_to_ten_reviews(self):
+        from reviews.models import Review
+
+        for prop in Property.objects.all():
+            with self.subTest(prop.title):
+                # 4-8 targeted; stays from the general booking mix can add a few (max: one per guest).
+                self.assertTrue(4 <= Review.objects.filter(property=prop).count() <= 10)
+
+    def test_every_review_is_backed_by_an_ended_confirmed_stay(self):
+        from django.utils import timezone
+
+        from bookings.models import Booking
+        from reviews.models import Review
+
+        today = timezone.localdate()
+        for review in Review.objects.all():
+            stays = Booking.objects.filter(
+                property=review.property, guest=review.guest,
+                status=Booking.Status.CONFIRMED, check_out__lte=today,
+            )
+            with self.subTest(review.pk):
+                self.assertTrue(stays.exists())
+                # Written after the stay began, never in the future.
+                self.assertGreaterEqual(review.created_at.date(), min(s.check_in for s in stays))
+                self.assertLessEqual(review.created_at, timezone.now())
+
+    def test_mix_of_ratings_and_some_without_a_comment(self):
+        from reviews.models import Review
+
+        ratings = list(Review.objects.values_list("rating", flat=True))
+        comments = list(Review.objects.values_list("comment", flat=True))
+        self.assertTrue(any(r <= 3 for r in ratings))
+        self.assertTrue(any(r == 5 for r in ratings))
+        blank = sum(1 for c in comments if not c)
+        self.assertTrue(0 < blank < len(comments) / 2, (blank, len(comments)))
+        self.assertGreaterEqual(len({c for c in comments if c}), 10)  # varied texts
+
+    def test_every_guest_can_still_write_one_review(self):
+        from django.utils import timezone
+
+        from bookings.models import Booking
+        from reviews.models import Review
+
+        today = timezone.localdate()
+        for guest in User.objects.filter(username__startswith="guest_"):
+            ended = Booking.objects.filter(guest=guest, status=Booking.Status.CONFIRMED, check_out__lte=today)
+            reviewed = set(Review.objects.filter(guest=guest).values_list("property_id", flat=True))
+            with self.subTest(guest.username):
+                self.assertTrue(ended.exclude(property_id__in=reviewed).filter(property__is_active=True).exists())
+
+    def test_no_overlapping_stays(self):
+        from bookings.models import Booking
+
+        for booking in Booking.objects.exclude(status=Booking.Status.CANCELLED):
+            with self.subTest(booking.pk):
+                self.assertFalse(
+                    Booking.objects.overlapping(booking.property, booking.check_in, booking.check_out)
+                    .exclude(pk=booking.pk).exists()
+                )
