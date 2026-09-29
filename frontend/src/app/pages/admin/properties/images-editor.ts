@@ -208,7 +208,8 @@ export class ImagesEditorComponent implements ControlValueAccessor, Validator, O
       }),
     );
     this.uploads.update((u) => [...u, ...items]);
-    this.onTouched();
+    // Not marked touched here: the "wait for the uploads" message is only
+    // for someone who presses Save mid-upload, not while they're watching.
     this.pump();
   }
 

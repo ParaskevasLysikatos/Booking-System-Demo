@@ -776,7 +776,7 @@ test, always last).
     - README: new "Revenue chart: final check"; status and next steps updated.
   - **Done.** The admin dashboard shows "Revenue over time": confirmed revenue with the expected (pending) revenue stacked on top, by day / week / month picked from the period, adding up exactly to the Revenue card, with a Today line, tooltips beside the column, full keyboard use, a Chart / Table toggle, and a layout that fits phones. Hand-built SVG (no new package, initial bundle unchanged). Backend 400 tests, frontend 375 tests. Not done (easy later if wanted): click a column to zoom into it; the comparison period as a faint second series.
 
-- [ ] **TICKET-036** — Real photo uploads
+- [x] **TICKET-036** — Real photo uploads
   - Priority: P2 · Depends on: TICKET-006
   - Replaces the fallback of fixed stock photo URLs. ( i want to add my S3 aws bucket)
   - Decisions (agreed before building):
@@ -802,7 +802,15 @@ test, always last).
     - `render.yaml`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `AWS_S3_REGION` (`sync: false` - add by hand on the existing service).
     - README: new "Photo uploads: setting up S3" (region, Block Public Access policy options, public-read bucket policy for `property-images/*`, CORS for localhost:4200 + the Render site, inline IAM policy `s3:PutObject` + `s3:DeleteObject` on `property-images/*` only, access key, `.env`, Render, troubleshooting table); "Removed photos are deleted from S3"; status and next steps.
     - 12 new tests (S3 client mocked); **436 backend tests** pass on Postgres.
-  - Remaining: the owner sets up the IAM user / bucket policy / CORS and adds the four values to `.env` and Render → final check with the real bucket (local + Render) → done.
+  - AWS setup (29 Sep, guided in Chrome; the owner made every security change and handled the keys himself): new dedicated bucket **`booking-demo-photos-paraskevas`** (eu-central-1) - Block Public Access: ACL options on, policy options off; bucket policy public `GetObject` on `property-images/*` only; CORS `POST` from localhost:4200 + the Render site; IAM user `booking-demo-uploads` (no console) with inline policy `booking-demo-photos-upload-delete` (`PutObject` + `DeleteObject` on `property-images/*`); keys in `.env` and Render.
+  - Final check (29 Sep, Chrome as the demo admin):
+    - **Local:** config `enabled: true`; a 4000×3000 JPEG (961 KB) → **1600×1200 WebP, 74.5 KB** in `property-images/2026/09/`, thumbnail from the public URL; save → shown on the property page; remove + save → object deleted (bucket empty); anonymous bucket listing → `AccessDenied`.
+    - **Render:** config `enabled: true`; a portrait 3024×4032 JPEG (858 KB) → 1200×1600 WebP, 65.7 KB (orientation kept); save → public property page shows it; remove + save → deleted from S3.
+    - Both test photos removed again, so both properties have their original photos.
+    - Changed after looking at it: the red "Wait for the photo uploads to finish, then save." showed as soon as an upload started - adding files no longer marks the control touched, so it only shows if Save is pressed mid-upload (+1 assertion; 403 frontend tests pass).
+    - Note for re-runs: a background Chrome tab throttles the upload until it's in front again.
+    - README: new "Photo uploads: final check"; status and next steps updated.
+  - **Done.** Admins upload property photos straight to the owner's S3 bucket (drag & drop or Upload photos): resized in the browser to ≤ 1600 px WebP with EXIF/GPS stripped, presigned by the API (5 min, one key, type + size pinned), with progress, cancel/retry and no saving mid-upload; photos removed from a saved property are deleted from S3 (own uploads only, after commit, only when unused). Pasting URLs still works, and without the `AWS_*` settings the app behaves exactly as before. Backend 436 tests, frontend 403 tests. Not done (on purpose): cleaning up photos uploaded in a form that was then discarded (would need `s3:ListBucket`).
 
 - [ ] **TICKET-042** — Shorter "Placed at …" labels in the admin Find on map
   - Priority: P2 · Depends on: TICKET-034 · Small; can be folded into TICKET-037 (UI polish pass)

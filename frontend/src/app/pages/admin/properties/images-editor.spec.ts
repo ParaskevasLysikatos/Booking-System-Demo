@@ -247,6 +247,7 @@ describe('ImagesEditorComponent in a form (TICKET-036)', () => {
 
     editor.addFiles([photo('a.jpg'), photo('b.jpg')]);
     expect(control.errors).toEqual({ uploading: true });
+    expect(control.touched).toBe(false); // no red "wait" message until Save is pressed
 
     uploader.runs[0].progress.next({ kind: 'done', url: 'https://s3.test/a.webp' });
     expect(control.errors).toEqual({ uploading: true }); // b still running

@@ -80,6 +80,9 @@ properties → Photo uploads". Step 3 is done - photos removed from a
 saved property are deleted from S3 (this app's own uploads only, after the
 save commits, and only when nothing uses them any more); `render.yaml` and
 a step-by-step bucket setup are ready; see "Photo uploads: setting up S3".
+**TICKET-036 is done:** checked with the real bucket locally and on
+Render (upload → save → shown to guests → remove → deleted from S3); see
+"Photo uploads: final check".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -2166,6 +2169,57 @@ and opening that link shows the photo.
 | "Couldn't reach the photo storage … CORS" | step 4 is missing, or the site's origin isn't in `AllowedOrigins` |
 | "refused the upload (access denied)" | step 5's policy (wrong bucket name or prefix), or the keys belong to another user |
 | uploaded, but the photo shows as broken | step 2 or 3: the public-read policy isn't in place |
+
+## Photo uploads: final check (TICKET-036)
+
+29 Sep 2026, with the owner's real bucket `booking-demo-photos-paraskevas`
+(eu-central-1). Each test photo was **removed again and saved**, so the
+two properties are back to their original photos and the bucket is
+empty.
+
+**AWS setup** (checked in the console after the owner set it up):
+
+- Block Public Access: the two ACL options are on and the two policy
+  options are off.
+- The bucket policy allows public `s3:GetObject` on
+  `property-images/*` only.
+- The CORS rule allows `POST` from `http://localhost:4200` and
+  `https://booking-demo-g4aw.onrender.com`.
+- The IAM user `booking-demo-uploads` has no console access. Its only
+  permission is an inline policy: `s3:PutObject` + `s3:DeleteObject` on
+  `property-images/*`.
+- `.env` and Render have the four `AWS_*` values. The keys were never
+  seen by the assistant; `.env` was checked for length only.
+
+**Local** (Docker, rebuilt; Chrome as the demo admin):
+
+| Check | Result |
+| --- | --- |
+| `GET /api/admin/uploads/config/` | `enabled: true`, 10 MB, JPEG/PNG/WebP |
+| Photos card | drop zone "Drag photos here, or Upload photos"; "Or paste a photo URL" underneath |
+| Upload a 4000×3000 JPEG (961 KB) on Cozy Apartment in Corfu | stored as `property-images/2026/09/fd89…9b64.webp`: **1600×1200 WebP, 74.5 KB**; thumbnail loads from the public URL |
+| Save → property page | 6 photos; the S3 photo shows in the gallery |
+| Remove it → Save | "Saved …"; the object is **gone from the bucket** (0 objects) |
+| Bucket root URL, logged out | `AccessDenied` (the bucket can't be listed) |
+
+**Render** (auto-deployed, the four values set in the dashboard):
+
+| Check | Result |
+| --- | --- |
+| `GET /api/admin/uploads/config/` | `enabled: true` |
+| Upload a **portrait** 3024×4032 JPEG (858 KB) on Spacious Loft in Mykonos | **1200×1600** WebP, 65.7 KB; the orientation is kept |
+| Save → public property page | the S3 photo loads |
+| Remove it → Save | the object is deleted from the bucket (0 objects) |
+
+**Changed after looking at it:** the "Wait for the photo uploads to
+finish, then save." message showed in red **as soon as** an upload
+started. Adding files no longer marks the control as touched, so the
+message only appears if you press Save during an upload. A test was
+added; there are still **403** frontend tests, all passing.
+
+**Note for re-runs:** in a background Chrome tab the upload pauses
+(Chrome throttles it) until the tab is in front again. It then
+finishes normally.
 
 ## Frontend auth (Angular)
 
@@ -6577,5 +6631,8 @@ mid-upload) is done; see "Admin properties → Photo uploads"; step 3
 (photos removed from a saved property deleted from S3 - own uploads only,
 after commit, only when unused; the four `AWS_*` values in `render.yaml`;
 "Photo uploads: setting up S3" with the bucket policy, CORS and an
-upload-only IAM user) is done. Next: the final check with the real
-bucket (local + Render).
+upload-only IAM user) is done; **TICKET-036 is done** (final check with
+the owner's bucket `booking-demo-photos-paraskevas`, locally and on
+Render: a 4000×3000 JPEG became a 1600×1200 WebP of 74.5 KB, portrait
+kept its orientation, saved photos show to guests, removed ones are
+deleted from S3; see "Photo uploads: final check").
