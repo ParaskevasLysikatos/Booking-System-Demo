@@ -26,3 +26,6 @@ github token.txt
 
 # Django collectstatic output (built on deploy)
 backend/staticfiles/
+
+# Files the Claude desktop app saves into this folder
+Claude outputs/
