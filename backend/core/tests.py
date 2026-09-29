@@ -315,3 +315,63 @@ class SeedDemoLoginsTests(TestCase):
         self.assertEqual(owner.email, "owner@gmail.com")
         self.assertTrue(owner.check_password("S3cure-Booking-Pass!"))
         self.assertFalse(User.objects.filter(email="admin@demo.com").exists())
+
+
+class SeedReplaceOldDemoTests(TestCase):
+    """TICKET-041: the Render build runs `seed_demo_data --if-empty
+    --replace-old-demo` - a one-off re-seed while old-style demo accounts
+    exist, then a no-op like --if-empty."""
+
+    BUILD_ARGS = ("--if-empty", "--replace-old-demo")
+
+    def seed(self, *args):
+        out = StringIO()
+        call_command("seed_demo_data", "--properties", "2", "--guests", "2", "--seed", "4", *args, stdout=out)
+        return out.getvalue()
+
+    def make_old_demo_data(self):
+        """What the pre-TICKET-041 seeder left on the hosted copy."""
+        self.seed()
+        from core.demo_accounts import demo_admin_users
+
+        demo_guest_users().delete()
+        demo_admin_users().delete()
+        User.objects.create_superuser("admin_demo", "admin_demo@example.com", "AdminPass123!")
+        User.objects.create_user("guest_0_jdoe", "guest_0_jdoe@example.com", "DemoPass123!")
+
+    def test_old_demo_accounts_trigger_a_full_reseed(self):
+        self.make_old_demo_data()
+        real = User.objects.create_user("maria@example.com", "maria@example.com", "S3cure-Booking-Pass!")
+        old_properties = set(Property.objects.values_list("id", flat=True))
+
+        out = self.seed(*self.BUILD_ARGS)
+
+        self.assertIn("re-seeding with the new demo logins", out)
+        self.assertFalse(User.objects.filter(username__in=["admin_demo", "guest_0_jdoe"]).exists())
+        self.assertEqual(
+            sorted(demo_guest_users().values_list("email", flat=True)), ["guest1@demo.com", "guest2@demo.com"]
+        )
+        self.assertTrue(User.objects.filter(email="admin@demo.com").exists())
+        self.assertFalse(old_properties & set(Property.objects.values_list("id", flat=True)))
+        self.assertEqual(Property.objects.count(), 2)
+        self.assertTrue(User.objects.filter(pk=real.pk).exists())
+
+    def test_fires_only_once(self):
+        self.make_old_demo_data()
+        self.seed(*self.BUILD_ARGS)
+        after_reseed = set(Property.objects.values_list("id", flat=True))
+        out = self.seed(*self.BUILD_ARGS)  # the next deploy
+        self.assertIn("skipping", out)
+        self.assertEqual(set(Property.objects.values_list("id", flat=True)), after_reseed)
+
+    def test_new_style_data_is_left_alone(self):
+        self.seed()
+        before = set(Property.objects.values_list("id", flat=True))
+        out = self.seed(*self.BUILD_ARGS)
+        self.assertIn("skipping", out)
+        self.assertEqual(set(Property.objects.values_list("id", flat=True)), before)
+
+    def test_empty_database_is_seeded_as_before(self):
+        self.seed(*self.BUILD_ARGS)
+        self.assertEqual(Property.objects.count(), 2)
+        self.assertTrue(User.objects.filter(email="admin@demo.com").exists())

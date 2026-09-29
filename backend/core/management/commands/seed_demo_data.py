@@ -158,6 +158,18 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--replace-old-demo",
+            action="store_true",
+            help=(
+                "If demo accounts from before TICKET-041 exist (admin_demo, "
+                "guest_*@example.com), re-seed from scratch as if --clear "
+                "was given - even with --if-empty. Otherwise it changes "
+                "nothing. Used by the Render build (build.sh) for a one-off "
+                "re-seed of the hosted copy: after that run no old-style "
+                "accounts are left, so later deploys skip it by themselves."
+            ),
+        )
+        parser.add_argument(
             "--properties",
             type=int,
             default=14,
@@ -177,7 +189,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if options["if_empty"] and Property.objects.exists():
+        if options["replace_old_demo"] and legacy_demo_users().exists():
+            self.stdout.write(
+                "Old-style demo accounts found (admin_demo / guest_*@example.com) - "
+                "re-seeding with the new demo logins (--replace-old-demo)."
+            )
+            options["clear"] = True
+        elif options["if_empty"] and Property.objects.exists():
             self.stdout.write("Properties already exist - skipping the demo seed (--if-empty).")
             return
 
