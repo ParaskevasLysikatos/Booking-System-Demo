@@ -83,6 +83,14 @@ a step-by-step bucket setup are ready; see "Photo uploads: setting up S3".
 **TICKET-036 is done:** checked with the real bucket locally and on
 Render (upload → save → shown to guests → remove → deleted from S3); see
 "Photo uploads: final check".
+**TICKET-037 is done:** the demo data now uses 36 Unsplash photos served
+from the bucket's `property-images/seed/` folder, matched to each
+property type (`manage.py upload_seed_photos`, see "Seed photos in S3"),
+and every property has 4-8 reviews backed by real ended stays, with one
+stay per guest left to review live (see "Seeding demo data"). TICKET-042
+was folded in: Find on map now says "Placed at Ιωάννη Τσιμισκή, Ladadika,
+Thessaloniki" with the full address as a tooltip. See "Demo data: final
+check (TICKET-037)".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -354,7 +362,7 @@ flagged `is_cover` (used as the listing's thumbnail):
 | Field | Type | Notes |
 | --- | --- | --- |
 | `property` | `ForeignKey -> Property` | `related_name="images"`, `on_delete=CASCADE` |
-| `image` | `URLField` | Photo URL: a photo uploaded to the S3 bucket (TICKET-036, stored as its public `https://<bucket>.s3.<region>.amazonaws.com/property-images/…` URL) or any pasted image URL. Demo data uses stock photo URLs (Faker seed script) |
+| `image` | `URLField` | Photo URL: a photo uploaded to the S3 bucket (TICKET-036, stored as its public `https://<bucket>.s3.<region>.amazonaws.com/property-images/…` URL) or any pasted image URL. Demo data uses the seed photos in the bucket's `property-images/seed/` (TICKET-037), or picsum URLs without S3 |
 | `is_cover` | `BooleanField` | Marks the thumbnail photo. At most one `True` per property |
 | `created_at` | `DateTimeField` | Auto-managed |
 
@@ -2308,6 +2316,27 @@ HEAD/403/404/500, the command's new/skip/changed/`--force`/`--dry-run`/
 failure/off cases with a mocked S3 client, and a seed photo shared by two
 properties is never deleted - neither when removed from one nor when no
 property uses it any more).
+
+## Demo data: final check (TICKET-037)
+
+29 Sep 2026, on the local app after
+`docker compose exec backend python manage.py seed_demo_data --clear`
+("Seeded 14 properties, 10 guests, 82 reviews and 38 saved places" -
+"Photos: S3 seed photos (…/property-images/seed/)"), in Chrome:
+
+| Where | Checked |
+| --- | --- |
+| S3 | all 36 `property-images/seed/*.webp` answer `200 image/webp` with `Cache-Control: public, max-age=604800`; anonymous bucket listing still `403` |
+| Listings (desktop) | every card shows its seed photo (a villa's pool, a retreat's stone cottage, …); ratings like "★ 4.7 (6)" |
+| Property page | 4-photo gallery; Reviews: 4.7, per-star bars, stars-only reviews shown without a comment, "Showing 5 of 6" + Show more |
+| Admin → Reviews | 82 reviews, newest "Posted" dates spread over the last year, "No comment" rows |
+| Admin → Bookings (Past) | the added stays with "booked" dates weeks before the stay |
+| Guest (`guest_0_…`) → My bookings → Past | "You rated this place ★…" on reviewed stays and **Leave a review** on one recent stay; the dialog opens (not posted) |
+| Phone width (390 px, same pages) | no sideways scroll; photos fill their boxes; reviews in one column |
+| Admin → New property → Find on map | "Placed at Ιωάννη Τσιμισκή, Ladadika, Thessaloniki (street)", "Kardamyli, Messenia", "Εγνατία 100, Thessaloniki (exact address)"; full line on hover (not saved) |
+
+Note: the photos are ~40-180 KB each, so on a first visit a card can show
+its grey placeholder for a moment before the photo appears.
 
 ## Frontend auth (Angular)
 
@@ -6757,7 +6786,16 @@ upload-only IAM user) is done; **TICKET-036 is done** (final check with
 the owner's bucket `booking-demo-photos-paraskevas`, locally and on
 Render: a 4000×3000 JPEG became a 1600×1200 WebP of 74.5 KB, portrait
 kept its orientation, saved photos show to guests, removed ones are
-deleted from S3; see "Photo uploads: final check"). Planned later: seed photos
-served from the bucket's `property-images/seed/` folder (TICKET-037), and,
-after the meetup, Brevo as a backup email provider when the Gmail token
-has expired (TICKET-043, "Refactor & hardening").
+deleted from S3; see "Photo uploads: final check"). **TICKET-037 (UI
+polish + refreshed seed data) is done:** 36 Unsplash seed photos in
+`backend/core/seed_photos/`, uploaded once to `property-images/seed/`
+with `manage.py upload_seed_photos` and picked by property type; 4-8
+reviews per property backed by ended, confirmed stays (~25% stars only),
+plus one unreviewed recent stay per guest; TICKET-042's short "Placed at
+…" labels; see "Seed photos in S3", "Seeding demo data" and "Demo data:
+final check (TICKET-037)". The hosted (Render) database still has its
+picsum photos and old reviews until the one-off re-seed in TICKET-041.
+Next: TICKET-041 (simple demo logins + that re-seed), TICKET-038 (English
+/ Greek), then TICKET-039 (final redeploy + smoke test); after the
+meetup, Brevo as a backup email provider when the Gmail token has
+expired (TICKET-043, "Refactor & hardening").
