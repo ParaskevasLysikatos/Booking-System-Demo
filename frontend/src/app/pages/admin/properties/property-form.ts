@@ -197,6 +197,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
     const c = this.form.controls[name];
     if (!c.touched || !c.errors) return null;
     if (c.errors['server']) return c.errors['server'];
+    if (c.errors['uploading']) return 'Wait for the photo uploads to finish, then save.';
     if (c.errors['required']) return name === 'position' ? 'Set the map position: find the address or click the map.' : 'Required.';
     if (c.errors['min']) return name === 'price' ? 'Must be more than €0.' : 'Must be at least 1.';
     if (c.errors['max']) return 'Too large.';

@@ -1,12 +1,67 @@
+@if (uploadsEnabled()) {
+  <div class="drop" [class.over]="dragOver()" [class.off]="disabled()"
+       (dragover)="onDragOver($event)" (dragleave)="dragOver.set(false)" (drop)="onDrop($event)">
+    <mat-icon class="big" aria-hidden="true">cloud_upload</mat-icon>
+    <p class="drop-text">Drag photos here, or</p>
+    <button mat-flat-button type="button" (click)="picker.click()" [disabled]="disabled()">
+      <mat-icon>upload</mat-icon>Upload photos
+    </button>
+    <input #picker type="file" accept="image/jpeg,image/png,image/webp,image/*" multiple hidden
+           (change)="onFilesPicked($event)" data-testid="photo-picker" />
+    <p class="drop-hint">JPEG, PNG or WebP · resized to {{ maxSide }} px before uploading</p>
+  </div>
+}
 <div class="add">
   <mat-form-field appearance="outline" subscriptSizing="dynamic">
-    <mat-label>Photo URL</mat-label>
+    <mat-label>{{ uploadsEnabled() ? 'Or paste a photo URL' : 'Photo URL' }}</mat-label>
     <input matInput type="url" [formControl]="url" placeholder="https://…" (keydown.enter)="$event.preventDefault(); add()" [readonly]="disabled()" />
   </mat-form-field>
   <button mat-stroked-button type="button" (click)="add()" [disabled]="disabled() || !url.value.trim()"><mat-icon>add_photo_alternate</mat-icon>Add photo</button>
 </div>
 @if (addError(); as e) {
   <p class="err" role="alert">{{ e }}</p>
+}
+
+@if (uploads().length) {
+  <ul class="uploads" aria-label="Photo uploads">
+    @for (u of uploads(); track u.id) {
+      <li class="upload" [class.failed]="u.state === 'failed'">
+        @if (u.preview) {
+          <img [src]="u.preview" alt="" />
+        } @else {
+          <span class="thumb"><mat-icon>image</mat-icon></span>
+        }
+        <div class="meta">
+          <span class="name" [title]="u.name">{{ u.name }}</span>
+          @switch (u.state) {
+            @case ('failed') {
+              <em class="err" role="alert">{{ u.error }}</em>
+            }
+            @case ('queued') {
+              <span class="status">Waiting…</span>
+            }
+            @default {
+              <mat-progress-bar [mode]="u.percent === 0 ? 'indeterminate' : 'determinate'" [value]="u.percent"
+                                [attr.aria-label]="'Uploading ' + u.name" />
+              <span class="status">{{ u.percent === 0 ? 'Preparing…' : 'Uploading ' + u.percent + '%' }}</span>
+            }
+          }
+        </div>
+        @if (u.state === 'failed') {
+          <button mat-icon-button type="button" (click)="retry(u.id)" matTooltip="Try again" [attr.aria-label]="'Try uploading ' + u.name + ' again'">
+            <mat-icon>refresh</mat-icon>
+          </button>
+          <button mat-icon-button type="button" (click)="cancel(u.id)" matTooltip="Dismiss" [attr.aria-label]="'Dismiss ' + u.name">
+            <mat-icon>close</mat-icon>
+          </button>
+        } @else {
+          <button mat-icon-button type="button" (click)="cancel(u.id)" matTooltip="Cancel upload" [attr.aria-label]="'Cancel uploading ' + u.name">
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </li>
+    }
+  </ul>
 }
 
 @if (images().length) {
@@ -34,7 +89,7 @@
       </li>
     }
   </ol>
-} @else {
+} @else if (!uploads().length) {
   <p class="empty"><mat-icon>photo_library</mat-icon>No photos yet - add at least one so the listing looks good.</p>
 }
 @if (error(); as e) {

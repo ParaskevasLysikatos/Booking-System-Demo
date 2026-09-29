@@ -73,6 +73,10 @@ admins can ask the API for a short-lived presigned S3 upload (`POST
 /api/admin/uploads/presign/`, JPEG/PNG/WebP up to 10 MB), so the browser
 can upload a photo straight to the owner's bucket; without the `AWS_*`
 settings uploads are simply off. See "Photo uploads API (TICKET-036)".
+Step 2 is done - the admin property form's Photos card has **Upload
+photos** and drag & drop: photos are resized to 1600 px WebP in the
+browser and uploaded straight to S3 with a progress bar; see "Admin
+properties → Photo uploads".
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -266,7 +270,8 @@ frontend/
     core/admin/                         AdminStatsService (/api/admin/stats/), periods.ts (presets, comparison period, deltas),
                                         AdminPropertiesService (list all / create / update / retire / reactivate),
                                         AdminBadgesService (pending-bookings count for the side nav),
-                                        revenue-chart.ts (the revenue chart's ticks, labels, geometry - TICKET-035)
+                                        revenue-chart.ts (the revenue chart's ticks, labels, geometry - TICKET-035),
+                                        PhotoUploadService + image-resize.ts (photo uploads straight to S3 - TICKET-036)
     core/unsaved-changes.guard.ts       canDeactivate "Discard unsaved changes?" for forms
     shared/confirm-dialog.ts            Generic confirm dialog (danger variant)
     shared/booking-summary.ts           Booking summary card after booking (confirmation + paid screens)
@@ -292,7 +297,7 @@ frontend/
     pages/payment-return/               /bookings/:id/payment - back from Stripe: confirming (polling), confirmed,
                                         processing, not completed (countdown, Pay now, Cancel), time ran out
     pages/admin/                        Admin shell (side nav), dashboard/ (stat cards, revenue chart, breakdown table),
-                                        properties/ (table + form with amenities picker and drag-drop photos),
+                                        properties/ (table + form with amenities picker and drag-drop photos, uploads to S3),
                                         bookings/ (every guest's bookings: tabs, filters, confirm/cancel),
                                         reviews/ (every review: filters, Hide / Show again - TICKET-032)
     pages/forbidden/                    403 "Admins only" page
@@ -3584,6 +3589,9 @@ backend's `IsAdminOrReadOnly` is what actually allows the writes;
     (`toAmenityKey()`); custom ones appear as removable chips
   - the order is stable: known amenities first, then custom ones
 - **Photos** (`images-editor.ts`, a form control):
+  - **Upload photos** or drag photos onto the drop zone: they're resized
+    in the browser and uploaded straight to S3 (TICKET-036). This only
+    appears when the server has S3 set up; see "Photo uploads" below.
   - paste a URL → **Add photo**. The URL must start with
     `http(s)://`, and duplicates are refused.
   - **drag to reorder** (Angular CDK drag & drop, using the handle)
@@ -3591,8 +3599,6 @@ backend's `IsAdminOrReadOnly` is what actually allows the writes;
     first photo you add, or the next one if you remove the cover.
   - **remove**
   - broken URLs show a "Couldn't load this image" warning
-  - URLs only for now. Real uploads to S3 are TICKET-036, which only
-    needs to replace the "add" part of this component.
 - **Map position** (`location-picker.ts`, a form control, TICKET-034
   step 7) - see "Map position" below.
 - **Saving:**
@@ -3611,6 +3617,114 @@ backend's `IsAdminOrReadOnly` is what actually allows the writes;
 - **States:** loading, "This property doesn't exist." for an unknown id,
   and an error with Try again. Edit mode has a **View public page**
   link.
+
+### Photo uploads (TICKET-036 step 2)
+
+When the server has S3 set up (`GET /api/admin/uploads/config/` →
+`enabled: true`), the Photos card starts with a **drop zone**:
+"Drag photos here, or **Upload photos**", plus a hint (JPEG, PNG or
+WebP, resized to 1600 px). The URL field stays underneath, labelled
+"Or paste a photo URL". With uploads off, the card looks exactly as
+before.
+
+What happens to each photo (`core/admin/photo-upload.service.ts`):
+
+1. **Resize in the browser** (`core/admin/image-resize.ts:ImageResizer`):
+   - `createImageBitmap(file, {imageOrientation: 'from-image'})`, so
+     phone photos aren't sideways
+   - drawn onto a canvas with the longest side at most **1600 px**
+     (`fitWithin()`, never scaled up)
+   - encoded as **WebP** at quality 0.82. A browser that can't encode
+     WebP gets **JPEG** instead, with a white background under
+     transparent parts.
+   - A 4032×3024 phone photo (5-10 MB) becomes about 200-400 KB. It is
+     **always** re-encoded, even when it's already small. That also
+     removes the camera's EXIF data, including the GPS position, which
+     shouldn't end up on a public URL.
+   - Files over 40 MB aren't opened at all, because decoding them can
+     freeze a phone. A file the browser can't decode (e.g. HEIC outside
+     Safari) shows "Couldn't read this photo. Use a JPEG, PNG or WebP
+     image."
+2. **Presign:** `POST /api/admin/uploads/presign/` with the *resized*
+   type and size.
+3. **Upload to S3:** a `multipart/form-data` POST to the returned `url`
+   with every signed field and then the file, named `file`, **last**
+   (S3 ignores fields after the file). It uses `reportProgress`. The
+   auth interceptor only adds the JWT to our own API, so the token is
+   never sent to Amazon (a test checks this).
+4. S3 answers `204`, and the photo's `public_url` joins the list. The
+   first photo becomes the cover, like a pasted URL. It's saved with the
+   property when you press Save (the API stores URLs, as before).
+
+In the editor:
+
+- **Rows while uploading:**
+  - each photo gets a row with its thumbnail and name
+  - "Waiting…" while queued
+  - "Preparing…" with a moving bar while it's being resized/presigned
+  - then "Uploading 40%" with a real progress bar
+  - At most **2 photos** are resized and uploaded at the same time
+    (`MAX_PARALLEL_UPLOADS`); the rest wait their turn.
+- **Cancel (×)** unsubscribes, which aborts the request, and starts
+  the next waiting photo.
+- **Errors** stay on the row with **Try again** and **Dismiss**:
+
+  | Cause | Message |
+  | --- | --- |
+  | switched off | the API's "Photo uploads are switched off. Paste an image URL instead." |
+  | too big | the API's size message, or S3's `EntityTooLarge` → "too large, even after resizing" |
+  | presign expired | "The upload took too long. Try again." |
+  | IAM/bucket policy | "…refused the upload (access denied). Check the bucket setup." |
+  | network/CORS | status 0 → "Couldn't reach the photo storage… (or the bucket's CORS setup)" |
+  | throttled | `429` → "Wait a minute" |
+
+  Non-image files are skipped: "Not a photo, skipped: notes.pdf".
+- **You can't save half-uploaded photos:** the editor is also a form
+  **validator**. While any photo is waiting or uploading, the control
+  has the `uploading` error. Save then shows "Please fix the highlighted
+  fields." and, under Photos, "Wait for the photo uploads to finish,
+  then save." A *failed* photo doesn't block saving.
+- **Drag & drop** only reacts to files being dragged (`dataTransfer.types`
+  includes `Files`). Reordering the list with the CDK handle doesn't
+  light up the drop zone, and a dropped photo never opens in the tab.
+- **Unsaved changes:** an uploaded photo makes the form dirty, like any
+  edit. Leaving without saving asks "Discard unsaved changes?". A
+  discarded upload stays in the bucket unused; step 3 deletes photos
+  when they're removed from a saved property.
+
+Tests (28 new; **403 frontend tests** pass; the production build is
+clean and the initial bundle is unchanged at 601 kB / 147 kB):
+
+- `image-resize.spec.ts` (4) covers `fitWithin`:
+  - landscape, portrait and square photos
+  - never scaling up
+  - rounding and a 1 px minimum
+  - a custom limit
+- `photo-upload.service.spec.ts` (11) covers:
+  - config asked once and shared; any error means uploads are off
+  - the full flow: resize → presign body with the resized type/size
+    → S3 form fields in order with `file` last, no `Authorization`
+    header → progress 50% / 99% → done with the public URL
+  - the 40 MB guard
+  - an unreadable photo
+  - the API's `503`, field, and `429` messages
+  - every S3 error mapping (including status 0)
+  - unsubscribing aborts the S3 request
+  - reading S3's XML error code
+- `images-editor.spec.ts` (13 new) covers:
+  - uploads off: no drop zone
+  - uploads on: drop zone and URL field
+  - progress → done → the photo joins as the cover
+  - at most 2 at a time
+  - a later upload isn't the cover
+  - non-images skipped
+  - failed → Try again → Dismiss
+  - cancel aborts and starts the next
+  - a synchronous failure never starts a photo twice
+  - drop, and non-file drags ignored
+  - disabled
+  - in a real reactive form: `uploading` while running, valid once
+    done or failed
 
 ### Map position (TICKET-034 step 7)
 
@@ -6275,6 +6389,9 @@ photo uploads) is in progress:** step 1 (the `uploads` app: `GET
 5-minute presigned S3 POST for one new random key under
 `property-images/`, JPEG/PNG/WebP, 1 byte-10 MB, switched off without the
 `AWS_*` settings, startup checks) is done; see "Photo uploads API
-(TICKET-036)". Next: step 2 (Upload photos in the admin Photos editor:
-drag & drop, resize in the browser, progress), then step 3 (removed photos
-deleted from S3, Render settings, the bucket setup guide, final check).
+(TICKET-036)"; step 2 (Upload photos and drag & drop in the admin Photos
+editor: resized to 1600 px WebP in the browser, uploaded straight to S3
+with progress, at most 2 at a time, cancel/retry, the form can't be saved
+mid-upload) is done; see "Admin properties → Photo uploads". Next: step 3
+(removed photos deleted from S3, Render settings, the bucket setup guide,
+final check).
