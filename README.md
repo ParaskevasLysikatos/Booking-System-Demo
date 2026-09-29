@@ -6295,7 +6295,7 @@ Simple on purpose, so they're easy to type at the meetup table:
     data; Django Admin (`/admin/`) accepted `admin` / `admin123`.
   - **Render:** the one-off re-seed ran on the first deploy after step 2
     (new property ids, S3 seed photos, 4-5 reviews each) and not again on
-    the next four; `/api/auth/demo-logins/` lists both logins (so the
+    the next two (ids checked after each); `/api/auth/demo-logins/` lists both logins (so the
     server itself confirmed the passwords); the hosted login page shows
     the box and each button fills the right values; at phone widths
     (375/320 px) the logins wrap under their buttons without overflow.
