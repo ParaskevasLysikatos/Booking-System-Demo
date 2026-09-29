@@ -91,7 +91,8 @@ stay per guest left to review live (see "Seeding demo data"). TICKET-042
 was folded in: Find on map now says "Placed at Ιωάννη Τσιμισκή, Ladadika,
 Thessaloniki" with the full address as a tooltip. See "Demo data: final
 check (TICKET-037)".
-**TICKET-038 (English / Greek) is in progress:** step 1 is done - an
+**TICKET-038 (English / Greek) is done** (all 8 steps; final check locally
+and on Render on 29 Sep - see "Two languages → Final check"). Step 1 - an
 "EN / ΕΛ" switch in the toolbar changes the app at once, with no reload,
 and is remembered per browser (English on a first visit). It rests on two
 dictionaries (`en.json` / `el.json`), a small `TranslationService` and a `t`
@@ -6188,7 +6189,7 @@ build or site.
    `.po`) - **done**.
 7. Stripe's payment page in the same language (`locale` on the Checkout
    Session) - **done**.
-8. Final check in both languages, locally and on Render.
+8. Final check in both languages, locally and on Render - **done**.
 
 ### How it works (`src/app/core/i18n/`)
 
@@ -6675,6 +6676,50 @@ Tests (`CheckoutLanguageTests`, 8 new, **516 backend tests** pass on Postgres):
 - a refusal ("this booking was cancelled") in Greek
 - The existing exact-request test now also checks `locale: "en"` and the
   full English description, unchanged
+
+### Final check (step 8, 29 Sep)
+
+Done in Chrome against the local Docker app and the hosted demo (Render,
+auto-deployed from `bf3aa42`). The test bookings made for it were
+cancelled straight away.
+
+**Locally** (http://localhost:4200, API on :8000, Stripe test mode):
+- ΕΛ on the login page, then a wrong password: the server's own message in
+  Greek ("Δεν βρέθηκε ενεργός λογαριασμός με αυτά τα στοιχεία"), Greek
+  labels and demo-logins box, tab title "Σύνδεση".
+- Logged in as a guest; listings, property page and both booking steps in
+  Greek (dates "Τετ 9 Δεκ 2026", "192 €", the cancel and payment policies).
+- **Επιβεβαίωση και πληρωμή → Stripe's page in Greek:** "Modern Retreat in
+  Athens - 3 νύχτες", "192,00 €", "Τετ 9 Δεκ 2026 έως Σάβ 12 Δεκ 2026, 2
+  άτομα, Athens, Greece", Κάρτα / Πληρωμή / Στοιχεία επικοινωνίας.
+- Back from Stripe: "Η πληρωμή δεν ολοκληρώθηκε" with the countdown, in
+  Greek. Switched to EN (the page turned English at once), then **Pay
+  now**: the same Greek Stripe page, as agreed.
+- A new booking in English: Stripe's page in English, "Modern Retreat in
+  Athens - 2 nights", "Wed 16 Dec 2026 to Fri 18 Dec 2026, 1 guest, …".
+- Cancelling again an already-cancelled booking with the app in Greek:
+  "Η κράτηση είναι ήδη ακυρωμένη."
+
+**On Render** (https://booking-demo-g4aw.onrender.com):
+- A first visit is English (nothing saved, `<html lang="en">`); ΕΛ loads
+  the Greek chunk and switches the page and the tab title.
+- The API: a wrong login and a taken email come back in Greek, with
+  `Content-Language: el`. The Django Admin login page stays English with
+  `Accept-Language: el`.
+- The admin dashboard in Greek ("Πίνακας ελέγχου", "6.554 €", "13,0%",
+  "έναντι Αυγούστου", the chart and the per-property table).
+- A booking as the admin (its emails go to the owner's inbox, not a demo
+  address): Stripe's page in Greek, "Quiet Villa in Heraklion - 3
+  νύχτες", "531,00 €", "Τετ 13 Ιαν 2027 έως Σάβ 16 Ιαν 2027, 2 άτομα";
+  then cancelled.
+- Listings in Greek with the map; no console errors.
+
+**Automated, at the end of TICKET-038:** 516 backend tests (Postgres) and
+475 frontend tests pass; `npm run check:i18n`: 734 key uses, all found.
+
+Seen along the way, not a bug: with the Chrome window in the background,
+some clicks were only picked up when sent from the page itself. Nothing
+changed in the app for this.
 
 ### Material's own texts, per page
 
@@ -7218,6 +7263,9 @@ recruiters the **hosted link** to try afterwards.
 
 - [x] TICKET-041 (simple demo logins) is done - locally re-seeded and
       live on Render (29 Sep)
+- [x] TICKET-038 (English / Greek) is done - checked locally and on
+      Render (29 Sep). To show it: the **EN / ΕΛ** pill in the toolbar; a
+      first visit is always English.
 - [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -7557,7 +7605,7 @@ removes the old-style accounts; a self-limiting one-off re-seed
 the S3 seed photos and the new reviews; `GET /api/auth/demo-logins/` feeds
 a "Demo logins" box on the login page that fills the form in one click;
 see "Seeding demo data → Demo logins" and "Deploying to Render → One-off
-re-seed". **TICKET-038 (English / Greek) is in progress:** step 1 (the
+re-seed". **TICKET-038 (English / Greek) is done:** step 1 (the
 foundation: `en.json` / `el.json`, `TranslationService`, the `t` pipe, the
 EN / ΕΛ switch remembered per browser, translated tab titles, Material's
 paginator / date picker / stepper texts and a date adapter that follow the
@@ -7579,6 +7627,8 @@ Django Admin and emails stay English) is done; see "Two languages → Server
 messages in Greek"; step 7 (Stripe's payment page in the app's language:
 `locale` plus a Greek line item, the language in the idempotency key, "Pay
 now" keeps the page's language) is done; see "Two languages → Stripe's
-payment page". Next: the final check (step 8); then TICKET-039 (final redeploy + smoke test); after the
+payment page"; step 8 (the final check in both languages, locally and on
+Render, in Chrome) is done; see "Two languages → Final check". Next:
+TICKET-039 (final redeploy + smoke test); after the
 meetup, Brevo as a backup email provider when the Gmail token has
 expired (TICKET-043, "Refactor & hardening").
