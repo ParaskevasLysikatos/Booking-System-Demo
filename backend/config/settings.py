@@ -247,19 +247,27 @@ GMAIL_CLIENT_ID = env('GMAIL_CLIENT_ID', default='')
 GMAIL_CLIENT_SECRET = env('GMAIL_CLIENT_SECRET', default='')
 GMAIL_REFRESH_TOKEN = env('GMAIL_REFRESH_TOKEN', default='')
 GMAIL_CONFIGURED = bool(GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN)
-# Brevo's HTTP API - the backup provider (TICKET-047). Only a key is needed;
-# the sender (DEFAULT_FROM_EMAIL) must be verified in Brevo.
+# Backup provider (TICKET-047): with EMAIL_PROVIDER=gmail and
+# EMAIL_FALLBACK_PROVIDER=brevo + BREVO_API_KEY, an email Gmail can't send
+# because its login is dead (e.g. the refresh token expired) goes out through
+# Brevo's HTTP API instead. The sender (DEFAULT_FROM_EMAIL) must be verified
+# in Brevo; Brevo shows it as ...@brevosend.com, Reply-To stays the owner.
+EMAIL_FALLBACK_PROVIDER = env('EMAIL_FALLBACK_PROVIDER', default='').strip().lower()
 BREVO_API_KEY = env('BREVO_API_KEY', default='')
 BREVO_API_URL = env('BREVO_API_URL', default='https://api.brevo.com/v3/smtp/email')
 EMAIL_BACKENDS = {
     'console': 'django.core.mail.backends.console.EmailBackend',
     'smtp': 'django.core.mail.backends.smtp.EmailBackend',
     'gmail': 'notifications.backends.GmailApiEmailBackend',
+    'gmail+brevo': 'notifications.backends.GmailWithBrevoFallbackBackend',
 }
+EMAIL_FALLBACK_ACTIVE = EMAIL_PROVIDER == 'gmail' and EMAIL_FALLBACK_PROVIDER == 'brevo' and bool(BREVO_API_KEY)
 if EMAIL_PROVIDER == 'gmail' and not GMAIL_CONFIGURED:
     # Gmail chosen but not set up yet (e.g. the first Render deploy): print
     # the emails instead of failing them. notifications/checks.py warns.
     EMAIL_BACKEND = EMAIL_BACKENDS['console']
+elif EMAIL_FALLBACK_ACTIVE:
+    EMAIL_BACKEND = EMAIL_BACKENDS['gmail+brevo']
 else:
     EMAIL_BACKEND = EMAIL_BACKENDS.get(EMAIL_PROVIDER, EMAIL_BACKENDS['console'])
 EMAIL_HOST = env('EMAIL_HOST', default='localhost')

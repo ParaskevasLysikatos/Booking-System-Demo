@@ -6301,6 +6301,9 @@ outbox.
 | `notifications.W002` | `gmail` without all of `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` (falls back to console) |
 | `notifications.W003` | `gmail` with a placeholder `DEFAULT_FROM_EMAIL` |
 | `notifications.W004` | an entry in `BOOKING_ALERT_EMAILS` that isn't an email address |
+| `notifications.W005` | unknown `EMAIL_FALLBACK_PROVIDER` - no fallback (TICKET-047) |
+| `notifications.W006` | `EMAIL_FALLBACK_PROVIDER=brevo` without `BREVO_API_KEY` - no fallback (TICKET-047) |
+| `notifications.W007` | a fallback set while `EMAIL_PROVIDER` isn't `gmail` - ignored (TICKET-047) |
 
 ### Mailpit (local)
 
@@ -6497,6 +6500,58 @@ message id, a 4xx refusal without the key in the error, network / 5xx /
 429 = unknown outcome, missing key / no recipients / `fail_silently`,
 HTML-only and empty bodies; the outbox records `gmail`, `brevo`, `console`
 and `smtp`, and nothing for a failed send or the tests' in-memory backend.
+
+### The fallback wrapper (step 2)
+
+**`notifications/backends.py` - `GmailWithBrevoFallbackBackend`.** The
+settings pick it when **all three** are set: `EMAIL_PROVIDER=gmail` (with
+its `GMAIL_*` values), `EMAIL_FALLBACK_PROVIDER=brevo` and `BREVO_API_KEY`.
+Otherwise the backend is exactly what it was before (no key → plain Gmail).
+
+For each email:
+
+```
+Gmail backend ──sent──▶ done (provider gmail)
+   │
+   ├─ GmailLoginError (nothing was sent) ──▶ Brevo ──sent──▶ done (provider brevo)
+   │     · invalid_grant (refresh token expired / revoked)      └─failed─▶ failed: "<Gmail reason> | Brevo fallback: <Brevo reason>"
+   │     · another 4xx from the token service (e.g. invalid_client)
+   │     · a 401 from Gmail even with a brand-new access token
+   │     · network error / 5xx / 429 while getting the access token
+   │
+   └─ any other error (Gmail refused this one message; 5xx / timeout on
+      the send itself - it may already have gone out) ──▶ failed, as before
+      (the outbox retry tries Gmail again; no fallback = no duplicate)
+```
+
+- The Gmail backend now raises **`GmailLoginError`** (a kind of
+  `EmailSendError`, `notifications/errors.py`) for every failure *before*
+  the send - with `dead=True` when Google refused the login (only a new
+  token fixes it) and `dead=False` when its token service couldn't be
+  reached (probably passes by itself). Step 3 uses `dead` for the owner
+  alert.
+- Every fallback is an **error log line**: `Gmail can't log in (Google
+  answered 400: invalid_grant - …) - sending 'booking-45-booking_received'
+  through Brevo instead.` - which email, why, never a secret.
+- The Brevo copy is the same email: same recipient, subject, text + HTML,
+  Reply-To (the owner's Gmail) and `X-Booking-Email` header.
+- If Brevo fails too, the outbox row is `failed` with both reasons; Brevo's
+  status decides whether it counts as a refusal. The normal retry (Django
+  Admin action / `send_pending_emails`) tries Gmail first again.
+- New startup warnings (never errors): `notifications.W005` unknown
+  `EMAIL_FALLBACK_PROVIDER`, `W006` `brevo` without `BREVO_API_KEY`, `W007`
+  a fallback set while `EMAIL_PROVIDER` isn't `gmail` (only Gmail is
+  backed up).
+
+Tests (+10, `test_providers.py` now 20): a working Gmail never calls Brevo;
+`invalid_grant` → Brevo and Gmail's send is never tried; the Brevo copy is
+the same email and the log line names it without secrets; `invalid_client`
+and a 401 with a fresh token fall back; network / 503 / 429 at the token
+step fall back; Gmail refusing the message or a 503 / timeout on the send
+do **not** fall back; both failing → one error naming both, Brevo's status,
+no secrets, `fail_silently`; through the outbox → `sent` + provider `brevo`
++ Brevo's id; which backend the settings pick (a fresh process per
+combination); warnings W005-W007.
 
 ## Mobile & PWA (TICKET-031)
 

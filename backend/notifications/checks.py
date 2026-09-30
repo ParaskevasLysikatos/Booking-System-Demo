@@ -40,6 +40,7 @@ def email_settings_check(app_configs=None, **kwargs):
                 hint="Set it to the authorised Gmail, e.g. 'Booking System Demo <you@gmail.com>'.",
                 id="notifications.W003",
             ))
+    problems += fallback_problems(provider)
     bad = [e for e in settings.BOOKING_ALERT_EMAILS if "@" not in parseaddr(e)[1]]
     if bad:
         problems.append(Warning(
@@ -48,3 +49,29 @@ def email_settings_check(app_configs=None, **kwargs):
             id="notifications.W004",
         ))
     return problems
+
+
+def fallback_problems(provider):
+    """The Brevo fallback (TICKET-047): set but not able to work."""
+    fallback = settings.EMAIL_FALLBACK_PROVIDER
+    if not fallback:
+        return []
+    if fallback != "brevo":
+        return [Warning(
+            f"EMAIL_FALLBACK_PROVIDER={fallback!r} isn't known - there is no fallback.",
+            hint="Use brevo, or leave it empty.",
+            id="notifications.W005",
+        )]
+    if not settings.BREVO_API_KEY:
+        return [Warning(
+            "EMAIL_FALLBACK_PROVIDER is brevo but BREVO_API_KEY is not set - there is no fallback.",
+            hint="Create an API key in Brevo (SMTP & API -> API keys) and set BREVO_API_KEY.",
+            id="notifications.W006",
+        )]
+    if provider != "gmail":
+        return [Warning(
+            f"EMAIL_FALLBACK_PROVIDER=brevo only backs up EMAIL_PROVIDER=gmail (it is {provider!r}) - ignored.",
+            hint="See the README's \"Brevo fallback when the Gmail token expires\".",
+            id="notifications.W007",
+        )]
+    return []

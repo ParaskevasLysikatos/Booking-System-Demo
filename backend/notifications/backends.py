@@ -27,10 +27,13 @@ id and `message.email_provider` is "gmail". On failure an EmailSendError
 (notifications/errors.py) is raised (unless fail_silently) with
 `refused=True` when Google answered with a 4xx (e.g. the refresh token was
 revoked - retrying won't help until it's replaced) and `refused=False` when
-the outcome is unknown (network error, timeout, 5xx, 429).
+the outcome is unknown (network error, timeout, 5xx, 429). When the failure
+is Gmail's *login* (nothing was sent), it's a GmailLoginError - see
+GmailWithBrevoFallbackBackend at the end of this file (TICKET-047).
 """
 import base64
 import json
+import logging
 import threading
 import time
 import urllib.error
@@ -40,7 +43,10 @@ import urllib.request
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 
-from .errors import EmailSendError
+from .brevo import BrevoEmailBackend
+from .errors import EmailSendError, GmailLoginError
+
+logger = logging.getLogger(__name__)
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
@@ -106,8 +112,8 @@ class GmailApiEmailBackend(BaseEmailBackend):
             if not force and cached and cached[1] > time.monotonic():
                 return cached[0]
             if not (self.client_id and self.client_secret and self.refresh_token):
-                raise EmailSendError("The Gmail API isn't configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / "
-                                     "GMAIL_REFRESH_TOKEN).")
+                raise GmailLoginError("The Gmail API isn't configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / "
+                                      "GMAIL_REFRESH_TOKEN).", dead=True)
             try:
                 answer = post(TOKEN_URL, timeout=self.timeout, data={
                     "client_id": self.client_id,
@@ -116,15 +122,19 @@ class GmailApiEmailBackend(BaseEmailBackend):
                     "grant_type": "refresh_token",
                 })
             except EmailSendError as exc:
+                # Nothing has been sent yet, whatever went wrong here (TICKET-047).
+                # A 4xx (invalid_grant, invalid_client ...) = the login is dead;
+                # network / 5xx / 429 = Google's token service is unreachable.
                 if "invalid_grant" in str(exc):
-                    raise EmailSendError(
+                    raise GmailLoginError(
                         f"{exc} - the Gmail refresh token was revoked or has expired; "
-                        "run `manage.py gmail_authorize` again and update GMAIL_REFRESH_TOKEN.", status=exc.status,
+                        "run `manage.py gmail_authorize` again and update GMAIL_REFRESH_TOKEN.",
+                        status=exc.status, dead=True,
                     ) from exc
-                raise
+                raise GmailLoginError(str(exc), status=exc.status, dead=exc.refused) from exc
             token = answer.get("access_token")
             if not token:
-                raise EmailSendError("Google returned no access token.")
+                raise GmailLoginError("Google returned no access token.")
             # a minute of margin so a token never expires mid-request
             GmailApiEmailBackend._token = (token, time.monotonic() + int(answer.get("expires_in", 3600)) - 60)
             return token
@@ -166,4 +176,58 @@ class GmailApiEmailBackend(BaseEmailBackend):
             except EmailSendError as exc:
                 if exc.status == 401 and attempt == 1:
                     continue  # the cached access token went stale - get a fresh one once
+                if exc.status == 401:
+                    # Refused even with a brand-new access token: the login is
+                    # dead (e.g. the gmail.send permission was withdrawn).
+                    raise GmailLoginError(f"{exc} (even with a fresh access token)", status=401, dead=True) from exc
                 raise
+
+
+class GmailWithBrevoFallbackBackend(BaseEmailBackend):
+    """Gmail first; Brevo when Gmail can't log in (TICKET-047).
+
+    Used when EMAIL_PROVIDER=gmail, EMAIL_FALLBACK_PROVIDER=brevo and
+    BREVO_API_KEY is set (config/settings.py). Per message:
+
+      - Gmail sends it -> done (`email_provider` "gmail").
+      - Gmail's *login* fails (GmailLoginError: `invalid_grant` / a dead
+        client, a 401 even with a fresh access token, or Google's token
+        service unreachable) -> nothing was sent, so the same message goes
+        through Brevo (`email_provider` "brevo"). Logged as an error.
+      - Any other Gmail failure - Gmail refusing this one message, or a
+        network error / 5xx / timeout on the *send* itself, where Gmail may
+        already have sent it - is raised as it is: the outbox records
+        `failed` and the normal retry tries Gmail again. Falling back there
+        could email the guest twice.
+
+    If Brevo fails too, one EmailSendError names both reasons (Brevo's
+    status decides whether it's worth retrying). No secret is ever part of a
+    message.
+    """
+
+    def __init__(self, fail_silently=False, timeout=None, **kwargs):
+        super().__init__(fail_silently=fail_silently, **kwargs)
+        self.gmail = GmailApiEmailBackend(timeout=timeout)
+        self.brevo = BrevoEmailBackend(timeout=timeout)
+
+    def send_messages(self, email_messages):
+        sent = 0
+        for message in email_messages or []:
+            try:
+                sent += self._send(message)
+            except EmailSendError:
+                if not self.fail_silently:
+                    raise
+        return sent
+
+    def _send(self, message):
+        try:
+            return self.gmail.send_messages([message])
+        except GmailLoginError as gmail_error:
+            logger.error("Gmail can't log in (%s) - sending %r through Brevo instead.",
+                         gmail_error, message.extra_headers.get("X-Booking-Email", message.subject))
+            try:
+                return self.brevo.send_messages([message])
+            except EmailSendError as brevo_error:
+                raise EmailSendError(f"{gmail_error} | Brevo fallback: {brevo_error}",
+                                     status=brevo_error.status) from brevo_error

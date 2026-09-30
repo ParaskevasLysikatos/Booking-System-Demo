@@ -17,3 +17,20 @@ class EmailSendError(Exception):
     @property
     def refused(self):
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
+
+
+class GmailLoginError(EmailSendError):
+    """The Gmail backend couldn't log in, so *nothing was sent* (TICKET-047).
+
+    `dead=True`: Google refused the login - the refresh token expired or was
+    revoked (`invalid_grant`), the client is wrong, or Gmail refused even a
+    brand-new access token. Only `gmail_authorize` (a new token) fixes that.
+    `dead=False`: Google's token service couldn't be reached (network, 5xx,
+    429) - probably passes by itself.
+
+    Either way the message can safely go through the Brevo fallback.
+    """
+
+    def __init__(self, message, status=None, dead=False):
+        super().__init__(message, status=status)
+        self.dead = dead
