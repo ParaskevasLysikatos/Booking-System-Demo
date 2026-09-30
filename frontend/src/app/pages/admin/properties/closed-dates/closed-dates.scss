@@ -30,7 +30,7 @@
 .add { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px;
   background: var(--mat-sys-surface-container-low); }
 .pick-hint { margin: 0; font-size: 14px; color: var(--mat-sys-on-surface-variant); }
-.fields { display: flex; gap: 12px; flex-wrap: wrap; }
+.fields { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; } /* the note's hint doesn't stretch the dates field */
 .fields mat-form-field { flex: 1 1 260px; }
 
 .legend { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--mat-sys-on-surface-variant); }

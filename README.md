@@ -1326,6 +1326,66 @@ Step 2 (13 more, **31** in the file):
 Frontend (`dashboard.spec.ts`, 3 new): the closed-nights line under
 Occupancy, only when there are closed nights.
 
+### Final check (step 5)
+
+On `master` after step 4, 30 Sep. Every closed period made during the
+checks was removed again, so nothing was left behind in either database.
+
+| Check | Result |
+| --- | --- |
+| Backend tests (Postgres) | **560** pass (34 in `listings/test_blocks.py`) |
+| Frontend tests (Vitest) | **511** pass; `check:i18n` clean |
+| `makemigrations --check` | clean |
+| Production build | clean; initial bundle 635 → 637 kB |
+
+**Render** (auto-deployed from `master`, migration applied by `build.sh`),
+in Chrome as the demo admin:
+
+- `/api/admin/blocks/` answers 401 logged out; the Bookings → Closed dates
+  tab shows "No closed dates coming up." with the link to Properties.
+- Quiet Villa in Heraklion → edit → Closed dates → Close dates: picked
+  20 → 23 Oct in the picker, note "Demo check (TICKET-045)" → listed as
+  "20 Oct → 23 Oct 2026 · 3 nights", snackbar "Dates closed: …".
+- As a guest (API, no login): `booked_ranges` starts with 20 → 23 Oct,
+  `is_available` false for 21 → 22 Oct and true from the 23rd, the villa
+  is left out of a search for those dates, the note isn't anywhere in the
+  response. The property page: those days are struck through and "Some of
+  these nights are already booked." with Book now disabled.
+- Dashboard for October: "9 of 338 nights booked · 11 active properties"
+  (11 × 31 − 3) and "3 closed nights not counted".
+- Bookings → Closed dates: the period with the property link, note and
+  "by admin@demo.com"; **Remove** → gone, snackbar "Dates open again:
+  Quiet Villa in Heraklion, 20 Oct → 23 Oct 2026", and the guest API says
+  available again. No console errors.
+
+**Local** (Docker, after `manage.py migrate`), in Chrome as the demo admin,
+in **Greek**:
+
+- Over pending booking #224 → 409 `booking_overlap` "These dates overlap
+  booking #224 (2026-11-25 → 2026-11-27). Cancel or move the booking
+  first." and the Greek "Οι ημερομηνίες επικαλύπτουν την κράτηση #224 …
+  Ακυρώστε ή μετακινήστε την κράτηση πρώτα."; a past day → "Δεν μπορείτε
+  να κλείσετε ημέρες του παρελθόντος."; overlapping closed dates → 409
+  `dates_closed`.
+- A closed period 1 → 4 Dec, then **guest1 tried to book 3 → 5 Dec** →
+  409 `dates_unavailable` "These dates are no longer available for this
+  property." - no booking made.
+- The edit page in Greek: the picker's month and day names in Greek,
+  booked nights (16-26 Nov) struck through, 1-3 Dec hatched; after picking
+  27 Nov the latest end allowed is 1 Dec (the closed period's start).
+  Closing 27 Nov → 1 Dec "Βάψιμο" → "27 Νοε → 1 Δεκ 2026 · 4 νύχτες ·
+  Βάψιμο", snackbar "Οι ημερομηνίες έκλεισαν: …".
+- Κρατήσεις → **Κλειστές**: both periods ("2 επερχόμενες κλειστές
+  περίοδοι", "από admin@demo.com"); both removed with Αφαίρεση → the empty
+  message, and 1 → 3 Dec is available again. No console errors.
+- Small fix from the check: the dates field no longer stretches to the
+  height of the note field's hint (`align-items: flex-start`).
+- Note: in the local Chrome window, mouse clicks from the browser
+  automation stopped reaching the page halfway through (no mouse events
+  at all, on any element); the same clicks worked on Render, and the
+  remaining local steps were done with DOM clicks. Not an app problem, but
+  worth one manual click-through before the meetup.
+
 ## Admin stats API
 
 `GET /api/admin/stats/` (TICKET-016) returns the numbers for the admin
@@ -7622,7 +7682,13 @@ recruiters the **hosted link** to try afterwards.
       step 2 of a booking, "Demo payment - use card 4242 4242 4242 4242…"
       with a copy button - the same line is on Stripe's page. It only
       appears with a Stripe test key.
-- [ ] TICKET-045 (admin closed dates) is done
+- [x] TICKET-045 (admin closed dates) is done - checked locally and on
+      Render (30 Sep). To show it: Admin → Properties → edit a place →
+      **Closed dates** → Close dates (closed days are hatched, booked ones
+      struck through), then open the place as a guest: those days look
+      booked and can't be picked. Admin → Bookings → **Closed dates** lists
+      them all. A fresh `seed_demo_data` adds one "Maintenance" period; the
+      current local database has none, so close one live.
 - [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -8001,8 +8067,10 @@ closed days are hatched and booked days struck through) is done; see
 "Admin properties → Closed dates"; step 4 (a "Closed dates" tab on the
 admin Bookings page with every property's upcoming closed dates, the
 Property filter and Remove, from `GET /api/admin/blocks/`) is done; see
-"Admin bookings → Closed dates tab". Next,
-before the meetup: the rest of TICKET-045; then
+"Admin bookings → Closed dates tab"; **TICKET-045 is done** (step 5:
+checked locally in Greek and on Render in Chrome; see "Closed dates API →
+Final check"). Next,
+before the meetup:
 TICKET-039 (final redeploy + smoke test); a suggestion for later, not
 planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see
 TICKETS.md); after the
