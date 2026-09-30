@@ -3,6 +3,7 @@
     GET    /api/admin/properties/{id}/blocks/             upcoming blocks of one property
     POST   /api/admin/properties/{id}/blocks/             close dates {start, end, note}
     DELETE /api/admin/properties/{id}/blocks/{block_id}/  reopen them
+    GET    /api/admin/blocks/?property={id}               upcoming blocks of every property (step 4)
 
 Admins only. The rules for a new block:
 
@@ -52,6 +53,21 @@ class BlockedPeriodSerializer(serializers.ModelSerializer):
 
     def get_created_by(self, obj):
         return obj.created_by.email if obj.created_by else None
+
+
+class BlockedPeriodWithPropertySerializer(BlockedPeriodSerializer):
+    """For the list across properties: also the property's title and whether it's active."""
+
+    property_title = serializers.CharField(source="property.title", read_only=True)
+    property_is_active = serializers.BooleanField(source="property.is_active", read_only=True)
+
+    class Meta(BlockedPeriodSerializer.Meta):
+        fields = [*BlockedPeriodSerializer.Meta.fields, "property_title", "property_is_active"]
+        read_only_fields = fields
+
+
+class AllBlocksQuerySerializer(serializers.Serializer):
+    property = serializers.IntegerField(required=False, min_value=1)
 
 
 class BlockedPeriodCreateSerializer(serializers.Serializer):
@@ -186,3 +202,19 @@ class PropertyBlockDetailView(APIView):
         block = get_object_or_404(BlockedPeriod, pk=block_id, property_id=property_id)
         block.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AllBlocksView(APIView):
+    """GET /api/admin/blocks/ - upcoming blocks of every property, soonest
+    first (the "Closed dates" tab of the admin Bookings page). `?property=`
+    narrows it to one. Not paginated: only upcoming blocks, a short list."""
+
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        query = AllBlocksQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        blocks = upcoming_blocks().select_related("property", "created_by").order_by("start", "property__title", "id")
+        if "property" in query.validated_data:
+            blocks = blocks.filter(property_id=query.validated_data["property"])
+        return Response(BlockedPeriodWithPropertySerializer(blocks, many=True).data)

@@ -43,7 +43,8 @@
 .save mat-spinner { margin: 0 auto; }
 
 @include r.phone {
-  .blocks li { flex-wrap: wrap; }
-  .remove { margin-left: 36px; }
+  .blocks li { flex-wrap: wrap; row-gap: 4px; }
+  .what { flex-basis: calc(100% - 36px); }
+  .remove { margin-left: 28px; }
   .buttons { flex-direction: column-reverse; }
 }

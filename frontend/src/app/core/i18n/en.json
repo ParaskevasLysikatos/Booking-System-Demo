@@ -951,6 +951,15 @@
       "pickDates": "Pick the first closed night and the day it opens again.",
       "taken": "Some of these days are booked or already closed.",
       "noteTooLong": "The note can be at most 200 characters."
-    }
+    },
+    "howTo": "Close dates from a property's edit page:",
+    "count": {
+      "one": "{count} closed period coming up",
+      "other": "{count} closed periods coming up"
+    },
+    "by": "by {who}",
+    "removeLabelFor": "Remove the closed dates {range} of {title} and open them again",
+    "removedFor": "Dates open again: {title}, {range}",
+    "tab": "Closed dates"
   }
 }

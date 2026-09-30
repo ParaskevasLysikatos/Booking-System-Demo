@@ -17,6 +17,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { BehaviorSubject, Observable, catchError, combineLatest, debounceTime, distinctUntilChanged, filter, map, of, startWith, switchMap } from 'rxjs';
 
 import { AdminBadgesService } from '../../../core/admin/admin-badges.service';
+import { ClosedDatesTabComponent } from './closed-dates-tab';
 import { AdminPropertiesService } from '../../../core/admin/admin-properties.service';
 import { parseApiErrors } from '../../../core/api-errors';
 import { Booking, BookingListQuery, BookingStatus } from '../../../core/bookings/booking.models';
@@ -32,7 +33,8 @@ import { formatDate } from '../../../core/i18n/format';
 import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { translate } from '../../../core/i18n/translation.service';
 
-export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled';
+/** `closed` (TICKET-045): every property's closed dates, not bookings. */
+export type AdminBookingsTab = 'upcoming' | 'past' | 'cancelled' | 'closed';
 
 export interface AdminBookingsQuery {
   tab: AdminBookingsTab;
@@ -47,6 +49,7 @@ export const ADMIN_BOOKING_TABS: { key: AdminBookingsTab; label: string }[] = [
   { key: 'upcoming', label: 'myBookings.tab.upcoming' },
   { key: 'past', label: 'myBookings.tab.past' },
   { key: 'cancelled', label: 'myBookings.tab.cancelled' },
+  { key: 'closed', label: 'closedDates.tab' }, // TICKET-045 (short: four tabs on a phone)
 ];
 
 export function parseAdminBookingsQuery(q: { get(name: string): string | null }): AdminBookingsQuery {
@@ -56,7 +59,7 @@ export function parseAdminBookingsQuery(q: { get(name: string): string | null })
     tab,
     search: (q.get('search') ?? '').trim(),
     property: Number.isInteger(property) && property > 0 ? property : null,
-    pendingOnly: tab !== 'cancelled' && q.get('pending') === '1',
+    pendingOnly: tab !== 'cancelled' && tab !== 'closed' && q.get('pending') === '1',
     page: Math.max(1, Number(q.get('page')) || 1),
   };
 }
@@ -66,7 +69,7 @@ export function toApiQuery(q: AdminBookingsQuery): BookingListQuery {
   const statuses: BookingStatus[] =
     q.tab === 'cancelled' ? ['cancelled'] : q.pendingOnly ? ['pending'] : ['pending', 'confirmed'];
   return {
-    when: q.tab === 'cancelled' ? undefined : q.tab,
+    when: q.tab === 'cancelled' || q.tab === 'closed' ? undefined : q.tab,
     statuses,
     search: q.search || undefined,
     property: q.property ?? undefined,
@@ -99,6 +102,7 @@ function sentence(reason: string | null): string {
     MatTabsModule,
     MatTooltipModule,
     TranslatePipe,
+    ClosedDatesTabComponent,
   ],
   templateUrl: './admin-bookings.html',
   providers: [providePaginatorI18n()], // the paginator's texts in the chosen language (TICKET-038)
@@ -135,7 +139,8 @@ export class AdminBookingsPage {
   readonly state = toSignal(
     combineLatest([this.query$, this.refresh$]).pipe(
       switchMap(([q]) =>
-        this.bookings.list(toApiQuery(q)).pipe(
+        // The Closed dates tab loads its own list (TICKET-045) - no bookings request.
+        q.tab === 'closed' ? of<ListState>({ status: 'loading' }) : this.bookings.list(toApiQuery(q)).pipe(
           map((data): ListState => ({ status: 'ok', data })),
           catchError(() => of<ListState>({ status: 'error' })),
           startWith<ListState>({ status: 'loading' }),
@@ -165,7 +170,7 @@ export class AdminBookingsPage {
 
   selectTab(index: number): void {
     const tab = ADMIN_BOOKING_TABS[index]?.key ?? 'upcoming';
-    this.update({ tab, page: 1, pendingOnly: tab === 'cancelled' ? false : this.query().pendingOnly });
+    this.update({ tab, page: 1, pendingOnly: tab === 'cancelled' || tab === 'closed' ? false : this.query().pendingOnly });
   }
 
   setProperty(id: number | null): void {
@@ -326,7 +331,7 @@ export class AdminBookingsPage {
         tab: next.tab === 'upcoming' ? null : next.tab,
         search: next.search || null,
         property: next.property,
-        pending: next.pendingOnly && next.tab !== 'cancelled' ? 1 : null,
+        pending: next.pendingOnly && next.tab !== 'cancelled' && next.tab !== 'closed' ? 1 : null,
         page: next.page > 1 ? next.page : null,
       },
     });

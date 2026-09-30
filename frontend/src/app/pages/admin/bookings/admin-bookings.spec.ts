@@ -9,6 +9,7 @@ import { of } from 'rxjs';
 
 import { Booking } from '../../../core/bookings/booking.models';
 import { BOOKINGS_URL } from '../../../core/bookings/booking.service';
+import { ALL_BLOCKS_URL } from '../../../core/admin/closed-dates.service';
 import { addDays, toIsoDate, todayLocal } from '../../../core/dates';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
 import { AdminBookingsPage, parseAdminBookingsQuery, toApiQuery } from './admin-bookings';
@@ -96,6 +97,26 @@ describe('AdminBookingsPage', () => {
     cmp.setProperty(5);
     await harness.fixture.whenStable();
     expect(listReq().request.params.get('property')).toBe('5');
+  });
+
+  it('Closed dates tab (TICKET-045): no bookings request, only the Property filter, the list follows it', async () => {
+    const cmp = await open('/admin/bookings?tab=closed&pending=1&search=x');
+    expect(cmp.query()).toMatchObject({ tab: 'closed', pendingOnly: false });
+    http.expectNone((r) => r.url === BOOKINGS_URL);
+    http.expectOne((r) => r.url === ALL_BLOCKS_URL && !r.params.has('property')).flush([]);
+    harness.detectChanges();
+    const el = harness.routeNativeElement as HTMLElement;
+    expect(el.querySelector('.search')).toBeNull();
+    expect(el.querySelector('mat-slide-toggle')).toBeNull();
+    expect(el.querySelector('.prop')).not.toBeNull();
+    expect(text()).toContain('No closed dates coming up.');
+    cmp.setProperty(5);
+    await harness.fixture.whenStable();
+    expect(router.url).toBe('/admin/bookings?tab=closed&search=x&property=5');
+    http.expectOne((r) => r.url === ALL_BLOCKS_URL && r.params.get('property') === '5').flush([]);
+    cmp.selectTab(0);
+    await harness.fixture.whenStable();
+    listReq().flush(page([]));
   });
 
   it('confirm: dialog -> PATCH confirmed -> snackbar, list + badge refreshed', async () => {

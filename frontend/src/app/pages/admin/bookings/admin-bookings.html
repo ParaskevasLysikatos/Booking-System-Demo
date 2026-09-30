@@ -7,11 +7,13 @@
 </mat-tab-group>
 
 <div class="filters">
-  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search">
-    <mat-icon matIconPrefix>search</mat-icon>
-    <mat-label>{{ 'adminBookings.search' | t }}</mat-label>
-    <input matInput [formControl]="search" />
-  </mat-form-field>
+  @if (query().tab !== 'closed') {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search">
+      <mat-icon matIconPrefix>search</mat-icon>
+      <mat-label>{{ 'adminBookings.search' | t }}</mat-label>
+      <input matInput [formControl]="search" />
+    </mat-form-field>
+  }
 
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="prop">
     <mat-label>{{ 'dashboard.breakdown.property' | t }}</mat-label>
@@ -23,11 +25,15 @@
     </mat-select>
   </mat-form-field>
 
-  @if (query().tab !== 'cancelled') {
+  @if (query().tab !== 'cancelled' && query().tab !== 'closed') {
     <mat-slide-toggle [checked]="query().pendingOnly" (change)="setPendingOnly($event.checked)">{{ 'adminBookings.pendingOnly' | t }}</mat-slide-toggle>
   }
 </div>
 
+@if (query().tab === 'closed') {
+  <!-- TICKET-045: every property's closed dates (same Property filter). -->
+  <app-closed-dates-tab [property]="query().property" />
+} @else {
 @switch (state().status) {
   @case ('loading') {
     <div class="skeleton" aria-busy="true" [attr.aria-label]="'myBookings.loading' | t">
@@ -139,4 +145,5 @@
       }
     }
   }
+}
 }

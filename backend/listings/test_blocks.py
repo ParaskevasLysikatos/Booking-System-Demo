@@ -434,3 +434,44 @@ class SeedClosedDatesTests(APITestCase):
         self.assertEqual(block.note, "Maintenance")
         self.assertIsNotNone(block.created_by)
         self.assertFalse(Booking.objects.overlapping(block.property, block.start, block.end).exists())
+
+
+# --------------------------------------------------------------------------
+# Step 4: every property's upcoming blocks (admin Bookings -> Closed dates)
+# --------------------------------------------------------------------------
+
+class AllBlocksApiTests(BlockFixtures, APITestCase):
+    URL = reverse("admin-blocks")
+
+    def test_admins_only(self):
+        self.assertEqual(self.client.get(self.URL).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.client.force_authenticate(self.guest)
+        self.assertEqual(self.client.get(self.URL).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_upcoming_blocks_of_every_property_soonest_first(self):
+        later = self.block(20, 22, note="Own use")
+        now = self.block(-1, 2, prop=self.other, note="Painting")
+        self.block(-9, -3)                                   # over
+        self.other.is_active = False
+        self.other.save()
+        self.client.force_authenticate(self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            res = self.client.get(self.URL)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual([b["id"] for b in res.data], [now.pk, later.pk])
+        first = res.data[0]
+        self.assertEqual(first["property"], self.other.pk)
+        self.assertEqual(first["property_title"], "Old town")
+        self.assertFalse(first["property_is_active"])
+        self.assertEqual(first["nights"], 3)
+        self.assertEqual(first["note"], "Painting")
+        self.assertLessEqual(len(ctx.captured_queries), 4)    # one query for the list, whatever its length
+
+    def test_filter_by_property(self):
+        mine = self.block(3, 5)
+        self.block(3, 5, prop=self.other)
+        self.client.force_authenticate(self.admin)
+        res = self.client.get(self.URL, {"property": self.prop.pk})
+        self.assertEqual([b["id"] for b in res.data], [mine.pk])
+        self.assertEqual(self.client.get(self.URL, {"property": "abc"}).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.client.get(self.URL, {"property": 999999}).data, [])

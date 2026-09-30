@@ -1212,6 +1212,7 @@ elsewhere) so guests can't book them; reopening is one click. Code:
 | `GET` | `/api/admin/properties/{id}/blocks/` | The property's **upcoming** blocks (the ones with a closed night today or later - one in progress is still listed), soonest first. Not paginated |
 | `POST` | `/api/admin/properties/{id}/blocks/` | Close dates. Body `{"start": "2026-10-10", "end": "2026-10-13", "note": "Maintenance"}` (`note` optional, trimmed, max 200) → `201` with the block |
 | `DELETE` | `/api/admin/properties/{id}/blocks/{block_id}/` | Reopen the dates → `204`. Any block of that property, past ones too; a block of another property → `404` |
+| `GET` | `/api/admin/blocks/?property={id}` | Step 4: **every** property's upcoming blocks, soonest first, each also with `property_title` and `property_is_active`; `property` optional (a non-number → `400`). For the admin Bookings page's Closed dates tab |
 
 An unknown property is `404`. A block looks like:
 
@@ -4590,6 +4591,40 @@ showing 7, searching "sara" with Pending only down to booking #54, and
 the Confirm dialog, closed with **Not now**, so **nothing was changed**
 in the database.
 
+### Closed dates tab (TICKET-045 step 4)
+
+A fourth tab, **Closed dates** (`?tab=closed`; "Κλειστές" in Greek, short
+enough for four tabs on a phone), lists **every property's** upcoming
+closed periods in one place - not rows mixed into the bookings table,
+which is paginated by the server and built around guests, prices and
+payments.
+
+- **Filters:** only the **Property** dropdown (the same `?property=`);
+  search and "Pending only" are hidden, and no bookings request is sent
+  on this tab.
+- **Each row:** the property (a link to its edit page, "Retired" if it
+  is), "14 Oct → 17 Oct 2026", nights, "closed now", the note and "by
+  admin@demo.com", and **Remove** (one click; the row goes at once, with
+  a snackbar naming the property). Count on top: "3 closed periods coming
+  up". Empty: "No closed dates coming up." + "Close dates from a
+  property's edit page: Properties" (closing needs that property's
+  calendar, so it's done there).
+- Backend: **`GET /api/admin/blocks/`** (admins only) - upcoming blocks of
+  every property, soonest first, each with `property_title` and
+  `property_is_active`; `?property=ID` narrows it (a non-number → 400).
+  One query, not paginated (only upcoming periods). See "Closed dates API".
+- Pieces: `pages/admin/bookings/closed-dates-tab.ts`,
+  `ClosedDatesService.listAll()`.
+- Tests: 3 backend (`AllBlocksApiTests`: admins only; every property's
+  upcoming blocks soonest first with the title / retired flag, in a fixed
+  number of queries; the property filter and a bad value), 6 frontend
+  (`closed-dates-tab.spec.ts`: the rows with link, "closed now", note, who
+  and Retired; follows the Property filter; empty with the link, error
+  with Try again; Remove and a refused Remove; Greek. `admin-bookings.spec.ts`:
+  the tab sends no bookings request, shows only the Property filter, and
+  the list follows it). Checked in headless Chromium at 1280 px and 390 px
+  (Greek): no sideways scroll, no console errors.
+
 ## Admin reviews (Angular, TICKET-032)
 
 `/admin/reviews` (`pages/admin/reviews/admin-reviews.ts`, "Reviews" in the
@@ -7963,7 +7998,10 @@ out; the seed closes one period) is done; see "Closed dates API → What
 guests see and can book"; step 3 (the "Closed dates" card on the admin
 property edit page: the list with Remove, Close dates with a picker where
 closed days are hatched and booked days struck through) is done; see
-"Admin properties → Closed dates". Next,
+"Admin properties → Closed dates"; step 4 (a "Closed dates" tab on the
+admin Bookings page with every property's upcoming closed dates, the
+Property filter and Remove, from `GET /api/admin/blocks/`) is done; see
+"Admin bookings → Closed dates tab". Next,
 before the meetup: the rest of TICKET-045; then
 TICKET-039 (final redeploy + smoke test); a suggestion for later, not
 planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see

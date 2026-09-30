@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -16,6 +16,12 @@ export interface ClosedPeriod {
   created_at: string;
 }
 
+/** GET /api/admin/blocks/ - the list across properties (step 4). */
+export interface ClosedPeriodWithProperty extends ClosedPeriod {
+  property_title: string;
+  property_is_active: boolean;
+}
+
 export interface ClosePeriodBody {
   start: string;
   end: string;
@@ -23,6 +29,7 @@ export interface ClosePeriodBody {
 }
 
 export const adminBlocksUrl = (propertyId: number) => `${environment.apiUrl}/admin/properties/${propertyId}/blocks/`;
+export const ALL_BLOCKS_URL = `${environment.apiUrl}/admin/blocks/`;
 
 /**
  * Closed dates of a property (TICKET-045), admins only:
@@ -33,6 +40,12 @@ export const adminBlocksUrl = (propertyId: number) => `${environment.apiUrl}/adm
 @Injectable({ providedIn: 'root' })
 export class ClosedDatesService {
   private readonly http = inject(HttpClient);
+
+  /** Every property's upcoming closed dates, soonest first; `property` narrows it to one. */
+  listAll(property: number | null = null): Observable<ClosedPeriodWithProperty[]> {
+    const params = property ? new HttpParams().set('property', property) : undefined;
+    return this.http.get<ClosedPeriodWithProperty[]>(ALL_BLOCKS_URL, { params });
+  }
 
   list(propertyId: number): Observable<ClosedPeriod[]> {
     return this.http.get<ClosedPeriod[]>(adminBlocksUrl(propertyId));
