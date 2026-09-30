@@ -952,6 +952,14 @@ test, always last).
     - Stats: blocked nights are left out of occupancy's available nights? (decision - simplest is to leave occupancy unchanged).
   - Tests: overlaps both ways, the race (lock), availability / search / booking create respect blocks, removing a block reopens the dates, admin-only, both languages; frontend section + calendar. README: data model, API, admin pages, test cases.
   - Also the foundation for TICKET-046 (an imported Airbnb / Booking.com calendar would become blocks).
+  - **Decisions (agreed 30 Sep, before building):**
+    - the suggested design above: a separate `BlockedPeriod` model, not a special booking
+    - **occupancy excludes closed nights:** occupancy = confirmed nights / (active properties x nights in period - closed nights in the period), so closing a week for own use doesn't make a property look less popular; "available nights" shrinks accordingly. Revenue and the revenue chart are unchanged.
+    - **no editing** a block: Remove (one click) + close the new dates
+    - **extras:** the demo seed adds one closed period (a note like "Maintenance"); in the **admin's** date picker closed days get their own colour, different from booked days (guests still see closed days exactly like booked ones); a **"Closed dates" tab on the admin Bookings page** (upcoming blocks of all properties, property filter, Remove) from a new `GET /api/admin/blocks/` - a separate tab, not rows mixed into the paginated bookings table
+    - Chrome check locally **and on Render**
+  - Plan: step 1 backend model + admin API · step 2 guests respect blocks (availability, search, booking create) + occupancy + seed · step 3 "Closed dates" on the property edit page · step 4 "Closed dates" tab on the admin Bookings page · step 5 README, Chrome check (local + Render), done.
+  - **Step 1 done** (backend model + admin API): `BlockedPeriod` (`listings/models.py`, migration 0006: `end > start` + no-overlap exclusion constraint per property; read-only in Django Admin) and `lock_property()` (`FOR NO KEY UPDATE`). `listings/blocks.py`: `GET/POST /api/admin/properties/{id}/blocks/` (upcoming blocks soonest first / close dates) and `DELETE …/blocks/{block_id}/`, admins only. Rules: start today..365 days ahead, at most 365 nights, `end > start`; overlapping a pending/confirmed booking → 409 `booking_overlap` (lists the bookings), overlapping a block → 409 `dates_closed`; stale payment holds settled first; checks run with the property locked. Messages in Greek. 18 tests in `listings/test_blocks.py`. README: data model + "Closed dates API (TICKET-045)".
 
 - [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket before the meetup**
   - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)

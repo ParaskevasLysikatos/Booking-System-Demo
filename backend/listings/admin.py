@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Property, PropertyImage
+from .models import BlockedPeriod, Property, PropertyImage
 
 
 class PropertyImageInline(admin.TabularInline):
@@ -31,3 +31,22 @@ class PropertyImageAdmin(admin.ModelAdmin):
     list_filter = ("is_cover",)
     search_fields = ("property__title",)
     ordering = ("property", "-is_cover", "created_at")
+
+
+@admin.register(BlockedPeriod)
+class BlockedPeriodAdmin(admin.ModelAdmin):
+    """Read-only view of closed dates (TICKET-045). They're created and
+    removed from the app's admin pages, where the overlap rules and the
+    property lock apply - the Django Admin would skip both."""
+
+    list_display = ("property", "start", "end", "note", "created_by", "created_at")
+    list_filter = ("property",)
+    search_fields = ("property__title", "note")
+    ordering = ("start",)
+    readonly_fields = ("property", "start", "end", "note", "created_by", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -204,7 +204,10 @@ backend/
     management/commands/seed_demo_data.py   Faker-based demo data generator (see "Seeding demo data" below)
     seed_photos/       36 Unsplash photos for the seeded properties (1280 px WebP) + CREDITS.md (TICKET-037)
   listings/            Data layer for bookable properties
-    models.py          Property + PropertyImage models (Property has optional latitude/longitude, TICKET-034)
+    models.py          Property + PropertyImage models (Property has optional latitude/longitude, TICKET-034),
+                       BlockedPeriod (closed dates) + lock_property() (TICKET-045)
+    blocks.py          Closed dates: the rules and /api/admin/properties/{id}/blocks/ (TICKET-045)
+    test_blocks.py     Closed dates tests (TICKET-045)
     geo.py             Map helpers: the approximate point guests see, the demo city centres (TICKET-034)
     serializers.py     List (card) + detail (images, availability; also the admin write serializer, nested images)
     filters.py         Query-param validation + filtering (location, guests, price, dates, ordering)
@@ -424,6 +427,42 @@ inline (add/reorder/flag-as-cover without leaving the property page).
 properties. This is **not** the demo-facing admin UI (that's the custom
 Angular admin dashboard planned for Epic 4) - just a fast way to eyeball
 the tables while building.
+
+**`BlockedPeriod`** (`listings` app, `listings/models.py`, TICKET-045) -
+days an admin has closed for a property (maintenance, own use, booked on
+another site). Guests can't book them and see them exactly like booked
+days; the note is for admins only.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `property` | `ForeignKey -> Property` | `related_name="blocked_periods"`, `on_delete=CASCADE` |
+| `start` | `DateField` | First closed night |
+| `end` | `DateField` | The day after the last closed night - **exclusive, like a booking's check-out**: 1 → 4 Oct closes the nights of 1, 2 and 3 Oct, and a guest can still check in on the 4th |
+| `note` | `CharField(200)` | Optional, e.g. "Maintenance" - admins only |
+| `created_by` | `ForeignKey -> User`, nullable | The admin who closed the dates (`SET_NULL`) |
+| `created_at` | `DateTimeField` | Auto-managed |
+
+- **DB rules:** `end > start` (`blockedperiod_end_after_start`), and an
+  exclusion constraint (`blockedperiod_no_overlap_per_property`, the same
+  `btree_gist` + `daterange` technique as bookings) so two blocks of one
+  property can never overlap, whatever the timing.
+- **Why a separate model, not a "booking without a guest":** every place
+  that reads bookings (stats, emails, payments, refunds, reviews, the
+  bookings list) would have had to remember to skip it.
+- `BlockedPeriod.objects.overlapping(property, start, end)` - the same
+  half-open test as `Booking.objects.overlapping()`.
+- `lock_property(id)` - `SELECT … FOR NO KEY UPDATE` on the property's row
+  until the transaction ends. Creating a block and (from step 2) creating a
+  booking both take it before looking at the other table, so they run one
+  after the other for the same property. `NO KEY` so it doesn't hold up
+  inserts that only point at the property (photos, reviews, favorites).
+- Django Admin: a **read-only** "Closed periods" list (filter by
+  property, search the note). Blocks are made and removed in the app's
+  admin pages, where the overlap rules and the lock apply.
+- Migration `listings/migrations/0006_blockedperiod.py` (it also runs
+  `CREATE EXTENSION IF NOT EXISTS btree_gist` - a no-op after
+  `bookings/0002`, and never dropped on the way back, since the bookings
+  constraint still needs it).
 
 **`Profile`** (new `accounts` app, `accounts/models.py`) - the
 app-specific bits Django's built-in `User` doesn't have:
@@ -1134,6 +1173,93 @@ because the exclusion constraint is Postgres-only. That's what
   - a guest cancel and an admin cancel on the same booking at the same
     moment: one `200` and one `400` "already cancelled" (the row lock
     prevents a lost update)
+
+## Closed dates API (TICKET-045)
+
+The admin closes some days of a property (maintenance, own use, booked
+elsewhere) so guests can't book them; reopening is one click. Code:
+`backend/listings/blocks.py` (rules + views), `listings/models.py`
+(`BlockedPeriod`, `lock_property`), routed in `listings/urls.py`.
+
+### Decisions (agreed before building)
+
+- A separate `BlockedPeriod` model (see "Data model"), not a special booking.
+- **Occupancy leaves closed nights out** (step 2): occupancy = confirmed
+  nights / (active properties x nights in period - closed nights).
+- **No editing** a block: Remove it (one click) and close the new dates.
+- Extras: the demo seed adds one closed period; in the admin's date picker
+  closed days have their own colour (guests still see them as booked); a
+  "Closed dates" tab on the admin Bookings page with every property's
+  upcoming blocks.
+
+### Endpoints (admin only: `401` logged out, `403` for guests)
+
+| Method | URL | What it does |
+| --- | --- | --- |
+| `GET` | `/api/admin/properties/{id}/blocks/` | The property's **upcoming** blocks (the ones with a closed night today or later - one in progress is still listed), soonest first. Not paginated |
+| `POST` | `/api/admin/properties/{id}/blocks/` | Close dates. Body `{"start": "2026-10-10", "end": "2026-10-13", "note": "Maintenance"}` (`note` optional, trimmed, max 200) → `201` with the block |
+| `DELETE` | `/api/admin/properties/{id}/blocks/{block_id}/` | Reopen the dates → `204`. Any block of that property, past ones too; a block of another property → `404` |
+
+An unknown property is `404`. A block looks like:
+
+```json
+{"id": 7, "property": 3, "start": "2026-10-10", "end": "2026-10-13", "nights": 3,
+ "note": "Maintenance", "created_by": "admin@demo.com", "created_at": "2026-09-30T07:12:03.120Z"}
+```
+
+### Rules for a new block
+
+| Rule | Answer |
+| --- | --- |
+| `start` in the past | `400` `{"start": ["Past days can't be closed."]}` (today is fine) |
+| `start` more than 365 days ahead (like a booking's check-in) | `400` on `start` |
+| `end` not after `start` | `400` `{"end": ["end must be after start."]}` |
+| More than 365 nights | `400` on `end` |
+| Overlaps a **pending or confirmed** booking | `409` `code: "booking_overlap"`, `detail: "These dates overlap booking #45 (2026-10-11 → 2026-10-14). Cancel or move the booking first."` (plural for several) and `bookings: [{id, check_in, check_out, status}]` |
+| Overlaps another block of the property | `409` `code: "dates_closed"`, `detail: "Some of these dates are already closed (2026-10-10 → 2026-10-13)."` |
+
+Cancelled bookings, bookings that check out on `start` or check in on
+`end`, and other properties' bookings don't get in the way. All messages
+come in Greek with `Accept-Language: el` (in `backend/locale/el/`).
+
+**No race:** `create_block()` first settles payment holds that ran out
+but whose webhook never came (`release_stale_holds`, like booking create -
+otherwise such a hold would count as a pending booking), then, in one
+transaction: `lock_property()` → check bookings → check blocks → insert.
+The exclusion constraint is the last line for block-vs-block (a
+constraint error is also answered with `dates_closed`).
+
+### Try it with curl
+
+```bash
+TOKEN=...   # an admin's access token (see "Authentication")
+curl -X POST localhost:8000/api/admin/properties/1/blocks/ -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" -d '{"start": "2026-10-20", "end": "2026-10-23", "note": "Painting"}'
+curl localhost:8000/api/admin/properties/1/blocks/ -H "Authorization: Bearer $TOKEN"
+curl -X DELETE localhost:8000/api/admin/properties/1/blocks/7/ -H "Authorization: Bearer $TOKEN"
+```
+
+### Tests
+
+`backend/listings/test_blocks.py` (step 1: 18 tests):
+
+- **Model:** `end > start` and no overlapping blocks per property (DB
+  constraints); back-to-back blocks and other properties are fine; the
+  half-open `overlapping()`; deleting a property deletes its blocks.
+- **Admin only:** 401 / 403 for list, create and delete; unknown property 404.
+- **Create:** the returned block (nights, trimmed note, `created_by`),
+  stale holds settled first, today allowed, the date rules and their edges
+  (365 days ahead, 365 nights, note length).
+- **Overlaps:** a pending and a confirmed booking → 409 `booking_overlap`
+  with both listed (singular and plural message); cancelled / touching /
+  other-property bookings don't stop it; closed dates → 409
+  `dates_closed`, back-to-back is fine.
+- **Lock:** the `FOR NO KEY UPDATE` on the property comes before the
+  bookings check.
+- **Greek:** the booking overlap, closed-dates and past-day messages.
+- **List / remove:** upcoming only (in-progress kept, ended and other
+  properties' left out), soonest first; Remove → 204 and the dates can be
+  closed again; a block under the wrong property's URL → 404.
 
 ## Admin stats API
 
@@ -7699,8 +7825,11 @@ payment page"; step 8 (the final check in both languages, locally and on
 Render, in Chrome) is done; see "Two languages → Final check". TICKET-044
 (the test-card hint: "Demo payment - use card 4242…" with a copy button in
 step 2, above Pay now and on Stripe's own page, only with a Stripe test
-key) is done; see "Payments → Test-card hint". Next, before the meetup:
-TICKET-045 (the admin closes dates of a property); then
+key) is done; see "Payments → Test-card hint". **TICKET-045 (the admin closes
+dates of a property) is in progress:** step 1 (the `BlockedPeriod` model
+and the admin API to list, close and reopen dates, with the overlap rules
+and the property lock) is done; see "Closed dates API (TICKET-045)". Next,
+before the meetup: the rest of TICKET-045; then
 TICKET-039 (final redeploy + smoke test); a suggestion for later, not
 planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see
 TICKETS.md); after the

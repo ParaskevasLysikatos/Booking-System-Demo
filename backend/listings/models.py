@@ -1,6 +1,11 @@
+from django.conf import settings
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import RangeOperators
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+
+from bookings.models import DateRange
 
 
 class Property(models.Model):
@@ -153,3 +158,90 @@ class PropertyImage(models.Model):
                 super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+
+class BlockedPeriodQuerySet(models.QuerySet):
+    def overlapping(self, property, start, end):
+        """Blocks of `property` that overlap [start, end) - the same
+        half-open test as Booking.objects.overlapping(), so a block ending
+        on the 10th and a stay starting on the 10th don't clash."""
+        return self.filter(property=property, start__lt=end, end__gt=start)
+
+
+class BlockedPeriod(models.Model):
+    """Days an admin has closed for a property (TICKET-045): maintenance,
+    own use, booked on another site... Guests can't book them and see them
+    exactly like booked days (never the note).
+
+    A separate model rather than a "booking without a guest", so the stats,
+    emails, payments, refunds, reviews and the bookings list never have to
+    remember to skip it.
+
+    `end` is exclusive, like a booking's check_out: start=1 Oct, end=4 Oct
+    closes the nights of 1, 2 and 3 Oct, and a guest can still check in on
+    the 4th.
+
+    Races: creating a booking and creating a block both lock the property's
+    row first (select_for_update) and only then look at the other table - see
+    lock_property() below. Two blocks of one property can never overlap
+    (exclusion constraint), whatever the timing.
+    """
+
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name="blocked_periods",
+    )
+    start = models.DateField(help_text="First closed night.")
+    end = models.DateField(
+        help_text="The day after the last closed night (exclusive, like a booking's check-out).",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Why the dates are closed (admins only - guests never see it).",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = BlockedPeriodQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["start", "id"]
+        verbose_name = "closed period"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end__gt=models.F("start")),
+                name="blockedperiod_end_after_start",
+            ),
+            ExclusionConstraint(
+                name="blockedperiod_no_overlap_per_property",
+                expressions=[
+                    ("property", RangeOperators.EQUAL),
+                    (DateRange("start", "end"), RangeOperators.OVERLAPS),
+                ],
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.property.title}: closed {self.start} → {self.end}"
+
+    # (No `nights` @property here: inside this class body the name
+    # `property` is the ForeignKey above. Serializers compute it.)
+
+
+def lock_property(property_id):
+    """Lock one property's row until the end of the current transaction.
+
+    Booking create and block create both call this before checking the other
+    table, so they run one after the other for the same property: whichever
+    comes second sees the first one's row. FOR NO KEY UPDATE (not plain FOR
+    UPDATE) so it doesn't hold up unrelated inserts that only reference the
+    property (photos, reviews, favorites)."""
+    return Property.objects.select_for_update(no_key=True).get(pk=property_id)

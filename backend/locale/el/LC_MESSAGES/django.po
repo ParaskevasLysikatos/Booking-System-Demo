@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Booking System Demo\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-29 20:15+0300\n"
+"POT-Creation-Date: 2026-09-30 09:47+0300\n"
 "PO-Revision-Date: 2026-09-29 21:00+0300\n"
 "Last-Translator: \n"
 "Language-Team: Greek\n"
@@ -164,8 +164,8 @@ msgid ""
 "Online cancellation closed on %(deadline)s (%(hours)s hours before check-"
 "in). Please contact us."
 msgstr ""
-"Η ηλεκτρονική ακύρωση έκλεισε στις %(deadline)s (%(hours)s ώρες πριν από την"
-" άφιξη). Επικοινωνήστε μαζί μας."
+"Η ηλεκτρονική ακύρωση έκλεισε στις %(deadline)s (%(hours)s ώρες πριν από την "
+"άφιξη). Επικοινωνήστε μαζί μας."
 
 #: bookings/views.py
 #, python-format
@@ -184,6 +184,41 @@ msgstr "Το τέλος της περιόδου δεν μπορεί να είν�
 #, python-format
 msgid "The period can be at most %(days)s days."
 msgstr "Η περίοδος μπορεί να είναι έως %(days)s ημέρες."
+
+#: listings/blocks.py
+msgid "Past days can't be closed."
+msgstr "Δεν μπορείτε να κλείσετε ημέρες του παρελθόντος."
+
+#: listings/blocks.py
+#, python-format
+msgid "Dates can be closed at most %(days)s days ahead."
+msgstr "Μπορείτε να κλείσετε ημερομηνίες έως %(days)s ημέρες μπροστά."
+
+#: listings/blocks.py
+msgid "end must be after start."
+msgstr "Το τέλος πρέπει να είναι μετά την αρχή."
+
+#: listings/blocks.py
+#, python-format
+msgid "At most %(nights)s nights can be closed at once."
+msgstr "Μπορείτε να κλείσετε έως %(nights)s νύχτες τη φορά."
+
+#: listings/blocks.py
+#, python-format
+msgid "These dates overlap booking %(refs)s. Cancel or move the booking first."
+msgid_plural ""
+"These dates overlap bookings %(refs)s. Cancel or move those bookings first."
+msgstr[0] ""
+"Οι ημερομηνίες επικαλύπτουν την κράτηση %(refs)s. Ακυρώστε ή μετακινήστε την "
+"κράτηση πρώτα."
+msgstr[1] ""
+"Οι ημερομηνίες επικαλύπτουν τις κρατήσεις %(refs)s. Ακυρώστε ή μετακινήστε "
+"αυτές τις κρατήσεις πρώτα."
+
+#: listings/blocks.py
+#, python-format
+msgid "Some of these dates are already closed (%(ranges)s)."
+msgstr "Κάποιες από αυτές τις ημερομηνίες είναι ήδη κλειστές (%(ranges)s)."
 
 #: listings/filters.py
 msgid "check_in and check_out must be given together."
@@ -219,16 +254,16 @@ msgstr "Μόνο μία φωτογραφία μπορεί να είναι το �
 #: listings/views.py
 msgid "Map search is switched off. Place the pin on the map instead."
 msgstr ""
-"Η αναζήτηση στον χάρτη είναι απενεργοποιημένη. Τοποθετήστε την καρφίτσα στον"
-" χάρτη."
+"Η αναζήτηση στον χάρτη είναι απενεργοποιημένη. Τοποθετήστε την καρφίτσα στον "
+"χάρτη."
 
 #: listings/views.py
 msgid ""
 "Map search isn't available right now. Try again in a moment, or place the "
 "pin on the map."
 msgstr ""
-"Η αναζήτηση στον χάρτη δεν είναι διαθέσιμη αυτή τη στιγμή. Δοκιμάστε σε λίγο"
-" ή τοποθετήστε την καρφίτσα στον χάρτη."
+"Η αναζήτηση στον χάρτη δεν είναι διαθέσιμη αυτή τη στιγμή. Δοκιμάστε σε λίγο "
+"ή τοποθετήστε την καρφίτσα στον χάρτη."
 
 #: payments/refunds.py
 msgid "This booking wasn't paid online, so there's nothing to refund."
@@ -311,8 +346,8 @@ msgstr ""
 
 #: payments/services.py
 msgid ""
-"We couldn't reach the payment provider to close this booking's payment page."
-" Please try again."
+"We couldn't reach the payment provider to close this booking's payment page. "
+"Please try again."
 msgstr ""
 "Δεν ήταν δυνατή η σύνδεση με τον πάροχο πληρωμών για να κλείσει η σελίδα "
 "πληρωμής αυτής της κράτησης. Δοκιμάστε ξανά."
@@ -359,12 +394,12 @@ msgstr "Οι φωτογραφίες μπορούν να είναι έως %(size
 #: uploads/views.py
 msgid "Photo uploads are switched off. Paste an image URL instead."
 msgstr ""
-"Το ανέβασμα φωτογραφιών είναι απενεργοποιημένο. Επικολλήστε τη διεύθυνση URL"
-" μιας εικόνας."
+"Το ανέβασμα φωτογραφιών είναι απενεργοποιημένο. Επικολλήστε τη διεύθυνση URL "
+"μιας εικόνας."
 
 #: uploads/views.py
 msgid ""
 "Photo uploads aren't available right now. Try again, or paste an image URL."
 msgstr ""
-"Το ανέβασμα φωτογραφιών δεν είναι διαθέσιμο αυτή τη στιγμή. Δοκιμάστε ξανά ή"
-" επικολλήστε τη διεύθυνση URL μιας εικόνας."
+"Το ανέβασμα φωτογραφιών δεν είναι διαθέσιμο αυτή τη στιγμή. Δοκιμάστε ξανά ή "
+"επικολλήστε τη διεύθυνση URL μιας εικόνας."
