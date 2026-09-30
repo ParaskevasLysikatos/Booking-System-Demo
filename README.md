@@ -768,8 +768,8 @@ message (e.g. `{"check_out": ["check_out must be after check_in."]}`).
 | `page` / `page_size` | `2` / `24` | Pagination: 12 per page by default, max 50 |
 
 How the date filter works: a property is excluded if it has any
-**non-cancelled** booking (pending or confirmed) whose stay overlaps the
-requested one. Check-out day is exclusive, so arriving on the day someone
+**non-cancelled** booking (pending or confirmed) **or closed dates**
+(TICKET-045) overlapping the requested stay. Check-out day is exclusive, so arriving on the day someone
 else leaves is allowed. It reuses `Booking.objects.overlapping()` (the same
 overlap rule booking creation will use in TICKET-015) as a correlated
 `NOT EXISTS` subquery, so it's still one SQL query however many properties
@@ -813,7 +813,9 @@ timestamps, and an `availability` block for the TICKET-019 calendar:
 ```
 
 `booked_ranges` lists upcoming, non-cancelled stays with **dates only**
-(no guest, price or status). The same `check_out`-exclusive rule applies,
+(no guest, price or status) - plus the property's upcoming **closed
+dates** (TICKET-045) in the same shape, sorted together, so a guest can't
+tell a booked day from a closed one (and never sees the note). The same `check_out`-exclusive rule applies,
 so a calendar should treat each range as `[check_in, check_out)`. Add
 `?check_in=&check_out=` (same validation as the list filter) and the block
 also answers `is_available` for that exact stay.
@@ -1001,6 +1003,17 @@ Two layers:
    a successful retry → `201`, and repeated deadlocks → `409`, not
    `500`. The concurrency test was then run 12 times in a row, all
    green.
+
+3. **Closed dates (TICKET-045).** Inside the same transaction, before
+   the insert, the view takes a lock on the property's row
+   (`lock_property()`, `FOR NO KEY UPDATE`) and checks the property's
+   closed dates → the same `409` `dates_unavailable`. Closing dates takes
+   the same lock before checking the bookings, so a booking and a block
+   can't both get in (see "Closed dates API"). Side effect: two bookings
+   for one property now also wait for each other at the lock; the
+   second one's insert is still stopped by the exclusion constraint
+   (the concurrency test's barrier moved to just before the lock to keep
+   testing exactly that).
 
 Before adding the constraint, the migration checks your existing data. If
 you already have overlapping non-cancelled bookings, it stops with a list
@@ -1229,6 +1242,35 @@ transaction: `lock_property()` → check bookings → check blocks → insert.
 The exclusion constraint is the last line for block-vs-block (a
 constraint error is also answered with `dates_closed`).
 
+### What guests see and can book (step 2)
+
+| Where | What changed |
+| --- | --- |
+| Property page calendar (`GET /api/properties/{id}/`) | Closed dates are in `availability.booked_ranges`, in the same `{check_in, check_out}` shape, sorted with the bookings - they look exactly like booked days. No note, nothing to tell them apart. The frontend needed no change |
+| "Available for your dates" (`?check_in=&check_out=` on the same URL) | `is_available: false` when the stay overlaps closed dates |
+| Search by dates (`/api/properties/` and `/map/`) | Properties with closed dates in the stay are left out (a second `NOT EXISTS`, still one query) |
+| `POST /api/bookings/` | `409` with the **same** `dates_unavailable` code and "These dates are no longer available for this property." - the booking page needs no new case |
+
+Touching dates are fine both ways: a stay can check out the day a block
+starts and check in the day it ends.
+
+**How booking create checks (the race):** the friendly pre-check now also
+looks at blocks. Then, inside the transaction that inserts the booking:
+`lock_property()` → closed dates checked → insert. Closing dates takes the
+same lock before it checks the bookings, so whichever comes second waits,
+then sees the first one: a booking and a block for the same days can't
+both get in. The lock also lines up two bookings for one property; the
+bookings' own exclusion constraint (and its deadlock retry) stay as they
+were.
+
+**Occupancy** (see "Admin stats API → What the numbers mean"): closed
+nights are left out of the available nights, overall and per property,
+and reported as `closed_nights`; the dashboard's Occupancy card says
+"N closed nights not counted". Revenue doesn't change.
+
+**Demo data:** the seed closes 3 nights ("Maintenance") of the first
+active property, two weeks ahead or later; see "Seeding demo data".
+
 ### Try it with curl
 
 ```bash
@@ -1261,6 +1303,28 @@ curl -X DELETE localhost:8000/api/admin/properties/1/blocks/7/ -H "Authorization
   properties' left out), soonest first; Remove → 204 and the dates can be
   closed again; a block under the wrong property's URL → 404.
 
+Step 2 (13 more, **31** in the file):
+
+- **Guests:** closed dates in `booked_ranges` with the bookings, sorted,
+  ended ones left out, the note never in the response; `is_available`
+  false over closed dates and true for touching ones; the search and the
+  map pins leave the property out; removing the block reopens everything.
+- **Booking create:** 409 with exactly the "dates taken" body (and the
+  Greek one in Greek); touching and reopened dates can be booked; the
+  blocks are checked after the property lock and before the insert.
+- **The race, both ways** (`TransactionTestCase`, two threads): the first
+  request is held inside its lock for half a second while the second one
+  arrives. Block first → the booking gets 409; booking first → the block
+  gets `booking_overlap`. With the lock taken out, both tests fail (checked).
+- **Occupancy:** 3 of 7 closed nights inside a 10-night period →
+  `closed_nights` 3, available 17, rate 3/17, the property's own rate 3/7;
+  a retired property's block isn't counted; revenue unchanged.
+- **Seed:** exactly one block, 3 nights, active property, two weeks ahead
+  or later, no booking under it.
+
+Frontend (`dashboard.spec.ts`, 3 new): the closed-nights line under
+Occupancy, only when there are closed nights.
+
 ## Admin stats API
 
 `GET /api/admin/stats/` (TICKET-016) returns the numbers for the admin
@@ -1286,7 +1350,10 @@ the 10th to the 13th occupies the nights of the 10th, 11th and 12th.
   nights that fall inside it. For example, a 10-night stay over month-end
   is split between the two months.
 - **Occupancy rate** = confirmed nights ÷ (active properties × nights in
-  the period), from 0 to 1, rounded to 4 decimals.
+  the period − their **closed nights**), from 0 to 1, rounded to 4
+  decimals. Closed dates (TICKET-045) aren't for sale, so they're left out
+  of `available_nights` and reported as `closed_nights`; each property's
+  `occupancy_rate` works the same way (its own closed nights).
   - Only **confirmed** nights count as occupied. Pending nights are
     reported separately as `pending_nights`, the pipeline.
   - Only **active** properties count. A retired property's nights aren't
@@ -1313,11 +1380,11 @@ the 10th to the 13th occupies the nights of the 10th, 11th and 12th.
   "period":    {"from": "2026-09-01", "to": "2026-09-30", "nights": 30},
   "bookings":  {"total": 4, "pending": 0, "confirmed": 4, "cancelled": 0, "created_in_period": 32},
   "occupancy": {"rate": 0.0545, "booked_nights": 18, "pending_nights": 0,
-                "available_nights": 330, "active_properties": 11},
+                "available_nights": 330, "closed_nights": 0, "active_properties": 11},
   "revenue":   {"confirmed": "776.00", "pending": "0.00"},
   "properties": [
     {"id": 42, "title": "Spacious Studio in Thessaloniki", "is_active": true,
-     "booked_nights": 5, "pending_nights": 0, "occupancy_rate": 0.1667,
+     "booked_nights": 5, "pending_nights": 0, "closed_nights": 0, "occupancy_rate": 0.1667,
      "revenue": "375.00", "pending_revenue": "0.00"}
   ]
 }
@@ -3829,7 +3896,7 @@ applies as soon as both dates are picked.
 | Card | Main value | Also shows |
 | --- | --- | --- |
 | **Revenue** (the one large "hero" figure) | Confirmed revenue for nights in the period | Change vs the previous period; "+ €X expected from pending bookings" |
-| **Occupancy** | e.g. 26.7% | Change in **percentage points**; a meter bar; "8 of 30 nights booked · 3 active properties"; "+ N nights pending confirmation" |
+| **Occupancy** | e.g. 26.7% | Change in **percentage points**; a meter bar; "8 of 30 nights booked · 3 active properties"; "+ N nights pending confirmation"; "N closed nights not counted" when an admin closed dates in the period (TICKET-045) |
 | **Stays in period** | Confirmed + pending stays | Change; the confirmed / pending / cancelled split; "N new bookings made in this period" |
 | **Avg. revenue per booked night** | Confirmed revenue ÷ confirmed nights, across all properties that earned something (retired ones included, to match the revenue figure) | Change |
 
@@ -7063,6 +7130,10 @@ the demo never starts out empty:
   conflict for the same property. Past stays are mostly `confirmed` with a
   few `cancelled`; future ones are a mix of `pending`/`confirmed`/
   `cancelled`.
+- **Closed dates** (TICKET-045) - one closed period, note "Maintenance",
+  on the first active property: 3 nights in the first free window from
+  two weeks ahead (after the bookings, so it never overlaps one). The
+  command prints where it is.
 - **More ended stays** (TICKET-037) - on top of that mix, every property
   gets extra `confirmed` stays that ended in the last 12 months, each for a
   different guest, until **4-8 guests** have an ended, confirmed stay there
@@ -7828,7 +7899,11 @@ step 2, above Pay now and on Stripe's own page, only with a Stripe test
 key) is done; see "Payments → Test-card hint". **TICKET-045 (the admin closes
 dates of a property) is in progress:** step 1 (the `BlockedPeriod` model
 and the admin API to list, close and reopen dates, with the overlap rules
-and the property lock) is done; see "Closed dates API (TICKET-045)". Next,
+and the property lock) is done; see "Closed dates API (TICKET-045)"; step
+2 (guests can't find or book closed dates - they look like booked days;
+booking create takes the property lock; occupancy leaves closed nights
+out; the seed closes one period) is done; see "Closed dates API → What
+guests see and can book". Next,
 before the meetup: the rest of TICKET-045; then
 TICKET-039 (final redeploy + smoke test); a suggestion for later, not
 planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see

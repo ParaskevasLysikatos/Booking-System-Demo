@@ -89,6 +89,9 @@
         @if (c.pendingNights) {
           <p class="sub">{{ 'dashboard.pendingNights' | t: { count: c.pendingNights } }}</p>
         }
+        @if (c.closedNights) {
+          <p class="sub closed-nights">{{ 'dashboard.closedNights' | t: { count: c.closedNights } }}</p>
+        }
       </section>
 
       <section class="card" aria-labelledby="book-label">

@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsAdminRole, is_app_admin
 from core.pagination import StandardPagination
-from listings.models import PropertyImage
+from listings.models import BlockedPeriod, PropertyImage, lock_property
 from notifications.models import BookingEmail
 from notifications.outbox import booking_cancelled, booking_confirmed, booking_received
 from payments.models import Payment
@@ -58,6 +58,10 @@ def is_deadlock(exc):
     other's uncommitted row). Postgres then aborts one of them with
     40P01 instead of 23P01 - the other one wins and commits."""
     return getattr(getattr(exc, "__cause__", None), "pgcode", None) == DEADLOCK_DETECTED
+
+
+class DatesClosed(Exception):
+    """TICKET-045: an admin closed (some of) these dates."""
 
 
 def is_overlap_violation(exc):
@@ -192,8 +196,11 @@ class BookingViewSet(
         release_stale_holds(data["property"], data["check_in"], data["check_out"])
 
         # 1) Friendly pre-check: covers the normal "those dates are taken"
-        #    case with a clear message. NOT race-proof on its own.
-        if Booking.objects.overlapping(data["property"], data["check_in"], data["check_out"]).exists():
+        #    case with a clear message. NOT race-proof on its own. Closed
+        #    dates (TICKET-045) get the same answer - guests never learn
+        #    whether a day is booked or closed.
+        dates = (data["property"], data["check_in"], data["check_out"])
+        if Booking.objects.overlapping(*dates).exists() or BlockedPeriod.objects.overlapping(*dates).exists():
             return Response({"detail": DATES_TAKEN, "code": "dates_unavailable"},
                             status=status.HTTP_409_CONFLICT)
 
@@ -210,6 +217,13 @@ class BookingViewSet(
         for attempt in (1, 2):
             try:
                 with transaction.atomic():
+                    # TICKET-045: lock the property, then look at its
+                    # closed dates. Closing dates takes the same lock before
+                    # it looks at the bookings, so a booking and a block
+                    # for the same days can't both get in.
+                    lock_property(data["property"].pk)
+                    if BlockedPeriod.objects.overlapping(*dates).exists():
+                        raise DatesClosed
                     booking = serializer.save()
                     # TICKET-029: with payments on, the booking starts
                     # holding its dates for the guest to pay (same
@@ -221,6 +235,9 @@ class BookingViewSet(
                     # sent once this transaction has committed.
                     booking_received(booking)
                 break
+            except DatesClosed:
+                return Response({"detail": DATES_TAKEN, "code": "dates_unavailable"},
+                                status=status.HTTP_409_CONFLICT)
             except IntegrityError as exc:
                 if is_overlap_violation(exc):
                     return just_taken

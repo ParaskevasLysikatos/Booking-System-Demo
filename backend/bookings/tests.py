@@ -434,24 +434,29 @@ class ConcurrencyTests(BookingFixtures, TransactionTestCase):
 
     def test_both_pass_precheck_only_one_booking_wins(self):
         """Deterministic race: both requests pass the overlapping() pre-check
-        before either inserts (a barrier holds them just before the insert),
-        so only the exclusion constraint can stop the second one."""
-        from bookings.serializers import BookingCreateSerializer
+        before either inserts (a barrier holds them just after it), so only
+        the exclusion constraint can stop the second one.
+
+        TICKET-045: the barrier sits just before the property lock (not
+        before the insert, as it did first): the lock now lines the two
+        requests up, and the second one - which doesn't re-check bookings
+        inside the lock - is still stopped by the constraint alone."""
+        from bookings import views as booking_views
 
         barrier = threading.Barrier(2, timeout=10)
-        original = BookingCreateSerializer.create
+        original = booking_views.lock_property
         seen = threading.local()
 
-        def create_after_barrier(self_, validated_data):
+        def lock_after_barrier(property_id):
             # Only the first attempt per request waits: if Postgres resolves
             # the collision with a deadlock abort, the view's single retry
             # must not wait for a partner that already finished.
             if not getattr(seen, "waited", False):
                 seen.waited = True
                 barrier.wait()
-            return original(self_, validated_data)
+            return original(property_id)
 
-        with mock.patch.object(BookingCreateSerializer, "create", create_after_barrier):
+        with mock.patch.object(booking_views, "lock_property", lock_after_barrier):
             codes = self.run_threads([self.poster(self.guest), self.poster(self.other, start=11, end=14)])
         self.assertEqual(sorted(codes), [201, 409])
         self.assertEqual(Booking.objects.exclude(status="cancelled").count(), 1)
@@ -545,7 +550,7 @@ class AdminStatsTests(APITestCase):
         # Active properties A, B, D -> 30 available nights; confirmed nights
         # inside: A 2+1, B 3+2 = 8 (Gamma's 2 are excluded - retired).
         self.assertEqual(data["occupancy"], {"rate": 0.2667, "booked_nights": 8, "pending_nights": 3,
-                                             "available_nights": 30, "active_properties": 3})
+                                             "available_nights": 30, "closed_nights": 0, "active_properties": 3})
         # 200 + 100 + 100 + 66.666.. + 160 = 626.666.. -> rounded once, at the end
         self.assertEqual(data["revenue"], {"confirmed": "626.67", "pending": "300.00"})
 

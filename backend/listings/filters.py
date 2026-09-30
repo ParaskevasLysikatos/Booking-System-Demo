@@ -15,6 +15,8 @@ from rest_framework import serializers
 
 from bookings.models import Booking
 
+from .models import BlockedPeriod
+
 ORDERING_MAP = {
     "price": ("price_per_night", "id"),
     "-price": ("-price_per_night", "id"),
@@ -77,12 +79,14 @@ class PropertyFilterSerializer(DateRangeQuerySerializer):
 
 
 def available_between(queryset, check_in, check_out):
-    """Keep only properties with no non-cancelled booking overlapping
-    [check_in, check_out). Reuses Booking.objects.overlapping() - the same
-    overlap rule booking creation uses - as a correlated EXISTS subquery, so
-    it's one SQL query however many properties there are."""
+    """Keep only properties with no non-cancelled booking and no closed
+    dates (TICKET-045) overlapping [check_in, check_out). Reuses the
+    overlapping() queries booking creation uses, as correlated NOT EXISTS
+    subqueries, so it's still one SQL query however many properties there
+    are."""
     clashes = Booking.objects.overlapping(OuterRef("pk"), check_in, check_out)
-    return queryset.filter(~Exists(clashes))
+    closed = BlockedPeriod.objects.overlapping(OuterRef("pk"), check_in, check_out)
+    return queryset.filter(~Exists(clashes), ~Exists(closed))
 
 
 def apply_property_filters(queryset, params, *, is_admin=False):

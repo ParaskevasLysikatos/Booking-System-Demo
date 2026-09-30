@@ -49,6 +49,7 @@ export interface DashboardCards {
   occupancyWidth: number;
   occupancyDetail: string;
   pendingNights: number;
+  closedNights: number;
   occupancyDelta: Delta | null;
   stays: number;
   confirmed: number;
@@ -85,6 +86,7 @@ export function buildCards(cur: AdminStats, prev: AdminStats | null): DashboardC
       properties: translate('dashboard.activeProperties', { count: cur.occupancy.active_properties }),
     }),
     pendingNights: cur.occupancy.pending_nights,
+    closedNights: cur.occupancy.closed_nights ?? 0,
     occupancyDelta: prev ? pointsDelta(rate, prev.occupancy.rate) : null,
     stays,
     confirmed: cur.bookings.confirmed,

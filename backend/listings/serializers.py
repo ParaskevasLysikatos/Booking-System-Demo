@@ -11,7 +11,7 @@ from reviews.models import Review, has_finished_stay
 from reviews.serializers import MyReviewSerializer
 
 from . import geo
-from .models import Property, PropertyImage
+from .models import BlockedPeriod, Property, PropertyImage
 
 
 class PropertyImageSerializer(serializers.ModelSerializer):
@@ -285,23 +285,32 @@ class PropertyDetailSerializer(RatingFieldsMixin, FavoriteFieldsMixin, Coordinat
         """Upcoming booked date ranges (for the detail page's calendar) and,
         if the view validated a ?check_in=&check_out= pair, whether that
         exact stay is free. Only dates are exposed - never who booked or the
-        booking status."""
+        booking status.
+
+        Closed dates (TICKET-045) are in `booked_ranges` too, in the same
+        shape, so guests see them exactly like booked days (never the note,
+        never which is which). Admins get the blocks themselves from
+        /api/admin/properties/{id}/blocks/."""
         today = timezone.localdate()
-        booked = (
+        booked = list(
             Booking.objects.filter(property=obj, check_out__gt=today)
             .exclude(status=Booking.Status.CANCELLED)
-            .order_by("check_in")
             .values("check_in", "check_out")
         )
-        data = {"booked_ranges": list(booked)}
+        closed = [
+            {"check_in": start, "check_out": end}
+            for start, end in BlockedPeriod.objects.filter(property=obj, end__gt=today).values_list("start", "end")
+        ]
+        data = {"booked_ranges": sorted(booked + closed, key=lambda r: (r["check_in"], r["check_out"]))}
 
         dates = self.context.get("requested_dates")
         if dates:
             data["check_in"] = dates["check_in"]
             data["check_out"] = dates["check_out"]
-            data["is_available"] = not Booking.objects.overlapping(
-                obj, dates["check_in"], dates["check_out"]
-            ).exists()
+            data["is_available"] = not (
+                Booking.objects.overlapping(obj, dates["check_in"], dates["check_out"]).exists()
+                or BlockedPeriod.objects.overlapping(obj, dates["check_in"], dates["check_out"]).exists()
+            )
         return data
 
     def get_viewer_review(self, obj):

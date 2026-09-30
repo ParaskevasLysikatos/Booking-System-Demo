@@ -9,7 +9,10 @@ Definitions (agreed before building):
 - Only the nights of a stay that fall inside the period count, for both
   occupancy and revenue. A 10-night stay crossing month-end is split
   between the two months.
-- Occupancy = confirmed nights / (active properties x nights in period).
+- Occupancy = confirmed nights / (active properties x nights in period
+  - their closed nights). Closed dates (TICKET-045) aren't for sale, so
+  they're left out of the available nights - closing a week for own use
+  doesn't make a property look less popular. Same per property.
   Pending nights are reported separately (the pipeline) and don't count as
   occupied. Cancelled bookings never count.
 - Revenue is spread evenly over a stay's nights (total_price / nights per
@@ -28,7 +31,7 @@ from collections import defaultdict
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from listings.models import Property
+from listings.models import BlockedPeriod, Property
 
 from .models import Booking
 
@@ -192,6 +195,12 @@ def compute_stats(start, end):
             p["pending_nights"] += inside
             p["pending_revenue"] += share
 
+    # TICKET-045: nights closed by an admin, per property, inside the period.
+    closed = defaultdict(int)
+    for blk in BlockedPeriod.objects.filter(start__lt=end_exclusive, end__gt=start).values(
+            "property_id", "start", "end"):
+        closed[blk["property_id"]] += nights_inside(blk["start"], blk["end"], start, end_exclusive)
+
     created = Booking.objects.filter(
         created_at__date__gte=start, created_at__date__lte=end
     ).count()
@@ -213,7 +222,8 @@ def compute_stats(start, end):
             "is_active": prop.is_active,
             "booked_nights": p["booked_nights"],
             "pending_nights": p["pending_nights"],
-            "occupancy_rate": _rate(p["booked_nights"], period_nights),
+            "closed_nights": closed[prop.id],
+            "occupancy_rate": _rate(p["booked_nights"], period_nights - closed[prop.id]),
             "revenue": _money(p["revenue"]),
             "pending_revenue": _money(p["pending_revenue"]),
         })
@@ -223,7 +233,8 @@ def compute_stats(start, end):
     # aren't "available" any more, so they'd distort the rate.
     booked_active = sum(per_prop[i]["booked_nights"] for i in active_ids)
     pending_active = sum(per_prop[i]["pending_nights"] for i in active_ids)
-    available = len(active_ids) * period_nights
+    closed_active = sum(closed[i] for i in active_ids)
+    available = len(active_ids) * period_nights - closed_active
 
     confirmed_total = _money(sum((p["revenue"] for p in per_prop.values()), Decimal("0")))
     pending_total = _money(sum((p["pending_revenue"] for p in per_prop.values()), Decimal("0")))
@@ -240,6 +251,7 @@ def compute_stats(start, end):
             "booked_nights": booked_active,
             "pending_nights": pending_active,
             "available_nights": available,
+            "closed_nights": closed_active,
             "active_properties": len(active_ids),
         },
         "revenue": {

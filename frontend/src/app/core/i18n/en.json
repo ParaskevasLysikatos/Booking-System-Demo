@@ -578,6 +578,10 @@
       "one": "{count} active property",
       "other": "{count} active properties"
     },
+    "closedNights": {
+      "one": "{count} closed night not counted",
+      "other": "{count} closed nights not counted"
+    },
     "pendingNights": {
       "one": "+ {count} night pending confirmation",
       "other": "+ {count} nights pending confirmation"

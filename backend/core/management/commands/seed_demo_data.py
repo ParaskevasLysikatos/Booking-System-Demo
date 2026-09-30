@@ -22,7 +22,7 @@ from core.demo_accounts import (
 )
 from favorites.models import Favorite
 from listings.geo import demo_point
-from listings.models import Property, PropertyImage
+from listings.models import BlockedPeriod, Property, PropertyImage
 from reviews.models import Review
 from uploads import s3 as uploads_s3
 from uploads import seed as seed_photos
@@ -215,6 +215,7 @@ class Command(BaseCommand):
             self._ensure_one_retired(properties)
             self._create_images(properties)
             self._create_bookings(properties, guests)
+            closed = self._create_closed_dates(properties)
             to_review_live = self._create_unreviewed_stays(properties, guests)
             self._create_past_stays(properties, guests, to_review_live)
             self._create_reviews(fake, properties, to_review_live)
@@ -225,6 +226,11 @@ class Command(BaseCommand):
             f"\nSeeded {len(properties)} properties, {len(guests)} guests, "
             f"{reviews} reviews and {favorites} saved places (favorites)."
         ))
+        if closed:
+            self.stdout.write(
+                f"Closed dates: {closed.property.title}, {closed.start} → {closed.end} "
+                f"(\"{closed.note}\") - see Admin → Properties → edit, or Admin → Bookings → Closed dates."
+            )
         self.stdout.write(f"Photos: {self.photo_source}")
         self.stdout.write(
             f"Demo admin login: {DEMO_ADMIN_EMAIL} / {DEMO_ADMIN_PASSWORD} "
@@ -438,6 +444,26 @@ class Command(BaseCommand):
                     total_price=total_price,
                     status=status,
                 )
+
+    def _create_closed_dates(self, properties):
+        """TICKET-045: one closed period, so the feature shows up in the demo
+        (greyed-out days on the property page, the admin's Closed dates).
+        The first active property, 3 nights, in the first free window from
+        two weeks ahead - after the bookings, so it never overlaps one."""
+        active = [p for p in properties if p.is_active]
+        if not active:
+            return None
+        prop = active[0]
+        start = timezone.localdate() + timedelta(days=14)
+        for _ in range(200):
+            end = start + timedelta(days=3)
+            if not Booking.objects.overlapping(prop, start, end).exists():
+                return BlockedPeriod.objects.create(
+                    property=prop, start=start, end=end, note="Maintenance",
+                    created_by=demo_admin_users().first(),
+                )
+            start += timedelta(days=1)
+        return None
 
     # -- reviews -----------------------------------------------------------
 

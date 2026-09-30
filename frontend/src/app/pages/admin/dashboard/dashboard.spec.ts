@@ -14,12 +14,12 @@ import { TranslationService } from '../../../core/i18n/translation.service';
 const stats = (overrides: Partial<AdminStats> = {}): AdminStats => ({
   period: { from: '2026-09-01', to: '2026-09-30', nights: 30 },
   bookings: { total: 7, pending: 1, confirmed: 5, cancelled: 1, created_in_period: 4 },
-  occupancy: { rate: 0.2667, booked_nights: 8, pending_nights: 3, available_nights: 30, active_properties: 3 },
+  occupancy: { rate: 0.2667, booked_nights: 8, pending_nights: 3, available_nights: 30, closed_nights: 0, active_properties: 3 },
   revenue: { confirmed: '626.67', pending: '300.00' },
   properties: [
-    { id: 1, title: 'Alpha', is_active: true, booked_nights: 3, pending_nights: 3, occupancy_rate: 0.3, revenue: '300.00', pending_revenue: '300.00' },
-    { id: 2, title: 'Beta', is_active: true, booked_nights: 5, pending_nights: 0, occupancy_rate: 0.5, revenue: '166.67', pending_revenue: '0.00' },
-    { id: 3, title: 'Gamma', is_active: false, booked_nights: 2, pending_nights: 0, occupancy_rate: 0.2, revenue: '160.00', pending_revenue: '0.00' },
+    { id: 1, title: 'Alpha', is_active: true, booked_nights: 3, pending_nights: 3, closed_nights: 0, occupancy_rate: 0.3, revenue: '300.00', pending_revenue: '300.00' },
+    { id: 2, title: 'Beta', is_active: true, booked_nights: 5, pending_nights: 0, closed_nights: 0, occupancy_rate: 0.5, revenue: '166.67', pending_revenue: '0.00' },
+    { id: 3, title: 'Gamma', is_active: false, booked_nights: 2, pending_nights: 0, closed_nights: 0, occupancy_rate: 0.2, revenue: '160.00', pending_revenue: '0.00' },
   ],
   series: DAILY,
   ...overrides,
@@ -29,9 +29,9 @@ describe('buildCards', () => {
   it('derives every card value from the stats (and the previous period)', () => {
     const prev = stats({
       revenue: { confirmed: '500.00', pending: '0.00' },
-      occupancy: { rate: 0.2, booked_nights: 6, pending_nights: 0, available_nights: 30, active_properties: 3 },
+      occupancy: { rate: 0.2, booked_nights: 6, pending_nights: 0, available_nights: 30, closed_nights: 0, active_properties: 3 },
       bookings: { total: 8, pending: 0, confirmed: 8, cancelled: 0, created_in_period: 2 },
-      properties: [{ id: 1, title: 'Alpha', is_active: true, booked_nights: 10, pending_nights: 0, occupancy_rate: 0.3, revenue: '500.00', pending_revenue: '0.00' }],
+      properties: [{ id: 1, title: 'Alpha', is_active: true, booked_nights: 10, pending_nights: 0, closed_nights: 0, occupancy_rate: 0.3, revenue: '500.00', pending_revenue: '0.00' }],
     });
     const c = buildCards(stats(), prev);
     expect(c.revenue).toBe('€626.67');
@@ -52,7 +52,7 @@ describe('buildCards', () => {
     const c = buildCards(
       stats({
         bookings: { total: 0, pending: 0, confirmed: 0, cancelled: 0, created_in_period: 0 },
-        occupancy: { rate: null, booked_nights: 0, pending_nights: 0, available_nights: 0, active_properties: 0 },
+        occupancy: { rate: null, booked_nights: 0, pending_nights: 0, available_nights: 0, closed_nights: 0, active_properties: 0 },
         revenue: { confirmed: '0.00', pending: '0.00' },
         properties: [],
       }),
@@ -65,10 +65,20 @@ describe('buildCards', () => {
     expect(c.empty).toBe(true);
   });
 
+  it('closed nights (TICKET-045): shown under occupancy, only when there are some', () => {
+    expect(buildCards(stats(), null).closedNights).toBe(0);
+    const c = buildCards(
+      stats({ occupancy: { rate: 0.3333, booked_nights: 8, pending_nights: 0, available_nights: 24, closed_nights: 6, active_properties: 1 } }),
+      null,
+    );
+    expect(c.closedNights).toBe(6);
+    expect(c.occupancyDetail).toBe('8 of 24 nights booked · 1 active property');
+  });
+
   it('in Greek (TICKET-038): money, %, points and the occupancy line', () => {
     setCurrentLang('el');
     try {
-      const prev = stats({ occupancy: { rate: 0.2, booked_nights: 6, pending_nights: 0, available_nights: 30, active_properties: 3 } });
+      const prev = stats({ occupancy: { rate: 0.2, booked_nights: 6, pending_nights: 0, available_nights: 30, closed_nights: 0, active_properties: 3 } });
       const c = buildCards(stats(), prev);
       const plain = (s: string | null | undefined) => (s ?? '').replace(/[\u00a0\u202f]/g, ' ');
       expect(plain(c.revenue)).toBe('626,67 €');
@@ -118,6 +128,23 @@ describe('AdminDashboardPage', () => {
     expect(text()).toContain('4 new bookings made in this period');
     const rows = [...harness.routeNativeElement!.querySelectorAll('app-property-breakdown tbody tr')];
     expect(rows.map((r) => r.querySelector('th')!.textContent!.trim())).toEqual(['Alpha', 'Beta', 'GammaRetired']);
+  });
+
+  it('the occupancy card says how many closed nights were left out (TICKET-045)', async () => {
+    await open('/admin/dashboard');
+    const [current, previous] = calls();
+    current.flush(stats({ occupancy: { rate: 0.3333, booked_nights: 8, pending_nights: 0, available_nights: 24, closed_nights: 6, active_properties: 1 } }));
+    previous.flush(stats());
+    harness.detectChanges();
+    expect(text()).toContain('6 closed nights not counted');
+    expect(harness.routeNativeElement!.querySelectorAll('.closed-nights').length).toBe(1);
+  });
+
+  it('no closed-nights line without closed nights (TICKET-045)', async () => {
+    await open('/admin/dashboard');
+    for (const r of calls()) r.flush(stats());
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('.closed-nights')).toBeNull();
   });
 
   it('the revenue chart sits between the cards and the per-property table (TICKET-035)', async () => {

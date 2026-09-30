@@ -12,7 +12,8 @@ export interface AdminStats {
     rate: number | null; // 0..1, null when there are no active properties
     booked_nights: number;
     pending_nights: number;
-    available_nights: number;
+    available_nights: number; // active properties x nights - closed_nights
+    closed_nights: number; // TICKET-045: closed by an admin, left out of occupancy
     active_properties: number;
   };
   revenue: { confirmed: string; pending: string }; // decimals as strings
@@ -45,7 +46,8 @@ export interface PropertyStats {
   is_active: boolean;
   booked_nights: number;
   pending_nights: number;
-  occupancy_rate: number | null;
+  closed_nights: number; // TICKET-045
+  occupancy_rate: number | null; // booked / (period nights - closed_nights)
   revenue: string;
   pending_revenue: string;
 }
