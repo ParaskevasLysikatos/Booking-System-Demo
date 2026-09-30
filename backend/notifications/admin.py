@@ -13,9 +13,9 @@ class BookingEmailAdmin(admin.ModelAdmin):
     plan) this is how a failed email is sent again; locally
     `manage.py send_pending_emails` does the same for all of them."""
 
-    list_display = ("id", "booking", "kind", "reason", "status", "recipients", "attempts", "sent_at",
-                    "last_error", "created_at")
-    list_filter = ("status", "kind", "reason")
+    list_display = ("id", "booking", "kind", "reason", "status", "provider", "recipients", "attempts",
+                    "sent_at", "last_error", "created_at")
+    list_filter = ("status", "provider", "kind", "reason")
     search_fields = ("booking__id", "recipients", "provider_message_id")
     list_select_related = ("booking", "booking__property", "booking__guest")
     date_hierarchy = "created_at"
@@ -50,7 +50,7 @@ class BookingEmailInline(admin.TabularInline):
     model = BookingEmail
     extra = 0
     can_delete = False
-    fields = ("kind", "reason", "status", "recipients", "attempts", "sent_at", "last_error")
+    fields = ("kind", "reason", "status", "provider", "recipients", "attempts", "sent_at", "last_error")
     readonly_fields = fields
     show_change_link = True
 

@@ -2,6 +2,8 @@ from django.conf import settings
 from django.core.mail import EmailMessage
 from django.core.management.base import BaseCommand, CommandError
 
+from notifications.outbox import provider_of
+
 
 class Command(BaseCommand):
     help = "Send one test email through the configured EMAIL_PROVIDER (TICKET-030), e.g. to check Gmail API setup."
@@ -22,6 +24,8 @@ class Command(BaseCommand):
         except Exception as exc:
             raise CommandError(f"Not sent: {exc}") from exc
         extra = getattr(message, "provider_message_id", "")
+        # Who really sent it - "brevo" when the Gmail fallback kicked in (TICKET-047).
+        provider = provider_of(message) or settings.EMAIL_PROVIDER
         self.stdout.write(self.style.SUCCESS(
-            f"Sent to {options['to']} from {settings.DEFAULT_FROM_EMAIL} via {settings.EMAIL_PROVIDER}"
-            + (f" (Gmail id {extra})" if extra else "") + "."))
+            f"Sent to {options['to']} from {settings.DEFAULT_FROM_EMAIL} via {provider}"
+            + (f" (message id {extra})" if extra else "") + "."))

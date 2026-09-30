@@ -50,6 +50,14 @@ class BookingEmail(models.Model):
         PAYMENT_EXPIRED = "payment_expired", "Payment time ran out"
         PAYMENT_FAILED = "payment_failed", "Payment failed"
 
+    class Provider(models.TextChoices):
+        # Who actually sent it (TICKET-047) - filled in when the email is sent.
+        NONE = "", "-"
+        GMAIL = "gmail", "Gmail API"
+        BREVO = "brevo", "Brevo (Gmail fallback)"
+        SMTP = "smtp", "SMTP"
+        CONSOLE = "console", "Console (printed to the log)"
+
     kind = models.CharField(max_length=32, choices=Kind.choices)
     reason = models.CharField(max_length=20, choices=Reason.choices, blank=True, default="")
     # Comma-separated, fixed when the row is created (the guest's email, or
@@ -58,7 +66,8 @@ class BookingEmail(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     attempts = models.PositiveSmallIntegerField(default=0)
     last_error = models.CharField(max_length=500, blank=True)
-    # Gmail's message id (empty for console/SMTP).
+    provider = models.CharField(max_length=10, choices=Provider.choices, blank=True, default="")
+    # The provider's message id (Gmail's / Brevo's; empty for console/SMTP).
     provider_message_id = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     sending_started_at = models.DateTimeField(null=True, blank=True)

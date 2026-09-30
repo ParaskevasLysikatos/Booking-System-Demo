@@ -184,8 +184,25 @@ def send_email(email_id, now=None):
         status=Status.SENT,
         sent_at=timezone.now(),
         last_error="",
+        provider=provider_of(message),
         provider_message_id=str(getattr(message, "provider_message_id", "") or "")[:255],
     )
+
+
+# Django's own backends don't say who they are - named by class path.
+_DJANGO_BACKENDS = {
+    "django.core.mail.backends.console.EmailBackend": BookingEmail.Provider.CONSOLE,
+    "django.core.mail.backends.smtp.EmailBackend": BookingEmail.Provider.SMTP,
+}
+
+
+def provider_of(message):
+    """Who sent `message` (TICKET-047): our backends set
+    `message.email_provider` (gmail / brevo - the fallback backend sets the
+    one that really sent it); for Django's console / SMTP backends it's the
+    configured backend. Anything else (e.g. the tests' in-memory backend) -> ""."""
+    name = getattr(message, "email_provider", "") or _DJANGO_BACKENDS.get(settings.EMAIL_BACKEND, "")
+    return name if name in BookingEmail.Provider.values else ""
 
 
 def send_email_safely(email_id):

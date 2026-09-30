@@ -23,7 +23,8 @@ is cached per process until shortly before it expires; a 401 from Gmail
 drops it and retries once with a fresh one.
 
 After a successful send, `message.provider_message_id` holds Gmail's message
-id. On failure an EmailSendError is raised (unless fail_silently) with
+id and `message.email_provider` is "gmail". On failure an EmailSendError
+(notifications/errors.py) is raised (unless fail_silently) with
 `refused=True` when Google answered with a 4xx (e.g. the refresh token was
 revoked - retrying won't help until it's replaced) and `refused=False` when
 the outcome is unknown (network error, timeout, 5xx, 429).
@@ -39,20 +40,12 @@ import urllib.request
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 
+from .errors import EmailSendError
+
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 SCOPE = "https://www.googleapis.com/auth/gmail.send"
-
-
-class EmailSendError(Exception):
-    def __init__(self, message, status=None):
-        super().__init__(message)
-        self.status = status
-
-    @property
-    def refused(self):
-        return self.status is not None and 400 <= self.status < 500 and self.status != 429
 
 
 def _error_text(exc):
@@ -94,6 +87,7 @@ def post(url, *, data=None, json_body=None, headers=None, timeout=10):
 
 
 class GmailApiEmailBackend(BaseEmailBackend):
+    provider_name = "gmail"
     _lock = threading.Lock()
     _token = None  # (access_token, expires_at monotonic) - shared by the process
 
@@ -147,6 +141,7 @@ class GmailApiEmailBackend(BaseEmailBackend):
         for message in email_messages or []:
             try:
                 message.provider_message_id = self._send(message)
+                message.email_provider = self.provider_name
                 sent += 1
             except EmailSendError:
                 if not self.fail_silently:

@@ -6437,6 +6437,67 @@ seeded guest `guest_4_rick71@example.com`, reading every email in Mailpit
 All emails rendered correctly (HTML and text); Mailpit's HTML check scored
 94-95%.
 
+## Brevo fallback when the Gmail token expires (TICKET-047)
+
+**Why:** the Google app is in *Testing*, so `GMAIL_REFRESH_TOKEN` stops
+working 7 days after it was made (about **5 Oct 2026**). Until
+`gmail_authorize` is run again every booking email would fail quietly. With
+the fallback, an email that Gmail can't send *because its login is dead*
+goes out through **Brevo** instead, the outbox records which provider sent
+it, and the owner is told (at most once a day) that the token needs
+renewing.
+
+**Agreed decisions (30 Sep):**
+
+1. **When to fall back:** only when Gmail's login fails - `invalid_grant`
+   (expired / revoked refresh token), a 401 even with a fresh access token,
+   or a network error / 5xx while *getting the access token* (nothing has
+   been sent yet, so no duplicate). A failure of the send itself (Gmail
+   refusing one message, a 5xx or a timeout on the send) does **not** fall
+   back - the email is `failed` and the normal retry sends it later.
+2. **Telling the owner:** an error log line on every fallback, plus one
+   email (through Brevo) to `BOOKING_ALERT_EMAILS` at most once a day while
+   Gmail is broken - tracked in the database so a Render restart doesn't
+   send it again; a Gmail send that works again resets it.
+3. **Where it's on:** Render (`render.yaml`: `EMAIL_FALLBACK_PROVIDER=brevo`,
+   `BREVO_API_KEY` as `sync: false`); locally optional (`.env.example`
+   documents it, off unless you add a key).
+4. **Outbox:** a `provider` field on `BookingEmail` (migration), shown and
+   filterable in Django Admin.
+
+Built in four steps: the Brevo backend + the `provider` field (1), the
+fallback wrapper (2), the owner alert (3), docs + config (4).
+
+### Brevo backend and the outbox's `provider` (step 1)
+
+- **`notifications/brevo.py` - `BrevoEmailBackend`**, brought back from git
+  history (`3b57bb0`, TICKET-030's first provider): one
+  `POST https://api.brevo.com/v3/smtp/email` per email with the `api-key`
+  header, standard library only. Sender = `DEFAULT_FROM_EMAIL` (Brevo shows
+  it as `…@brevosend.com` because it can't send as a @gmail.com address),
+  **Reply-To = the owner's Gmail**, so replies still reach the owner; text
+  + HTML, and the `X-Booking-Email` header. Settings: `BREVO_API_KEY`,
+  `BREVO_API_URL` (default Brevo's). Errors are `EmailSendError`
+  (now in `notifications/errors.py`, shared with the Gmail backend):
+  `refused` for a 4xx (wrong key, unverified sender), an unknown outcome
+  for network / 5xx / 429 - and never the API key in the text.
+- **`BookingEmail.provider`** (migration `0003_email_provider`): who
+  actually sent the email - `gmail`, `brevo`, `smtp` or `console`, empty
+  until it's sent (and for a failed attempt). Our backends set
+  `message.email_provider`; Django's console / SMTP backends are named from
+  `EMAIL_BACKEND` (`outbox.provider_of()`). Django Admin → *Booking emails*
+  has a **Provider** column and filter (also in the Booking page's emails
+  inline).
+- `send_test_email` now says who really sent it ("… via brevo (message id
+  …)" when the fallback was used).
+
+Tests (`notifications/test_providers.py`, 10 so far): the Brevo request
+(sender, recipient, Reply-To, text + HTML, header, key, timeout), its
+message id, a 4xx refusal without the key in the error, network / 5xx /
+429 = unknown outcome, missing key / no recipients / `fail_silently`,
+HTML-only and empty bodies; the outbox records `gmail`, `brevo`, `console`
+and `smtp`, and nothing for a failed send or the tests' in-memory backend.
+
 ## Mobile & PWA (TICKET-031)
 
 The same Angular app works on phones, tablets and laptops, and can be

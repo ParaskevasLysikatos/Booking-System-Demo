@@ -247,6 +247,10 @@ GMAIL_CLIENT_ID = env('GMAIL_CLIENT_ID', default='')
 GMAIL_CLIENT_SECRET = env('GMAIL_CLIENT_SECRET', default='')
 GMAIL_REFRESH_TOKEN = env('GMAIL_REFRESH_TOKEN', default='')
 GMAIL_CONFIGURED = bool(GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN)
+# Brevo's HTTP API - the backup provider (TICKET-047). Only a key is needed;
+# the sender (DEFAULT_FROM_EMAIL) must be verified in Brevo.
+BREVO_API_KEY = env('BREVO_API_KEY', default='')
+BREVO_API_URL = env('BREVO_API_URL', default='https://api.brevo.com/v3/smtp/email')
 EMAIL_BACKENDS = {
     'console': 'django.core.mail.backends.console.EmailBackend',
     'smtp': 'django.core.mail.backends.smtp.EmailBackend',
