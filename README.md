@@ -113,6 +113,9 @@ the server's own messages (booking clashes, validation, password rules,
 login errors, payment and refund refusals) come back in Greek when the app
 is in Greek. Step 7 is done - Stripe's payment page opens in the app's
 language too, with the stay described in Greek. See "Two languages (English / Greek, TICKET-038)".
+Booking emails keep going out when the Gmail token expires: they fall
+back to **Brevo** and the owner is told once a day to renew the token
+(TICKET-047, see "Brevo fallback when the Gmail token expires").
 See "Next steps" at the bottom for what's next.
 
 ## Prerequisites
@@ -272,11 +275,17 @@ backend/
     migrations/        0001 creates the payments and stripe events tables; 0002 makes the session optional until checkout; 0003 adds the `cancelled` payment status
     (views.py also serves GET /api/payments/config/ - public: enabled, test_mode, hold minutes, currency)
   notifications/       Booking emails (TICKET-030) - see "Emails"
-    models.py          BookingEmail - the outbox: one row per (booking, kind), status pending/sending/sent/failed/skipped
+    models.py          BookingEmail - the outbox: one row per (booking, kind), status pending/sending/sent/failed/skipped,
+                       provider (who sent it); GmailHealth - is Gmail's login failing (TICKET-047)
     outbox.py          enqueue() inside the booking's transaction; send_email() after commit (claim -> send -> record)
     messages.py        Builds each email (subject, text + HTML) for a row: email_context(), money/date formatting
     templates/notifications/emails/   <kind>.html (extends base.html) + <kind>.txt for the 4 emails, shared _pieces
     backends.py        GmailApiEmailBackend - Django email backend for the Gmail API (OAuth refresh token, stdlib only)
+                       + GmailWithBrevoFallbackBackend - Gmail first, Brevo when Gmail's login is dead (TICKET-047)
+    brevo.py           BrevoEmailBackend - Brevo's HTTP API, the backup provider (TICKET-047)
+    errors.py          EmailSendError (refused / unknown outcome) + GmailLoginError (nothing sent; dead login or outage)
+    gmail_health.py    GmailHealth row + the owner's "renew the Gmail token" email, at most once a day (TICKET-047)
+    test_providers.py  Brevo, provider, fallback and owner-alert tests (TICKET-047)
     checks.py          Startup warnings for the email settings (never errors)
     admin.py           Read-only outbox list with a "Retry sending" action + an inline on the Booking admin page
     management/commands/send_pending_emails.py   Send pending / failed / stuck emails (--max-attempts, --dry-run)
@@ -6017,6 +6026,7 @@ catches every email instead of sending it.
 | `console` (default) | printed to the backend log | a plain `manage.py runserver` |
 | `smtp` | Django's SMTP backend → `EMAIL_HOST:EMAIL_PORT` | Docker: `docker-compose.yml` sets `smtp` + `mailpit:1025` |
 | `gmail` | `notifications.backends.GmailApiEmailBackend` | Render. Without all three `GMAIL_*` settings it falls back to `console` (and warns) |
+| `gmail` + `EMAIL_FALLBACK_PROVIDER=brevo` + `BREVO_API_KEY` | `notifications.backends.GmailWithBrevoFallbackBackend` | Render (TICKET-047): Gmail, and Brevo when Gmail's login is dead - see "Brevo fallback when the Gmail token expires" |
 
 Tests always use Django's in-memory backend (`mail.outbox`), whatever is
 set. To send real emails from Docker, put `EMAIL_PROVIDER=gmail` in `.env`
@@ -6199,10 +6209,15 @@ makes the refresh token (`GMAIL_REFRESH_TOKEN`) **stop working after 7
 days**. The current one was created on 28 Sep 2026, so it expires around
 **5 Oct 2026**.
 
-**How you notice:** booking emails stop arriving. In Django Admin →
-*Booking emails* they show **Failed** with `Google answered 400:
-invalid_grant - … run manage.py gmail_authorize again`. Bookings keep
-working normally; only the emails wait.
+**How you notice:** with the Brevo fallback on (TICKET-047, Render), you
+get an email *"Action needed: renew the Gmail token for booking emails"*
+(at most once a day); booking emails keep arriving, but from a
+`…@brevosend.com` sender, and Django Admin → *Booking emails* shows
+**Provider: Brevo** (*Gmail status* shows since when). Without the
+fallback, booking emails stop arriving: they show **Failed** with `Google
+answered 400: invalid_grant - … run manage.py gmail_authorize again`.
+Bookings keep working normally either way. Once the new token is in, the
+next email goes through Gmail again and the alert stops by itself.
 
 #### Renew the token (about 2 minutes, every 7 days while in Testing)
 
@@ -6469,7 +6484,8 @@ renewing.
    filterable in Django Admin.
 
 Built in four steps: the Brevo backend + the `provider` field (1), the
-fallback wrapper (2), the owner alert (3), docs + config (4).
+fallback wrapper (2), the owner alert (3), docs + config (4). **Done** (30
+Sep); on Render it needs `BREVO_API_KEY` - see "Switch it on" below.
 
 ### Brevo backend and the outbox's `provider` (step 1)
 
@@ -6592,6 +6608,60 @@ alert list → logged; never raises; **the smoke test with Google and Brevo
 mocked** (broken token → guest email + owner alert through Brevo, outbox
 `brevo`; a second email the same day → no second alert; token fixed → the
 next email via Gmail, status cleared); Django Admin shows it read-only.
+
+### Switch it on, and check it (step 4)
+
+Config: `render.yaml` has `EMAIL_FALLBACK_PROVIDER=brevo` and
+`BREVO_API_KEY` (`sync: false`, so the value lives only in the Render
+dashboard - the repo is public). `.env.example` documents both, commented
+out: locally the fallback stays off unless you add a key (Docker sends to
+Mailpit anyway). Without the key nothing changes - plain Gmail, as before
+(and warning `notifications.W006`).
+
+**Switch it on at Render (owner, ~5 minutes):**
+
+1. **Brevo** (https://app.brevo.com, the account from TICKET-030) →
+   *Senders, domains & dedicated IPs → Senders*: the Gmail in
+   `DEFAULT_FROM_EMAIL` must be listed as **verified** (it was on 28 Sep).
+2. Brevo → *SMTP & API* → *API keys* → **Generate a new API key**
+   (`booking-demo-fallback`), copy the `xkeysib-…` value (shown once).
+3. **Render** → `booking-demo-api` → *Environment* → add
+   `BREVO_API_KEY` = the key, and `EMAIL_FALLBACK_PROVIDER` = `brevo` (the
+   Blueprint adds this one on its next sync; adding it by hand is the same)
+   → **Save, rebuild and deploy**. The deploy applies migrations
+   `0003_email_provider` and `0004_gmail_health`.
+4. Nothing else changes while the Gmail token works: emails still come
+   from your Gmail, with **Provider: Gmail API** in Django Admin.
+
+**Check it (the smoke test, in TICKET-039):** on Render temporarily set
+`GMAIL_REFRESH_TOKEN` to a wrong value (e.g. `1//broken`) → Save and deploy
+→ make a booking → the "we've got your booking" email arrives from
+`…@brevosend.com` (Reply-To your Gmail), Django Admin → *Booking emails*
+shows **Provider: Brevo (Gmail fallback)**, *Gmail status* shows the
+failure, and `BOOKING_ALERT_EMAILS` gets *"Action needed: renew the Gmail
+token for booking emails"*. Put the real token back → deploy → the next
+email is **Gmail API** again and *Gmail status* says "Gmail OK". (Locally
+with a key in `.env`: `EMAIL_PROVIDER=gmail`, a wrong
+`GMAIL_REFRESH_TOKEN`, then
+`docker compose exec backend python manage.py send_test_email you@gmail.com`
+→ "Sent … via brevo".)
+
+All **589 backend tests pass** on Postgres (+29 in
+`notifications/test_providers.py`; frontend unchanged).
+
+### Brevo fallback: business rules & test cases
+
+| # | Rule | How to check by hand | Expected | Automated |
+| --- | --- | --- | --- | --- |
+| BF-01 | Gmail works → Gmail sends, Brevo never called | Book a stay (Render) | From your Gmail; Provider **Gmail API** | PROV-05, PROV-06 |
+| BF-02 | Dead Gmail login (`invalid_grant`, wrong client, 401 with a fresh token) → the same email through Brevo | Wrong `GMAIL_REFRESH_TOKEN`, book | From `…@brevosend.com`, Reply-To your Gmail; Provider **Brevo** | PROV-07, PROV-08, PROV-12, PROV-20 |
+| BF-03 | Google's token service unreachable (network, 5xx, 429) → Brevo, but no "renew" alert | (auto only) | Sent through Brevo; *Gmail status* untouched | PROV-09, PROV-18 |
+| BF-04 | A failure of the Gmail send itself → **no** fallback (no duplicate email) | (auto only) | `failed`, retried through Gmail later | PROV-10 |
+| BF-05 | Both fail → `failed` with both reasons, retried later | Wrong token + wrong Brevo key, book | Booking still 201; row `failed`, "… \| Brevo fallback: Brevo answered 401: Key not found" | PROV-11 |
+| BF-06 | The owner is told, at most once a day; a working Gmail resets it | Two bookings with the broken token, then fix it | One "Action needed" email; after the fix, *Gmail status* "Gmail OK" | PROV-15, PROV-16, PROV-17, PROV-20 |
+| BF-07 | An alert that couldn't be sent is tried again next time | (auto only) | - | PROV-19 |
+| BF-08 | No secret in any error, log line or alert | Read the row, the Render log, the alert | Google's / Brevo's reason only | PROV-03, PROV-07, PROV-11, PROV-15 |
+| BF-09 | No Brevo key → today's behaviour; a fallback that can't work only warns | Deploy without the key | Plain Gmail; warning W006 | PROV-13, PROV-14 |
 
 ## Mobile & PWA (TICKET-031)
 
@@ -7845,8 +7915,10 @@ recruiters the **hosted link** to try afterwards.
       booked and can't be picked. Admin → Bookings → **Closed dates** lists
       them all. A fresh `seed_demo_data` adds one "Maintenance" period; the
       current local database has none, so close one live.
-- [ ] TICKET-047 (Brevo fallback for booking emails) is done - or, if
-      skipped, `gmail_authorize` re-run before the token expires (~5 Oct)
+- [x] TICKET-047 (Brevo fallback for booking emails) is built (30 Sep).
+      To switch it on at Render: set `BREVO_API_KEY` (see "Brevo fallback
+      → Switch it on") - TICKET-039 then checks it with a broken token.
+      Still renew the Gmail token by ~5 Oct so emails come from your Gmail.
 - [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -8227,10 +8299,12 @@ admin Bookings page with every property's upcoming closed dates, the
 Property filter and Remove, from `GET /api/admin/blocks/`) is done; see
 "Admin bookings → Closed dates tab"; **TICKET-045 is done** (step 5:
 checked locally in Greek and on Render in Chrome; see "Closed dates API →
-Final check"). Next,
-before the meetup: TICKET-047 (Brevo as a backup email provider when the
-Gmail token has expired - it expires about 5 Oct), then TICKET-039 (final
-redeploy + smoke test, which also checks the fallback on Render); a
+Final check"). **TICKET-047 is done** (Brevo as a backup email provider
+when the Gmail token has expired: the Brevo backend and the outbox's
+provider, the fallback wrapper, the once-a-day owner alert, Render config;
+see "Brevo fallback when the Gmail token expires"). Next, before the
+meetup: TICKET-039 (final redeploy + smoke test, which also checks the
+fallback on Render with a broken token); a
 suggestion for later, not planned: TICKET-046 (calendar sync with Airbnb /
 Booking.com, see TICKETS.md); after the meetup, TICKET-043 ("Refactor &
 hardening").

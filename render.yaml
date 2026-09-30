@@ -64,6 +64,16 @@ services:
         sync: false             # Booking System Demo <you@gmail.com> - the same Gmail that authorised the API
       - key: BOOKING_ALERT_EMAILS
         sync: false             # who gets the "new booking" alert + admin accounts' booking emails
+      # Backup provider (TICKET-047): when Gmail's login is dead (e.g. the
+      # refresh token expired - it does every 7 days while the Google app is
+      # in Testing) the email goes through Brevo instead, and the owner is
+      # told once a day to run `gmail_authorize`. Without BREVO_API_KEY
+      # there's no fallback (as before). See the README's "Brevo fallback
+      # when the Gmail token expires".
+      - key: EMAIL_FALLBACK_PROVIDER
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false             # xkeysib-... (Brevo -> SMTP & API -> API keys); DEFAULT_FROM_EMAIL verified as a sender there
       # Photo uploads straight to the owner's S3 bucket (TICKET-036). Until
       # all four are set, uploads are off and the admin Photos editor only
       # takes pasted URLs (the deploy works either way). Keys of the
