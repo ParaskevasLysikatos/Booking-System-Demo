@@ -7689,6 +7689,8 @@ recruiters the **hosted link** to try afterwards.
       booked and can't be picked. Admin → Bookings → **Closed dates** lists
       them all. A fresh `seed_demo_data` adds one "Maintenance" period; the
       current local database has none, so close one live.
+- [ ] TICKET-047 (Brevo fallback for booking emails) is done - or, if
+      skipped, `gmail_authorize` re-run before the token expires (~5 Oct)
 - [ ] TICKET-039 (final redeploy + smoke test) is done
 - [ ] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
@@ -8070,9 +8072,9 @@ Property filter and Remove, from `GET /api/admin/blocks/`) is done; see
 "Admin bookings → Closed dates tab"; **TICKET-045 is done** (step 5:
 checked locally in Greek and on Render in Chrome; see "Closed dates API →
 Final check"). Next,
-before the meetup:
-TICKET-039 (final redeploy + smoke test); a suggestion for later, not
-planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see
-TICKETS.md); after the
-meetup, Brevo as a backup email provider when the Gmail token has
-expired (TICKET-043, "Refactor & hardening").
+before the meetup: TICKET-047 (Brevo as a backup email provider when the
+Gmail token has expired - it expires about 5 Oct), then TICKET-039 (final
+redeploy + smoke test, which also checks the fallback on Render); a
+suggestion for later, not planned: TICKET-046 (calendar sync with Airbnb /
+Booking.com, see TICKETS.md); after the meetup, TICKET-043 ("Refactor &
+hardening").

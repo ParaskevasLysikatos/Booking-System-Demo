@@ -966,6 +966,21 @@ test, always last).
   - **Step 5 - final check (30 Sep):** 560 backend + 511 frontend tests, build clean. **Render** (auto-deployed) as admin: closed 20→23 Oct on Quiet Villa in Heraklion from the picker → guests see the days as booked (API `is_available` false, left out of the date search, no note; property page "Some of these nights are already booked", Book now off); dashboard October "9 of 338 nights · 3 closed nights not counted"; Bookings → Closed dates → Remove → available again. **Local** (after `migrate`) in Greek: 409 over pending booking #224 in both languages, past day refused, overlapping closed dates refused; a guest booking over closed dates → 409 `dates_unavailable`; Greek picker with hatched closed / struck-through booked days and the end capped at the next closed night; close + remove from the Κλειστές tab. Everything created during the checks was removed. Small fix: the dates field no longer stretches to the note hint's height. (Local Chrome stopped delivering automation mouse clicks mid-check; finished with DOM clicks - worth one manual click-through.)
   - **Done.** Admins close dates per property (edit page) and see / reopen every property's closed dates (Bookings → Closed dates); guests see closed days exactly like booked ones and can't book them; booking and closing can't race (property lock); occupancy leaves closed nights out; the seed closes one "Maintenance" period. Backend 560 tests, frontend 511.
 
+- [ ] **TICKET-047** — Brevo as a backup email provider when the Gmail token has expired
+  - Priority: P1 · Depends on: TICKET-030 · **Before the meetup, before TICKET-039** (moved out of TICKET-043 on 30 Sep; TICKET-039's smoke test then checks it on Render)
+  - Why now: the Google app is in *Testing*, so the Gmail refresh token expires 7 days after it was made (made 28 Sep → about **5 Oct**). At the meetup (1 Oct) emails still work, but recruiters get the hosted link to try afterwards - once the token expires every booking email would fail quietly until `gmail_authorize` is re-run. The fallback keeps them going out.
+  - Goal: when a Gmail API send fails because the Google login is dead (`invalid_grant` - expired or revoked refresh token), send the same email through Brevo, record which provider sent it, and tell the owner once that the Gmail token needs `gmail_authorize` again.
+  - Background: TICKET-030 first used Brevo (HTTP API, worked on Render) and then replaced it with the Gmail API because Brevo rewrites a Gmail sender to its own `…@brevosend.com` address (Reply-To keeps replies with the owner - fine for a fallback). The old `BrevoEmailBackend` is in git history (`3b57bb0`) and can be brought back.
+  - Sketch: `EMAIL_PROVIDER=gmail` + optional `EMAIL_FALLBACK_PROVIDER=brevo` and `BREVO_API_KEY`; a small wrapper backend tries Gmail, and on `invalid_grant` / an auth failure (not on an ordinary refusal of one message) sends the same message through Brevo; the outbox (`BookingEmail`) records which provider sent it; no Brevo key → today's behaviour.
+  - **Decisions to agree when the ticket starts** (ask first, then a step plan for approval):
+    1. When to fall back: only when Gmail's login is dead (`invalid_grant` / 401 after the refresh), or on any Gmail failure - incl. network errors and Google outages (5xx)?
+    2. How the owner is told the token needs renewing: log error, a line in the owner alert email, a Django Admin banner / outbox column - or a mix; and "once" per what (per process, per day, until a Gmail send works again)?
+    3. Where it's on: Render only (`render.yaml`, `BREVO_API_KEY` as `sync: false`) or also local Docker (`.env`)?
+    4. Anything else for the outbox: a `provider` field on `BookingEmail` (migration) vs only a log line.
+  - Owner to do: a (new) **Brevo API key** - the old `BREVO_API_KEY` was deleted from Render when Gmail replaced Brevo; the Brevo sender (the owner's Gmail) must still be verified there.
+  - Tests: Gmail `invalid_grant` → Brevo used and recorded; ordinary 4xx refusal of one message → no fallback (per decision 1: 5xx / network); no Brevo key → current behaviour; the owner is told once; nothing secret in errors or logs. README "Emails" (+ the "Gmail token: renew it" section) and `render.yaml`.
+  - **Smoke test (add to TICKET-039):** on Render, temporarily set a broken `GMAIL_REFRESH_TOKEN`, make a booking → "we've got your booking" arrives through Brevo (sender `…@brevosend.com`, Reply-To the owner), the outbox shows Brevo, the owner is told the token needs renewing; put the real token back → the next email goes through Gmail again.
+
 - [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket before the meetup**
   - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)
   - Redeploy both Render services from the final `master`, run the local and hosted smoke tests (the "Payments: business rules & test cases" E2E cases + the TICKET-028 hosted demo check), and tick off the README's "Demo day" checklist.
@@ -974,6 +989,8 @@ test, always last).
     - **Stripe's own page:** the "Demo payment - use card 4242 4242 4242 4242, any future expiry date, any CVC." line shows above Stripe's Pay button, in English and in Greek (the page's language). It has never been seen on Stripe's real page yet - the tests only checked the request sent to Stripe.
     - **Render:** after the redeploy, `https://booking-demo-api.onrender.com/api/payments/config/` returns `"test_mode": true`; the hint shows in booking step 2 (under "You'll pay … on Stripe's payment page") and on the "Payment not completed" page above **Pay now** - and not on paid / cancelled / timed-out pages.
     - **Copy button on a real phone:** tap it, see the ✓, paste into Stripe's card field (clipboards on phones can behave differently from headless Chrome).
+  - TICKET-045 checks: one manual click-through of Closed dates on the local app (Close dates → picker → save → guest page shows the days booked → Remove from Bookings → Closed dates) - the automated local check had to finish with DOM clicks.
+  - TICKET-047 checks: the Brevo fallback on Render - see TICKET-047's "Smoke test".
 
 ---
 
@@ -981,11 +998,7 @@ test, always last).
 
 - [ ] **TICKET-043** — Refactor & hardening (the last ticket)
   - Priority: P2 · Depends on: TICKET-039 · After the meetup, when the demo becomes a real personal project. Collects refactors and robustness work; items are added here as they come up.
-  - **Brevo as a backup email provider** (requested after TICKET-036): when a Gmail API send fails because the Google refresh token is expired or revoked (`invalid_grant` - the app is in *Testing* mode, so the token expires every 7 days), send the email through Brevo instead, so booking emails keep going out until `gmail_authorize` is re-run.
-    - Background: TICKET-030 first used Brevo (HTTP API, worked on Render) and then replaced it with the Gmail API because Brevo rewrites a Gmail sender to its own `…@brevosend.com` address (Reply-To kept replies with the owner). The old `BrevoEmailBackend` is in git history (`3b57bb0`) and can be brought back.
-    - Sketch: `EMAIL_PROVIDER=gmail` + optional `EMAIL_FALLBACK_PROVIDER=brevo` and `BREVO_API_KEY`; a small wrapper backend tries Gmail, and on `invalid_grant` / an auth failure (not on an ordinary refusal of one message) sends the same message through Brevo; the outbox (`BookingEmail`) records which provider sent it; the owner gets told once (log error + a line in the owner alert / Django Admin) that the Gmail token needs `gmail_authorize` again.
-    - Decisions when the ticket starts: fall back only on auth errors vs on any Gmail failure; whether the fallback should also cover network errors / Google outages; how the owner is told the token expired.
-    - Tests for the switch-over (Gmail `invalid_grant` → Brevo used, recorded; ordinary 4xx → no fallback; no Brevo key → current behaviour) + README "Emails" and `render.yaml` (`BREVO_API_KEY` as `sync: false`).
+  - (The Brevo backup email provider, first collected here, moved to **TICKET-047** on 30 Sep, to be built before the meetup.)
 
 - [ ] **TICKET-046** — Calendar sync with Airbnb / Booking.com (future suggestion, production only)
   - Priority: P3 · Depends on: TICKET-045 · **Not planned to be built** - a recommendation for if the app ever runs a real property listed on several platforms (this app + Airbnb + Booking.com), where a night sold on one must close on the others.
@@ -1009,7 +1022,8 @@ with time to spare:
 
 ## If a day slips
 
-Trim from the bottom up: Epic 7 first, then Epic 6, then TICKET-045
+Trim from the bottom up: Epic 7 first, then Epic 6, then TICKET-047
+(Brevo fallback - then re-run `gmail_authorize` by ~4 Oct instead), then TICKET-045
 (admin closed dates), then TICKET-044 (test-card hint), then reduce Epic 8
 to just TICKET-039 (final redeploy + smoke
 test). Do not cut anything in Epic 0–5 — the core booking flow,
