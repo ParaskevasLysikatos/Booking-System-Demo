@@ -1,0 +1,80 @@
+@switch (state()) {
+  @case ('loading') {
+    <div class="loading" aria-busy="true"><mat-spinner diameter="28" /></div>
+  }
+  @case ('error') {
+    <div class="load-error" role="alert">
+      <mat-icon>cloud_off</mat-icon>
+      <span>{{ 'closedDates.loadFailed' | t }}</span>
+      <button mat-stroked-button type="button" (click)="load(true)">{{ 'common.tryAgain' | t }}</button>
+    </div>
+  }
+  @case ('ready') {
+    @if (error(); as e) {
+      <p class="banner" role="alert"><mat-icon>error</mat-icon>{{ e }}</p>
+    }
+
+    @if (blocks().length) {
+      <ul class="blocks">
+        @for (b of blocks(); track b.id) {
+          <li>
+            <mat-icon class="lead" aria-hidden="true">event_busy</mat-icon>
+            <div class="what">
+              <span class="range">{{ closedRange(b) }}</span>
+              <span class="meta">
+                {{ 'common.nights' | t: { count: b.nights } }}
+                @if (isNow(b)) { · <span class="now">{{ 'closedDates.inProgress' | t }}</span> }
+                @if (b.note) { · <span class="note">{{ b.note }}</span> }
+              </span>
+            </div>
+            <button mat-button type="button" class="remove" [disabled]="removing() === b.id"
+                    [attr.aria-label]="'closedDates.removeLabel' | t: { range: closedRange(b) }" (click)="remove(b)">
+              @if (removing() === b.id) { <mat-spinner diameter="18" /> } @else { <mat-icon>lock_open</mat-icon> }
+              {{ 'closedDates.remove' | t }}
+            </button>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty">{{ 'closedDates.empty' | t }}</p>
+    }
+
+    @if (adding()) {
+      <form class="add" [formGroup]="form" (ngSubmit)="save()" novalidate>
+        <p class="pick-hint">{{ 'closedDates.pickHint' | t }}</p>
+        <div class="fields">
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>{{ 'closedDates.dates' | t }}</mat-label>
+            <mat-date-range-input formGroupName="dates" [rangePicker]="picker" [min]="minDate" [max]="maxDate" [dateFilter]="pickerFilter()">
+              <input matStartDate formControlName="start" [placeholder]="'closedDates.from' | t" />
+              <input matEndDate formControlName="end" [placeholder]="'closedDates.until' | t" />
+            </mat-date-range-input>
+            <mat-datepicker-toggle matIconSuffix [for]="picker" />
+            <mat-date-range-picker #picker [dateClass]="dateClass()" />
+          </mat-form-field>
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>{{ 'closedDates.note' | t }}</mat-label>
+            <input matInput formControlName="note" maxlength="200" [placeholder]="'closedDates.notePlaceholder' | t" />
+            <mat-hint>{{ 'closedDates.noteHint' | t }}</mat-hint>
+          </mat-form-field>
+        </div>
+        <p class="legend" aria-hidden="true">
+          <span class="swatch closed"></span>{{ 'closedDates.legendClosed' | t }}
+          <span class="swatch booked">12</span>{{ 'closedDates.legendBooked' | t }}
+        </p>
+        <div class="buttons">
+          <button mat-button type="button" (click)="cancel()">{{ 'common.cancel' | t }}</button>
+          <button mat-flat-button type="submit" class="save" [disabled]="saving()">
+            @if (saving()) { <mat-spinner diameter="20" /> } @else { {{ 'closedDates.save' | t }} }
+          </button>
+        </div>
+      </form>
+    } @else {
+      <div>
+        <button mat-stroked-button type="button" class="add-btn" (click)="startAdding()">
+          <mat-icon>event_busy</mat-icon>{{ 'closedDates.add' | t }}
+        </button>
+      </div>
+    }
+  }
+}

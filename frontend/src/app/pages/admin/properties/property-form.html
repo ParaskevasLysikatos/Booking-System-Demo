@@ -92,5 +92,14 @@
         </button>
       </div>
     </form>
+
+    <!-- TICKET-045: saved straight away, so it lives outside the form (and its Save). -->
+    @if (id !== null) {
+      <section class="card closed" aria-labelledby="closed-heading">
+        <h2 id="closed-heading">{{ 'closedDates.title' | t }}</h2>
+        <p class="hint">{{ 'closedDates.hint' | t }}</p>
+        <app-closed-dates [propertyId]="id" [bookedRanges]="bookedRanges()" />
+      </section>
+    }
   }
 }

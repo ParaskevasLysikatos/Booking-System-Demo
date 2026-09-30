@@ -12,7 +12,9 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { AdminPropertiesService, PropertyImageInput, PropertyWrite } from '../../../core/admin/admin-properties.service';
 import { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
+import { BookedRange } from '../../../core/properties/property.models';
 import { AmenitiesPickerComponent } from './amenities-picker';
+import { ClosedDatesComponent } from './closed-dates/closed-dates';
 import { ImagesEditorComponent } from './images-editor';
 import { LocationPickerComponent, MapPosition } from './location-picker';
 import { TranslatePipe } from '../../../core/i18n/translate.pipe';
@@ -61,6 +63,7 @@ export function flattenMessages(value: unknown): string[] {
     MatProgressSpinnerModule,
     MatSlideToggleModule,
     AmenitiesPickerComponent,
+    ClosedDatesComponent,
     ImagesEditorComponent,
     LocationPickerComponent,
     TranslatePipe,
@@ -85,6 +88,8 @@ export class PropertyFormPage implements HasUnsavedChanges {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly originalTitle = signal('');
+  /** For the Closed dates section (TICKET-045): bookings + closed dates, as guests get them. */
+  readonly bookedRanges = signal<BookedRange[]>([]);
 
   private readonly fb = inject(FormBuilder);
   readonly form = this.fb.nonNullable.group({
@@ -130,6 +135,7 @@ export class PropertyFormPage implements HasUnsavedChanges {
               : null,
         });
         this.originalTitle.set(p.title);
+        this.bookedRanges.set(p.availability?.booked_ranges ?? []);
         this.pageTitle.setKey('adminForm.pageEditTitle', { title: p.title });
         this.status.set('ready');
       },

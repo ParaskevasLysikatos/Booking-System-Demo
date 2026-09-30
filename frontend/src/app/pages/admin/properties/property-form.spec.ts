@@ -7,6 +7,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { PropertyDetail } from '../../../core/properties/property.models';
 import { PROPERTIES_URL } from '../../../core/properties/property.service';
+import { adminBlocksUrl } from '../../../core/admin/closed-dates.service';
 import { MapLoader } from '../../../shared/map/map-loader';
 import { PropertyFormPage, flattenMessages } from './property-form';
 import { TranslationService } from '../../../core/i18n/translation.service';
@@ -143,6 +144,26 @@ describe('PropertyFormPage', () => {
     expect(el.textContent).toContain('Set the map position: find the address or click the map.');
     // the Location field pre-fills the address box
     expect(el.querySelector<HTMLInputElement>('app-location-picker input')!.value).toBe('Chania, Greece');
+  });
+
+  it('edit: a Closed dates section below the form, fed with the booked ranges (TICKET-045)', async () => {
+    await open('/admin/properties/5/edit');
+    http.expectOne(`${PROPERTIES_URL}5/`).flush({ ...detail(), availability: { booked_ranges: [{ check_in: '2030-01-02', check_out: '2030-01-04' }] } });
+    harness.detectChanges();
+    const section = harness.routeNativeElement!.querySelector('section.closed')!;
+    expect(section.querySelector('h2')!.textContent).toContain('Closed dates');
+    expect(section.closest('form')).toBeNull(); // saved on its own, not by Save
+    http.expectOne(adminBlocksUrl(5)).flush([]);
+    harness.detectChanges();
+    expect(section.textContent).toContain('No closed dates coming up.');
+  });
+
+  it('new: no Closed dates section yet (TICKET-045)', async () => {
+    await open('/admin/properties/new');
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('section.closed')).toBeNull();
+    http.expectNone(adminBlocksUrl(0));
+    expect(http.match((r) => r.url.includes('/blocks/')).length).toBe(0);
   });
 
   it('unknown id -> not found', async () => {

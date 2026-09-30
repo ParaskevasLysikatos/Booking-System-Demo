@@ -3779,7 +3779,7 @@ TICKET-024 (properties) and TICKET-025 (bookings).
 | --- | --- | --- |
 | `/admin` | → `/admin/dashboard` | The whole `/admin` group is lazy-loaded and guarded **once** by `adminGuard` |
 | `/admin/dashboard` | `pages/admin/dashboard/` | Stat cards, period picker, comparison, revenue chart, per-property table; see "Admin dashboard" |
-| `/admin/properties` | `pages/admin/properties/` | Table of all properties; `/new` and `/:id/edit` form (unsaved-changes guard); see "Admin properties" |
+| `/admin/properties` | `pages/admin/properties/` | Table of all properties; `/new` and `/:id/edit` form (unsaved-changes guard; Closed dates on edit, TICKET-045); see "Admin properties" |
 | `/admin/bookings` | `pages/admin/bookings/` | Every guest's bookings, Upcoming / Past / Cancelled, confirm and cancel; see "Admin bookings" |
 | `/admin/reviews` | `pages/admin/reviews/` | Every review (hidden too), filters, Hide / Show again; see "Admin reviews" (TICKET-032) |
 | `/forbidden` | `pages/forbidden/` | The friendly 403 page |
@@ -4437,6 +4437,63 @@ Also checked in Chrome as the admin:
 - a photo dragged to the top
 - "All properties" → the "Discard unsaved changes?" dialog → Discard,
   so **nothing was saved**
+
+### Closed dates (TICKET-045 step 3)
+
+On the **edit** page only (a new property has nothing to close yet), a
+"Closed dates" card **below the form**. It saves straight away - it isn't
+part of the form's Save, so it sits outside the `<form>` and never marks
+the form as changed.
+
+- **The list:** upcoming closed periods, soonest first: "14 Oct → 17 Oct
+  2026" (the second date is the day it opens again, like a check-out),
+  "3 nights", "closed now" for one that has already started, and the
+  note. **Remove** (one click, no dialog) deletes it and the dates are open
+  again at once, with a "Dates open again: …" snackbar. Empty: "No closed
+  dates coming up."
+- **Close dates** opens a small form: a date-range picker ("First closed
+  night" → "Open again on") and an optional note ("Only admins see it",
+  max 200). **Close these dates** → `POST`, the new period appears in the
+  list, snackbar "Dates closed: …". Cancel folds it away.
+- **The picker:** booked days are struck through (as on the property
+  page) and **closed days are hatched in the tertiary colour** - a pattern
+  as well as a colour, so it isn't told apart by colour alone; a legend
+  under the fields says which is which. Neither can be picked. The first
+  night: today up to 365 days ahead. The day it opens again: any later day
+  up to the next booked or closed night (that night itself is allowed, like
+  a check-out). No 30-night cap - that's for bookings.
+- **Telling booked from closed:** the page's `availability.booked_ranges`
+  has both (guests mustn't tell them apart), so the component takes the
+  closed periods back out: a range with exactly a block's dates is that
+  block (a booking can never have them - they can't overlap). Worked out
+  once, from the first load; after that the list of blocks is what counts,
+  so a removed block's days are free again in the picker straight away.
+- **Errors:** a choice is checked before sending ("Pick the first closed
+  night and the day it opens again.", "Some of these days are booked or
+  already closed."); the server's 409 is shown as it comes ("These dates
+  overlap booking #45 (…). Cancel or move the booking first.") and the
+  choice stays, to fix it. After any save or failure the list is reloaded,
+  in case another admin changed something. A Remove of a period that's
+  already gone (404) just drops it from the list.
+- **Both languages;** the picker gets its own date adapter
+  (`provideLocalizedDatepicker()`, like the other pages with pickers).
+- Pieces: `core/admin/closed-dates.service.ts` (list / close / reopen),
+  `pages/admin/properties/closed-dates/` (`closed-dates.ts` + the pure
+  rules in `closed-dates.rules.ts`), the `.closed-night` calendar style in
+  `styles.scss`.
+
+Tests (14 new, **505** frontend tests pass): the rules (taking blocks out
+of `booked_ranges`, the first-night and open-again filters incl. the
+365-day edge and no 30-night cap, the checks before sending); the
+component (the list with "closed now" and the note, empty and load error
+with Try again, the picker's classes and filter, Close dates from the
+checks to the POST body and snackbar, a 409 shown as it comes, Remove, a
+failed / already-gone Remove, Greek); the form page (the section on edit,
+outside the form; none on new). Checked in headless Chromium (local
+backend + seeded data) at 1280 and 390 px: closing two periods from the
+picker, the hatched closed days and struck-through booked days, no
+sideways scroll, no console errors; the guest API then answered
+`is_available: false` for those days.
 
 ## Admin bookings (Angular)
 
@@ -7903,7 +7960,10 @@ and the property lock) is done; see "Closed dates API (TICKET-045)"; step
 2 (guests can't find or book closed dates - they look like booked days;
 booking create takes the property lock; occupancy leaves closed nights
 out; the seed closes one period) is done; see "Closed dates API → What
-guests see and can book". Next,
+guests see and can book"; step 3 (the "Closed dates" card on the admin
+property edit page: the list with Remove, Close dates with a picker where
+closed days are hatched and booked days struck through) is done; see
+"Admin properties → Closed dates". Next,
 before the meetup: the rest of TICKET-045; then
 TICKET-039 (final redeploy + smoke test); a suggestion for later, not
 planned: TICKET-046 (calendar sync with Airbnb / Booking.com, see

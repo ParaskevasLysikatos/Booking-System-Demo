@@ -922,5 +922,35 @@
     "hint": "Demo payment - use card <strong>4242 4242 4242 4242</strong>, any future expiry date, any CVC.",
     "copy": "Copy card number",
     "copied": "Card number copied"
+  },
+  "closedDates": {
+    "title": "Closed dates",
+    "hint": "Guests can't book closed dates - they see them as booked. Changes here are saved right away.",
+    "empty": "No closed dates coming up.",
+    "loadFailed": "Couldn't load the closed dates.",
+    "range": "{from} → {to}",
+    "inProgress": "closed now",
+    "remove": "Remove",
+    "removeLabel": "Remove the closed dates {range} and open them again",
+    "removed": "Dates open again: {range}",
+    "removeFailed": "Couldn't open these dates again.",
+    "add": "Close dates",
+    "dates": "Dates to close",
+    "from": "First closed night",
+    "until": "Open again on",
+    "note": "Note (optional)",
+    "notePlaceholder": "e.g. Maintenance, own use, booked elsewhere",
+    "noteHint": "Only admins see it.",
+    "save": "Close these dates",
+    "saved": "Dates closed: {range}",
+    "saveFailed": "Couldn't close these dates.",
+    "legendClosed": "Closed",
+    "legendBooked": "Booked",
+    "pickHint": "Pick the first closed night, then the day it opens again.",
+    "err": {
+      "pickDates": "Pick the first closed night and the day it opens again.",
+      "taken": "Some of these days are booked or already closed.",
+      "noteTooLong": "The note can be at most 200 characters."
+    }
   }
 }

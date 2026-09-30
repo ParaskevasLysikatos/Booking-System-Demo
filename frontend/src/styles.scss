@@ -47,3 +47,22 @@ app-availability-calendar .mat-calendar-body-label {
   color: var(--mat-sys-on-surface-variant);
   opacity: 0.55;
 }
+
+/* Closed nights (TICKET-045) - only in the admin's Close dates picker;
+   guests see closed days as booked. Own colour + a diagonal hatch, so it
+   isn't told apart by colour alone. */
+html {
+  --closed-night-bg: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--mat-sys-tertiary) 30%, transparent) 0 3px,
+    var(--mat-sys-tertiary-container) 3px 7px
+  );
+  --closed-night-border: var(--mat-sys-tertiary);
+}
+.mat-calendar-body-cell.closed-night:not(.mat-calendar-body-in-range) .mat-calendar-body-cell-content {
+  background: var(--closed-night-bg);
+  color: var(--mat-sys-on-tertiary-container);
+  opacity: 1;
+  outline: 1px solid var(--closed-night-border);
+  outline-offset: -1px;
+}
