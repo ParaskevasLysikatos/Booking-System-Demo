@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 
-from .models import BookingEmail
+from .models import BookingEmail, GmailHealth
 from .outbox import send_email
 
 Status = BookingEmail.Status
@@ -55,4 +55,22 @@ class BookingEmailInline(admin.TabularInline):
     show_change_link = True
 
     def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(GmailHealth)
+class GmailHealthAdmin(admin.ModelAdmin):
+    """Read-only: whether Gmail's login is failing and when the owner was
+    last told (TICKET-047). Written by the email fallback, never by hand."""
+
+    list_display = ("__str__", "failing_since", "alerted_at", "last_error", "updated_at")
+    readonly_fields = [f.name for f in GmailHealth._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

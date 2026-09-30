@@ -6553,6 +6553,46 @@ no secrets, `fail_silently`; through the outbox → `sent` + provider `brevo`
 + Brevo's id; which backend the settings pick (a fresh process per
 combination); warnings W005-W007.
 
+### Telling the owner the token needs renewing (step 3)
+
+**`notifications/gmail_health.py`** + a one-row model **`GmailHealth`**
+(migration `0004_gmail_health`; Django Admin → *Gmail status*, read-only):
+`failing_since`, `last_error`, `alerted_at`.
+
+- **A dead Gmail login** (`GmailLoginError` with `dead=True`: `invalid_grant`,
+  a wrong client, a 401 with a fresh token) after a fallback → the row
+  records it (`failing_since` stays the first time) and, **at most once
+  every 24 hours**, the owner gets an email **through Brevo** to
+  `BOOKING_ALERT_EMAILS`:
+  *"Action needed: renew the Gmail token for booking emails"* - since when,
+  Google's answer, that emails are going out through Brevo meanwhile, and
+  the `gmail_authorize` steps (pointing to "Gmail token: renew it, or make
+  it permanent"). No secret is in it.
+- **A token service that just couldn't be reached** (`dead=False`) → only
+  the backend's error log line: it probably passes by itself, and "renew
+  the token" would be the wrong advice.
+- **"Once a day" survives restarts and two processes:** the decision is
+  made under a row lock and stored in the database (`alerted_at` is claimed
+  before sending). If the alert itself can't be sent, the claim is undone,
+  so the next fallback tries again. With `BOOKING_ALERT_EMAILS` empty it's
+  logged ("no BOOKING_ALERT_EMAILS to tell") instead.
+- **The first email Gmail sends again clears the row** (one cheap `UPDATE`
+  per email; an info log "Gmail sends again"), so the next breakage alerts
+  straight away.
+- None of this can break an email send: every error in it is logged, never
+  raised.
+
+Tests (+9, `test_providers.py` now 29; the fallback tests check when the
+alert is called): first dead login → recorded + one alert to both
+addresses through Brevo, with the date and advice, no secrets; no second
+alert within 24 h, one more after 24 h, `failing_since` kept; a working
+Gmail resets it (one query) and the next breakage alerts at once; an outage
+isn't recorded or alerted; a failed alert is tried again next time; empty
+alert list → logged; never raises; **the smoke test with Google and Brevo
+mocked** (broken token → guest email + owner alert through Brevo, outbox
+`brevo`; a second email the same day → no second alert; token fixed → the
+next email via Gmail, status cleared); Django Admin shows it read-only.
+
 ## Mobile & PWA (TICKET-031)
 
 The same Angular app works on phones, tablets and laptops, and can be

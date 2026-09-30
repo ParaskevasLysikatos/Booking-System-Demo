@@ -11,6 +11,7 @@ import urllib.error
 from io import BytesIO
 from unittest import mock
 
+from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.mail import EmailMultiAlternatives
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -174,6 +175,14 @@ class FallbackBackendTests(SimpleTestCase):
     def setUp(self):
         GmailApiEmailBackend.forget_token()
         self.addCleanup(GmailApiEmailBackend.forget_token)
+        # The owner alert (step 3) has its own tests below; here only whether it's called.
+        self.failed = self.patch("notifications.gmail_health.gmail_failed")
+        self.worked = self.patch("notifications.gmail_health.gmail_worked")
+
+    def patch(self, target):
+        patcher = mock.patch(target)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
 
     def send(self, *answers, message=None, **kwargs):
         from .backends import GmailWithBrevoFallbackBackend
@@ -189,12 +198,17 @@ class FallbackBackendTests(SimpleTestCase):
         sent, msg, urls = self.send(token_answer(), sent_answer("g1"))
         self.assertEqual((sent, msg.email_provider, msg.provider_message_id), (1, "gmail", "g1"))
         self.assertNotIn("https://api.brevo.com/v3/smtp/email", urls)
+        self.worked.assert_called_once_with()
+        self.failed.assert_not_called()
 
     def test_expired_refresh_token_goes_through_brevo(self):
         """PROV-07: invalid_grant -> the same message through Brevo; Gmail's send is never tried."""
         sent, msg, urls = self.send(gmail_http_error(400), brevo_answer("<b1@brevo>"), logs=True)
         self.assertEqual((sent, msg.email_provider, msg.provider_message_id), (1, "brevo", "<b1@brevo>"))
         self.assertEqual(urls, ["https://oauth2.googleapis.com/token", "https://api.brevo.com/v3/smtp/email"])
+        (error,), _ = self.failed.call_args
+        self.assertTrue(error.dead)
+        self.worked.assert_not_called()
 
     def test_the_brevo_copy_is_the_same_email(self):
         with mock.patch("urllib.request.urlopen", side_effect=[gmail_http_error(400), brevo_answer()]) as post, \
@@ -228,6 +242,7 @@ class FallbackBackendTests(SimpleTestCase):
             with self.subTest(error=error):
                 sent, msg, _ = self.send(error, brevo_answer(), logs=True)
                 self.assertEqual((sent, msg.email_provider), (1, "brevo"))
+                self.assertFalse(self.failed.call_args.args[0].dead)  # an outage, not a dead login
 
     def test_a_failed_send_itself_does_not_fall_back(self):
         """PROV-10: Gmail refusing this message, or a 5xx / timeout on the send (it may have gone
@@ -239,6 +254,8 @@ class FallbackBackendTests(SimpleTestCase):
                 with self.assertRaises(EmailSendError) as ctx:
                     self.send(token_answer(), error)
                 self.assertNotIn("Brevo", str(ctx.exception))
+        self.failed.assert_not_called()
+        self.worked.assert_not_called()
 
     def test_brevo_failing_too_names_both(self):
         """PROV-11: both fail -> one error with both reasons, Brevo's status, no secrets."""
@@ -252,6 +269,7 @@ class FallbackBackendTests(SimpleTestCase):
             self.assertNotIn(secret, text)
         sent, _, _ = self.send(gmail_http_error(400), brevo_error(401), logs=True, fail_silently=True)
         self.assertEqual(sent, 0)
+        self.assertEqual(self.failed.call_count, 2)  # the owner is still told
 
 
 class FallbackOutboxTests(TestCase):
@@ -263,7 +281,7 @@ class FallbackOutboxTests(TestCase):
         row = BookingEmail.objects.create(booking=make_booking(), kind=Kind.BOOKING_RECEIVED,
                                           recipients="guest@example.com")
         with mock.patch("urllib.request.urlopen", side_effect=[gmail_http_error(400), brevo_answer("<b2@brevo>")]), \
-                self.assertLogs("notifications.backends", "ERROR"):
+                self.assertLogs("notifications", "ERROR"):  # the fallback + "no BOOKING_ALERT_EMAILS to tell"
             row = send_email(row.pk)
         self.assertEqual((row.status, row.provider, row.provider_message_id, row.last_error),
                          (Status.SENT, Provider.BREVO, "<b2@brevo>", ""))
@@ -316,3 +334,144 @@ class FallbackChecksTests(SimpleTestCase):
         self.assertEqual(self.ids(EMAIL_FALLBACK_PROVIDER="sendgrid"), ["notifications.W005"])
         self.assertEqual(self.ids(BREVO_API_KEY=""), ["notifications.W006"])
         self.assertEqual(self.ids(EMAIL_PROVIDER="smtp"), ["notifications.W007"])
+
+
+# --- Telling the owner the token needs renewing (step 3) --------------------------
+
+from datetime import datetime, timedelta  # noqa: E402
+from datetime import timezone as dt_timezone  # noqa: E402
+
+from . import gmail_health  # noqa: E402
+from .errors import GmailLoginError  # noqa: E402
+from .models import GmailHealth  # noqa: E402
+
+T0 = datetime(2026, 10, 5, 9, 0, tzinfo=dt_timezone.utc)
+DEAD = GmailLoginError("Google answered 400: invalid_grant - Token has been expired or revoked. - the Gmail "
+                       "refresh token was revoked or has expired; run `manage.py gmail_authorize` again", 400,
+                       dead=True)
+
+
+@override_settings(**{**BREVO, "BOOKING_ALERT_EMAILS": ["owner@gmail.com", "second@example.com"]})
+class GmailHealthTests(TestCase):
+    def fail(self, now, error=DEAD, brevo=None):
+        """gmail_failed() with Brevo mocked; returns the Brevo requests made."""
+        with mock.patch("urllib.request.urlopen", side_effect=brevo or (lambda *a, **k: brevo_answer())) as post:
+            gmail_health.gmail_failed(error, now=now)
+        return [json.loads(c.args[0].data) for c in post.call_args_list]
+
+    def test_dead_login_is_recorded_and_the_owner_told_once(self):
+        """PROV-15: the first dead login -> row recorded + one alert to BOOKING_ALERT_EMAILS through Brevo."""
+        with self.assertLogs("notifications.gmail_health", "WARNING"):
+            sent = self.fail(T0)
+        self.assertEqual(len(sent), 1)
+        alert = sent[0]
+        self.assertEqual([t["email"] for t in alert["to"]], ["owner@gmail.com", "second@example.com"])
+        self.assertEqual(alert["subject"], gmail_health.SUBJECT)
+        self.assertIn("invalid_grant", alert["textContent"])
+        self.assertIn("gmail_authorize", alert["textContent"])
+        self.assertIn("05 Oct 2026", alert["textContent"])
+        for secret in SECRETS:
+            self.assertNotIn(secret, json.dumps(alert))
+        row = GmailHealth.objects.get(pk=1)
+        self.assertEqual((row.failing_since, row.alerted_at), (T0, T0))
+        self.assertIn("invalid_grant", row.last_error)
+
+    def test_not_told_again_within_a_day_then_told_again(self):
+        """PROV-16: more failures the same day -> no new alert; 24 h later -> one more; failing_since kept."""
+        with self.assertLogs("notifications.gmail_health", "WARNING"):
+            self.fail(T0)
+        self.assertEqual(self.fail(T0 + timedelta(hours=1)), [])
+        self.assertEqual(self.fail(T0 + timedelta(hours=23, minutes=59)), [])
+        with self.assertLogs("notifications.gmail_health", "WARNING"):
+            self.assertEqual(len(self.fail(T0 + timedelta(hours=24))), 1)
+        row = GmailHealth.objects.get(pk=1)
+        self.assertEqual((row.failing_since, row.alerted_at), (T0, T0 + timedelta(hours=24)))
+
+    def test_gmail_working_again_resets_it(self):
+        """PROV-17: a Gmail send that works clears the row -> the next breakage alerts straight away."""
+        with self.assertLogs("notifications.gmail_health", "WARNING"):
+            self.fail(T0)
+        with self.assertLogs("notifications.gmail_health", "INFO") as logs:
+            gmail_health.gmail_worked()
+        self.assertIn("Gmail sends again", logs.output[0])
+        row = GmailHealth.objects.get(pk=1)
+        self.assertEqual((row.failing_since, row.alerted_at, row.last_error), (None, None, ""))
+        with self.assertLogs("notifications.gmail_health", "WARNING"):
+            self.assertEqual(len(self.fail(T0 + timedelta(hours=2))), 1)
+        with self.assertNumQueries(1):
+            gmail_health.gmail_worked()  # cheap: one UPDATE per email Gmail sends
+
+    def test_an_outage_is_not_a_dead_login(self):
+        """PROV-18: token service unreachable -> no record, no alert (the backend's log line only)."""
+        self.assertEqual(self.fail(T0, error=GmailLoginError("Couldn't reach Google: timed out", dead=False)), [])
+        self.assertFalse(GmailHealth.objects.exists())
+
+    def test_alert_not_sent_is_tried_again_next_time(self):
+        """PROV-19: Brevo fails for the alert -> the claim is undone, the next fallback tries again."""
+        with self.assertLogs("notifications.gmail_health", "ERROR"):
+            self.fail(T0, brevo=brevo_error(503, b""))
+        self.assertIsNone(GmailHealth.objects.get(pk=1).alerted_at)
+        with self.assertLogs("notifications.gmail_health", "WARNING"):
+            self.assertEqual(len(self.fail(T0 + timedelta(minutes=5))), 1)
+
+    @override_settings(BOOKING_ALERT_EMAILS=[])
+    def test_nobody_to_tell_logs_it(self):
+        with self.assertLogs("notifications.gmail_health", "ERROR") as logs:
+            self.assertEqual(self.fail(T0), [])
+        self.assertIn("no BOOKING_ALERT_EMAILS", logs.output[0])
+        self.assertEqual(GmailHealth.objects.get(pk=1).alerted_at, T0)
+
+    def test_never_raises(self):
+        with mock.patch.object(gmail_health, "_gmail_failed", side_effect=RuntimeError("db down")), \
+                self.assertLogs("notifications.gmail_health", "ERROR"):
+            gmail_health.gmail_failed(DEAD)
+        with mock.patch.object(GmailHealth.objects, "filter", side_effect=RuntimeError("db down")), \
+                self.assertLogs("notifications.gmail_health", "ERROR"):
+            gmail_health.gmail_worked()
+
+
+@override_settings(EMAIL_BACKEND=FALLBACK, **{**GMAIL, **BREVO, "BOOKING_ALERT_EMAILS": ["owner@gmail.com"]})
+class FallbackEndToEndTests(TestCase):
+    """PROV-20: the ticket's smoke test, with Google and Brevo mocked: a broken token -> the guest's
+    email and the owner's alert through Brevo, outbox says brevo; a later email the same day -> no second
+    alert; the token fixed -> the next email through Gmail and the status cleared."""
+
+    def setUp(self):
+        GmailApiEmailBackend.forget_token()
+        self.addCleanup(GmailApiEmailBackend.forget_token)
+
+    def test_broken_then_fixed(self):
+        first = BookingEmail.objects.create(booking=make_booking(), kind=Kind.BOOKING_RECEIVED,
+                                            recipients="guest@example.com")
+        with mock.patch("urllib.request.urlopen", side_effect=[
+            gmail_http_error(400), brevo_answer("<guest@brevo>"), brevo_answer("<alert@brevo>"),
+        ]) as post, self.assertLogs("notifications", "WARNING"):
+            first = send_email(first.pk)
+        self.assertEqual((first.status, first.provider, first.provider_message_id),
+                         (Status.SENT, Provider.BREVO, "<guest@brevo>"))
+        subjects = [json.loads(c.args[0].data)["subject"] for c in post.call_args_list[1:]]
+        self.assertEqual(subjects[1], gmail_health.SUBJECT)
+        self.assertTrue(GmailHealth.objects.get(pk=1).failing_since)
+
+        second = BookingEmail.objects.create(booking=make_booking("two@example.com"), kind=Kind.BOOKING_RECEIVED,
+                                             recipients="two@example.com")
+        with mock.patch("urllib.request.urlopen", side_effect=[gmail_http_error(400), brevo_answer()]) as post, \
+                self.assertLogs("notifications", "ERROR"):
+            self.assertEqual(send_email(second.pk).provider, Provider.BREVO)
+        self.assertEqual(post.call_count, 2)  # no second alert
+
+        third = BookingEmail.objects.create(booking=make_booking("three@example.com"), kind=Kind.BOOKING_RECEIVED,
+                                            recipients="three@example.com")
+        with mock.patch("urllib.request.urlopen", side_effect=[token_answer(), sent_answer("g3")]):
+            self.assertEqual(send_email(third.pk).provider, Provider.GMAIL)
+        self.assertIsNone(GmailHealth.objects.get(pk=1).failing_since)
+
+
+class GmailHealthAdminTests(TestCase):
+    def test_read_only_in_django_admin(self):
+        admin_user = get_user_model().objects.create_superuser("root", "root@example.com", "S3cure-Booking-Pass!")
+        self.client.force_login(admin_user)
+        GmailHealth.objects.create(pk=1, failing_since=T0, last_error="Google answered 400: invalid_grant")
+        res = self.client.get("/admin/notifications/gmailhealth/")
+        self.assertContains(res, "invalid_grant")
+        self.assertNotContains(res, "Add Gmail status")

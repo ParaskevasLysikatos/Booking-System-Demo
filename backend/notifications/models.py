@@ -87,3 +87,27 @@ class BookingEmail(models.Model):
     @property
     def recipient_list(self):
         return [r.strip() for r in self.recipients.split(",") if r.strip()]
+
+
+class GmailHealth(models.Model):
+    """Whether the Gmail API login works - one row, pk=1 (TICKET-047).
+
+    Written by GmailWithBrevoFallbackBackend (notifications/gmail_health.py):
+    set when Gmail's login is dead (e.g. the refresh token expired) and an
+    email went through Brevo instead; cleared by the next email Gmail sends.
+    `alerted_at` = when the owner was last emailed "the Gmail token needs
+    renewing" - at most once a day. Kept in the database (not in memory) so
+    a restart on Render doesn't send the alert again.
+    """
+
+    failing_since = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True)
+    alerted_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Gmail status"
+        verbose_name_plural = "Gmail status"
+
+    def __str__(self):
+        return f"Gmail login failing since {self.failing_since:%Y-%m-%d %H:%M}" if self.failing_since else "Gmail OK"

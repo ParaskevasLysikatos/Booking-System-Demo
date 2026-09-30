@@ -202,7 +202,8 @@ class GmailWithBrevoFallbackBackend(BaseEmailBackend):
 
     If Brevo fails too, one EmailSendError names both reasons (Brevo's
     status decides whether it's worth retrying). No secret is ever part of a
-    message.
+    message. A dead login also alerts the owner (at most once a day) and a
+    working Gmail send clears that - notifications/gmail_health.py.
     """
 
     def __init__(self, fail_silently=False, timeout=None, **kwargs):
@@ -221,8 +222,10 @@ class GmailWithBrevoFallbackBackend(BaseEmailBackend):
         return sent
 
     def _send(self, message):
+        from . import gmail_health  # uses the models - imported when sending, not with the settings
+
         try:
-            return self.gmail.send_messages([message])
+            sent = self.gmail.send_messages([message])
         except GmailLoginError as gmail_error:
             logger.error("Gmail can't log in (%s) - sending %r through Brevo instead.",
                          gmail_error, message.extra_headers.get("X-Booking-Email", message.subject))
@@ -231,3 +234,7 @@ class GmailWithBrevoFallbackBackend(BaseEmailBackend):
             except EmailSendError as brevo_error:
                 raise EmailSendError(f"{gmail_error} | Brevo fallback: {brevo_error}",
                                      status=brevo_error.status) from brevo_error
+            finally:
+                gmail_health.gmail_failed(gmail_error)  # the owner is told the token needs renewing
+        gmail_health.gmail_worked()
+        return sent
