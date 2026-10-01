@@ -993,7 +993,7 @@ test, always last).
   - **Step 4 done:** `render.yaml` (`EMAIL_FALLBACK_PROVIDER=brevo`, `BREVO_API_KEY` `sync: false`), `.env.example`; README: new "Brevo fallback when the Gmail token expires" (decisions, the three steps, "Switch it on" for the owner, the smoke test, rules BF-01…09 ↔ tests PROV-01…20), "Emails" provider table, "Gmail token → How you notice", startup checks W005-W007, project tree, status, Demo day, next steps. **589 backend tests pass** on Postgres (+29); frontend unchanged.
   - **Done.** When Gmail's login is dead, booking emails go out through Brevo (`…@brevosend.com`, Reply-To the owner), the outbox records the provider, and the owner is told once a day to run `gmail_authorize`; a working Gmail switches everything back by itself. Not yet live: **owner to do** - a new Brevo API key in Render's `BREVO_API_KEY` (+ `EMAIL_FALLBACK_PROVIDER=brevo`) and a redeploy (README "Brevo fallback → Switch it on"); TICKET-039 then runs the smoke test on Render. Backend 589 tests, frontend 511.
 
-- [ ] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket before the meetup**
+- [x] **TICKET-039** — Final redeploy + smoke test (local + hosted) — **the last ticket before the meetup**
   - Priority: P0 · Depends on: every ticket above (TICKET-026, TICKET-027 for hosting)
   - Redeploy both Render services from the final `master`, run the local and hosted smoke tests (the "Payments: business rules & test cases" E2E cases + the TICKET-028 hosted demo check), and tick off the README's "Demo day" checklist.
   - (The former TICKET-039 "Record a backup demo video" was dropped - decision after TICKET-029.)
@@ -1003,6 +1003,18 @@ test, always last).
     - **Copy button on a real phone:** tap it, see the ✓, paste into Stripe's card field (clipboards on phones can behave differently from headless Chrome).
   - TICKET-045 checks: one manual click-through of Closed dates on the local app (Close dates → picker → save → guest page shows the days booked → Remove from Bookings → Closed dates) - the automated local check had to finish with DOM clicks.
   - TICKET-047 checks: the Brevo fallback on Render - see TICKET-047's "Smoke test" and README "Brevo fallback → Switch it on / Check it" (needs `BREVO_API_KEY` set on Render first).
+  - Progress (30 Sep):
+    - **Automated suites:** 589 backend tests pass on Postgres 16, 511 frontend tests (78 files) pass, production build OK (checked with font inlining off in a scratch copy only - the test machine can't reach Google Fonts; nothing changed in the repo).
+    - **Hosted, automatic:** "Hosted demo check" (GitHub Actions) green on `ed7cb40`; Render API live on `ed7cb40`; `/api/payments/config/` → `enabled: true, test_mode: true`; health → database `connected`.
+    - **Hosted E2E (Chrome, guest1@demo.com):** test-card hint in booking step 2 (Copy button → ✓) and on "Payment not completed" above Pay now; **Stripe's real page shows the hint in English and in Greek** (first time seen live; the Greek page also has "2 νύχτες" and a Greek locale). Pay now after switching EN→ΕΛ reopens the same English page, as designed (CHK-09). #173 paid with 4242 → "Payment received" (Greek), no hint on the paid page → guest cancel → **Refunded €98 in ~3 s**. Emails via Gmail: "Complete your payment", "confirmed", owner alert (inbox), "cancelled" with the refund line.
+    - **Local E2E (Chrome):** footer dot green, Demo logins box; #338 paid with 4242 → Confirmed, no hint on the paid page → guest cancel → **Refunded €128 in ~2 s**; #339 paid with the 3-D Secure card 4000 0025 0000 3155 → Confirmed. Local Docker now sends through Gmail (+ Brevo fallback) instead of Mailpit (owner's `.env`: `EMAIL_PROVIDER=gmail`), so the emails were checked in the Gmail Sent folder / inbox: same four emails as on Render.
+    - **TICKET-045 manual click-through (local, real clicks):** Modern Retreat in Athens → Close dates 5→8 Oct with a note → the guest page says "Booked" for 6 Oct → Admin → Bookings → Closed dates lists it (by admin@demo.com) → Remove → "Dates open again", list empty. The tab switch needs a real click (an accessibility/DOM click doesn't switch Material tabs), which explains the earlier DOM-click note.
+    - **No bugs found.** "Continue" in step 1 sometimes looked stuck during the run: Chrome's window was reported *hidden*, so the stepper's animation was throttled - the stepper had already moved to step 2 (`selectedIndex = 1`). Not an app bug.
+    - **Admin cancel of paid #339 (local, 3-D Secure payment):** Cancelled → **Refunded €128** (Admin → Bookings → Cancelled shows "Refunded €128 on 30 Sept 2026").
+    - **Brevo fallback on Render - inconclusive:** the owner added an `X` to `GMAIL_REFRESH_TOKEN` on Render and booked; Gmail kept sending. Most likely the running process never used the broken token: `GmailApiEmailBackend` caches Google's access token per process for ~59 minutes, and an env change only reaches the app after a redeploy (no deploy after the change showed in Render's events). The fallback itself was seen working on 30 Sep 11:31 (test email from `…@brevosend.com` + the "Action needed: renew the Gmail token" alert in the owner's inbox). Re-run later: Save, rebuild and deploy → wait for **Live** → book (README "Brevo fallback → Check it" now says so). Carried over to TICKET-043.
+    - **Owner-only, not done by the assistant:** Copy button on a real phone.
+    - Final: TICKETS/README pushed (docs only, no code) → both Render services redeploy → Hosted demo check.
+  - **Done** (1 Oct). Automated suites green (589 backend, 511 frontend, build OK); hosted demo check green; payments end to end on Render and locally (4242, 3-D Secure, guest and admin cancel → refunds in 2-3 s); the test-card hint seen on Stripe's real page in English and Greek; booking emails via Gmail; TICKET-045 click-through with real clicks; no bugs found. Open: the Brevo fallback re-run on Render (TICKET-043) and the phone Copy-button check (owner).
 
 ---
 
@@ -1011,6 +1023,7 @@ test, always last).
 - [ ] **TICKET-043** — Refactor & hardening (the last ticket)
   - Priority: P2 · Depends on: TICKET-039 · After the meetup, when the demo becomes a real personal project. Collects refactors and robustness work; items are added here as they come up.
   - (The Brevo backup email provider, first collected here, moved to **TICKET-047** on 30 Sep, to be built before the meetup.)
+  - From TICKET-039: re-run the Brevo fallback smoke test on Render (broken `GMAIL_REFRESH_TOKEN` → **Save, rebuild and deploy** → wait for Live → book → email from `…@brevosend.com` + the renew-token alert; then restore). The first try was inconclusive because of the cached Google access token / no redeploy.
 
 - [ ] **TICKET-046** — Calendar sync with Airbnb / Booking.com (future suggestion, production only)
   - Priority: P3 · Depends on: TICKET-045 · **Not planned to be built** - a recommendation for if the app ever runs a real property listed on several platforms (this app + Airbnb + Booking.com), where a night sold on one must close on the others.

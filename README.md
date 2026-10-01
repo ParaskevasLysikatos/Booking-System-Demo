@@ -6640,7 +6640,10 @@ Mailpit anyway). Without the key nothing changes - plain Gmail, as before
 shows **Provider: Brevo (Gmail fallback)**, *Gmail status* shows the
 failure, and `BOOKING_ALERT_EMAILS` gets *"Action needed: renew the Gmail
 token for booking emails"*. Put the real token back → deploy → the next
-email is **Gmail API** again and *Gmail status* says "Gmail OK". (Locally
+email is **Gmail API** again and *Gmail status* says "Gmail OK". **Book only
+once the new deploy is Live:** the running app reuses Google's access token
+for up to ~1 hour, so until the process restarts with the broken value Gmail
+keeps working (that's why the first try on 30 Sep looked like "no fallback"). (Locally
 with a key in `.env`: `EMAIL_PROVIDER=gmail`, a wrong
 `GMAIL_REFRESH_TOKEN`, then
 `docker compose exec backend python manage.py send_test_email you@gmail.com`
@@ -7919,14 +7922,16 @@ recruiters the **hosted link** to try afterwards.
       To switch it on at Render: set `BREVO_API_KEY` (see "Brevo fallback
       → Switch it on") - TICKET-039 then checks it with a broken token.
       Still renew the Gmail token by ~5 Oct so emails come from your Gmail.
-- [ ] TICKET-039 (final redeploy + smoke test) is done
-- [ ] The local app runs from scratch, since the venue may have no
+- [x] TICKET-039 (final redeploy + smoke test) is done (1 Oct) - payments,
+      refunds, the test-card hint (also on Stripe's real page, EN/EL),
+      emails and closed dates checked locally and on Render; see TICKETS.md
+- [x] The local app runs from scratch, since the venue may have no
       internet: `docker compose up -d`, then open http://localhost:4200.
       The footer dot is green ("API & database connected"). Log in once as
       the admin and once as a guest - the login page's **Demo logins** box
       fills either one in a click (`admin@demo.com` / `admin123`,
       `guest1@demo.com` ... `guest10@demo.com` / `guest123`).
-- [ ] The QR code is ready: `docs/booking-demo-qr.png`, on your phone or
+- [x] The QR code is ready: `docs/booking-demo-qr.png`, on your phone or
       printed. It opens https://booking-demo-g4aw.onrender.com.
 
 ### Meetup day: keep it awake for the whole evening
@@ -8302,9 +8307,9 @@ checked locally in Greek and on Render in Chrome; see "Closed dates API →
 Final check"). **TICKET-047 is done** (Brevo as a backup email provider
 when the Gmail token has expired: the Brevo backend and the outbox's
 provider, the fallback wrapper, the once-a-day owner alert, Render config;
-see "Brevo fallback when the Gmail token expires"). Next, before the
-meetup: TICKET-039 (final redeploy + smoke test, which also checks the
-fallback on Render with a broken token); a
+see "Brevo fallback when the Gmail token expires"). **TICKET-039 is done**
+(final redeploy + smoke test, local and on Render; the Brevo re-run on Render
+moved to TICKET-043). A
 suggestion for later, not planned: TICKET-046 (calendar sync with Airbnb /
 Booking.com, see TICKETS.md); after the meetup, TICKET-043 ("Refactor &
 hardening").
