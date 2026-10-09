@@ -375,3 +375,58 @@ class SeedReplaceOldDemoTests(TestCase):
         self.seed(*self.BUILD_ARGS)
         self.assertEqual(Property.objects.count(), 2)
         self.assertTrue(User.objects.filter(email="admin@demo.com").exists())
+
+
+class SeedDefaultSizeTests(TestCase):
+    """TICKET-048: the default seed is small - 3 properties (exactly one
+    retired, the last, so 2 are bookable) and 9 demo guests - and still has
+    everything the demo shows. More can be asked for by hand."""
+
+    SEEDS = (1, 2, 3, 4, 5)
+
+    def seed(self, *args):
+        call_command("seed_demo_data", "--clear", *args, stdout=StringIO())
+
+    def test_defaults_and_what_the_demo_needs(self):
+        from django.utils import timezone
+
+        from bookings.models import Booking
+        from listings.models import BlockedPeriod
+        from reviews.models import Review
+
+        today = timezone.localdate()
+        for seed in self.SEEDS:
+            with self.subTest(seed=seed):
+                self.seed("--seed", str(seed))
+                props = list(Property.objects.order_by("pk"))
+                self.assertEqual(len(props), 3)
+                self.assertEqual([p.is_active for p in props], [True, True, False])
+                guests = list(demo_guest_users())
+                self.assertEqual(len(guests), 9)
+                # Reviews on every property (one per guest at most).
+                for prop in props:
+                    self.assertTrue(4 <= Review.objects.filter(property=prop).count() <= 9, prop.title)
+                # Every guest: 1-2 saved active places; guest1 also the retired one.
+                for guest in guests:
+                    active_saved = Favorite.objects.filter(user=guest, property__is_active=True).count()
+                    self.assertTrue(1 <= active_saved <= 2, guest.username)
+                self.assertTrue(Favorite.objects.filter(property=props[2]).exists())
+                # One unreviewed ended stay per guest, for the live review demo.
+                for guest in guests:
+                    ended = Booking.objects.filter(guest=guest, status=Booking.Status.CONFIRMED,
+                                                   check_out__lte=today, property__is_active=True)
+                    reviewed = Review.objects.filter(guest=guest).values_list("property_id", flat=True)
+                    self.assertTrue(ended.exclude(property_id__in=reviewed).exists(), guest.username)
+                # The closed "Maintenance" period on a bookable property.
+                self.assertTrue(BlockedPeriod.objects.filter(property__is_active=True).exists())
+
+    def test_more_by_hand_still_exactly_one_retired(self):
+        self.seed("--properties", "8", "--guests", "12", "--seed", "6")
+        self.assertEqual(Property.objects.count(), 8)
+        self.assertEqual(Property.objects.filter(is_active=False).count(), 1)
+        self.assertFalse(Property.objects.order_by("-pk").first().is_active)
+        self.assertEqual(demo_guest_users().count(), 12)
+
+    def test_a_single_property_is_never_retired(self):
+        self.seed("--properties", "1", "--guests", "2", "--seed", "1")
+        self.assertTrue(Property.objects.get().is_active)

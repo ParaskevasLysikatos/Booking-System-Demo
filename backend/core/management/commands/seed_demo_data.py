@@ -1,3 +1,4 @@
+from collections import Counter
 import random
 from datetime import timedelta
 from decimal import Decimal
@@ -172,14 +173,17 @@ class Command(BaseCommand):
         parser.add_argument(
             "--properties",
             type=int,
-            default=14,
-            help="Number of properties to create (default: 14).",
+            default=3,
+            help=(
+                "Number of properties to create (default: 3 - the last one is "
+                "retired, so 2 are bookable). Ask for more by hand if wanted."
+            ),
         )
         parser.add_argument(
             "--guests",
             type=int,
-            default=10,
-            help="Number of guest users to create (default: 10).",
+            default=9,
+            help="Number of guest users to create (default: 9; more by hand if wanted).",
         )
         parser.add_argument(
             "--seed",
@@ -340,7 +344,7 @@ class Command(BaseCommand):
                 price_per_night=Decimal(random.randint(25, 250)),
                 capacity=random.randint(1, 8),
                 amenities=amenities,
-                is_active=random.random() < 0.9,
+                is_active=True,  # _ensure_one_retired() retires exactly one
             )
             prop.seed_kind = noun  # picks its photos in _create_images
             properties.append(prop)
@@ -472,8 +476,8 @@ class Command(BaseCommand):
         4-8 reviews (each backed by a real stay - the API's rule). Adds stays
         in the last 12 months for guests who haven't stayed there yet, until
         4-8 different guests have a confirmed, ended stay at the property.
-        One guest can review a place only once, so with 10 demo guests a
-        property tops out at 10 reviews."""
+        One guest can review a place only once, so with the default 9 demo
+        guests a property tops out at 9 reviews."""
         today = timezone.localdate()
         for prop in properties:
             target = min(random.randint(4, 8), len(guests))
@@ -570,6 +574,12 @@ class Command(BaseCommand):
             ).values_list("property_id", flat=True))
             options = [p for p in active if p.pk not in stayed]
             random.shuffle(options)
+            # Spread these stays evenly over the active places (TICKET-048):
+            # each one takes a guest away from that place's reviews, so with
+            # few places (2 active by default) piling them onto one left it
+            # with only 3 reviewers.
+            per_place = Counter(prop_id for prop_id, _ in pairs)
+            options.sort(key=lambda p: per_place[p.pk])
             for prop in options:
                 if self._add_ended_stay(prop, guest, today, days_back=42):
                     pairs.add((prop.pk, guest.pk))
@@ -580,16 +590,19 @@ class Command(BaseCommand):
 
     def _ensure_one_retired(self, properties):
         """The Saved page's "No longer available" card and the admin "Retired"
-        filter need one retired place (TICKET-033). If the random mix retired
-        none, the last one is retired - decided up front (TICKET-037) so the
-        stays and reviews below already know which places are active."""
+        filter need one retired place (TICKET-033). Exactly one - always the
+        last - so a small seed (TICKET-048: 3 by default) keeps all the
+        others bookable instead of a random mix retiring several. Decided up
+        front (TICKET-037) so the stays and reviews below already know which
+        places are active. A single property is never retired."""
         if len(properties) > 1 and all(p.is_active for p in properties):
             last = properties[-1]
             last.is_active = False
             last.save(update_fields=["is_active", "updated_at"])
 
     def _create_favorites(self, properties, guests):
-        """Each demo guest saves 2-5 active places, so the hearts, the Saved
+        """Each demo guest saves 2-5 active places (1-2 when only two are
+        active, as in the default 3-property seed), so the hearts, the Saved
         page and the admin "Saved by" column have something to show. The
         first guest also keeps one *retired* place saved - the Saved page's
         greyed-out "No longer available" card (_ensure_one_retired made
@@ -601,7 +614,8 @@ class Command(BaseCommand):
 
         count = 0
         for guest in guests:
-            picks = random.sample(active, k=min(len(active), random.randint(2, 5)))
+            low = 2 if len(active) > 2 else 1
+            picks = random.sample(active, k=random.randint(min(low, len(active)), min(5, len(active))))
             for prop in picks:
                 Favorite.objects.get_or_create(user=guest, property=prop)
                 count += 1

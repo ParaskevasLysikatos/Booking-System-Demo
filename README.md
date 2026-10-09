@@ -679,7 +679,7 @@ The `user` object (same shape everywhere, `accounts/serializers.py:UserSerialize
 
 Demo accounts from `seed_demo_data` can log in straight away (TICKET-041):
 the demo admin as `admin@demo.com` / `admin123`, and the seeded guests as
-`guest1@demo.com` ... `guest10@demo.com` / `guest123` (see "Seeding demo
+`guest1@demo.com` ... `guest9@demo.com` / `guest123` (see "Seeding demo
 data → Demo logins"). Note: a superuser
 created with `createsuperuser` and no email can still use `/admin/`, but
 can't log in to the API until you give it an email.
@@ -7465,7 +7465,11 @@ command (`python manage.py seed_demo_data`) that fills the database with
 realistic-looking data using [Faker](https://faker.readthedocs.io/), so
 the demo never starts out empty:
 
-- **Properties** - 14 by default, titled from curated adjective/noun/city
+- **Properties** - **3 by default** (TICKET-048; was 14 - ask for more with
+  `--properties N`). Exactly **one is retired** - always the last - so the
+  default seed has **2 bookable places** plus the retired one the Saved page
+  and the admin "Retired" filter need (a single property is never retired).
+  Titled from curated adjective/noun/city
   combinations (e.g. "Cozy Studio in Thessaloniki") across a dozen Greek
   locations, with a realistic nightly price, capacity, and a random subset
   of amenities. Each one also gets a **map position** near its city
@@ -7491,8 +7495,10 @@ the demo never starts out empty:
   deterministic `picsum.photos` URLs, like before. The command's last
   lines say which source was used (`Photos: S3 seed photos (…)` /
   `Photos: picsum.photos (…)`).
-- **Guest users** (TICKET-041) - 10 by default, **`guest1@demo.com` ...
-  `guest10@demo.com`**, all with the password **`guest123`**. The username
+- **Guest users** (TICKET-041) - **9 by default** (TICKET-048; was 10),
+  **`guest1@demo.com` ... `guest9@demo.com`**, all with the password
+  **`guest123`**. Their booking emails go to the owner's inbox
+  (`BOOKING_ALERT_EMAILS`), since `@demo.com` can't receive mail - rule EM-22. The username
   is the email (the same rule sign-up uses); Faker only provides the first
   and last names. Re-running without `--clear` reuses existing guests
   instead of erroring on the fixed usernames.
@@ -7519,8 +7525,8 @@ the demo never starts out empty:
 - **More ended stays** (TICKET-037) - on top of that mix, every property
   gets extra `confirmed` stays that ended in the last 12 months, each for a
   different guest, until **4-8 guests** have an ended, confirmed stay there
-  (a guest can review a place only once, so 10 demo guests cap a property
-  at 10). 2-7 nights, on free dates (same `overlapping()` check), "booked
+  (a guest can review a place only once, so the default 9 demo guests cap a
+  property at 9). 2-7 nights, on free dates (same `overlapping()` check), "booked
   on" 1-8 weeks before check-in.
 - **Reviews** - one per guest per property with a confirmed, ended stay
   (the rule the API enforces since TICKET-032), so **every review is backed
@@ -7529,20 +7535,23 @@ the demo never starts out empty:
   only); the rest pick from 30 short, realistic comments matching the
   rating. Each
   review is dated 0-6 days after that guest's last stay there, so the
-  months on the property page look real. A default seed gives about **75-80
-  reviews, 4-8 per property**.
+  months on the property page look real. A default seed (3 properties,
+  9 guests) gives about **13-17 reviews, 4-8 per property** (checked over
+  12 random seeds).
 - **One review left to write, per guest** (TICKET-037) - every demo guest
   also gets one recent stay (ended in the last 6 weeks) at an active place
   where they have no other ended stay, **without** a review, so the review
   flow can be shown live: "Leave a review" in My bookings (Past tab) and
   "Write a review" on that property's page. The place retired for the Saved
-  page is decided before this, so it never lands on a retired place.
-- **Favorites** (TICKET-033) - every guest saves 2-5 active places, so
-  the hearts, the Saved page and the admin "Saved by" column have
-  something to show (about 40 in total). The **first guest** (`guest1@demo.com`)
+  page is decided before this, so it never lands on a retired place. These
+  stays are **spread evenly** over the active places (TICKET-048): each one
+  takes a guest away from that place's reviews, and with only 2 active
+  places piling them onto one left it with 3 reviews.
+- **Favorites** (TICKET-033) - every guest saves 2-5 active places (1-2
+  when only two are active, as in the default seed), so the hearts, the
+  Saved page and the admin "Saved by" column have something to show. The **first guest** (`guest1@demo.com`)
   also keeps one **retired** place saved - the Saved page's greyed-out
-  "No longer available" card, listed first. If the random mix retired no
-  property, the seeder retires the last one for that. The demo admin
+  "No longer available" card, listed first (the one retired property). The demo admin
   saves nothing (admins have no hearts).
 
 ### Demo logins (TICKET-041)
@@ -7552,7 +7561,7 @@ Simple on purpose, so they're easy to type at the meetup table:
 | Role | Email (app / API login) | Password |
 | --- | --- | --- |
 | Admin | `admin@demo.com` (Django Admin username: `admin`) | `admin123` |
-| Guests | `guest1@demo.com` ... `guest10@demo.com` | `guest123` |
+| Guests | `guest1@demo.com` ... `guest9@demo.com` (default seed) | `guest123` |
 
 - **One place:** the values live in `backend/core/demo_accounts.py`
   (`DEMO_ADMIN_EMAIL`, `DEMO_ADMIN_PASSWORD`, `DEMO_GUEST_PASSWORD`,
@@ -7576,7 +7585,7 @@ Simple on purpose, so they're easy to type at the meetup table:
   ```json
   {"logins": [
     {"role": "guest", "email": "guest1@demo.com", "password": "guest123",
-     "count": 10, "last_email": "guest10@demo.com"},
+     "count": 9, "last_email": "guest9@demo.com"},
     {"role": "admin", "email": "admin@demo.com", "password": "admin123"}
   ]}
   ```
@@ -7596,7 +7605,7 @@ Simple on purpose, so they're easy to type at the meetup table:
   8 tests in `accounts/tests.py` (`DemoLoginsTests`).
 - **The login page's "Demo logins" box** (`pages/login/`): under the form,
   one row per listed login - a **Guest** / **Admin** button plus the
-  email / password (and "any up to guest10@demo.com" for the guests).
+  email / password (and "any up to guest9@demo.com" for the guests).
   Clicking a button **fills the form**; the visitor still presses Log in,
   so it logs in exactly like typing it. The list comes from
   `AuthService.demoLogins()`: without demo data, while the request is
@@ -7638,8 +7647,8 @@ Options:
 | `--clear` | off | Delete previously seeded data first (favorites, reviews, bookings, images, properties and the demo accounts: `guest<N>@demo.com`, `admin@demo.com`, plus the old-style `guest_*@example.com` / `admin_demo` ones from before TICKET-041) before re-seeding. Real accounts are never touched - but their bookings, reviews and favorites go with the properties. |
 | `--if-empty` | off | Do nothing if any property exists (the Render build uses it so only the first deploy seeds) |
 | `--replace-old-demo` | off | TICKET-041: while old-style demo accounts (`admin_demo`, `guest_*@example.com`) exist, re-seed as if `--clear` were given, even with `--if-empty`; otherwise no effect. The Render build's one-off re-seed, see "Deploying to Render" |
-| `--properties N` | 14 | How many properties to create |
-| `--guests N` | 10 | How many guest users to create |
+| `--properties N` | 3 | How many properties to create (the last one is retired); more by hand if wanted (TICKET-048, was 14) |
+| `--guests N` | 9 | How many guest users to create; more by hand if wanted (TICKET-048, was 10) |
 | `--seed N` | none | Fix the random seed for reproducible output |
 
 The whole command runs inside one `transaction.atomic()` block, so a
@@ -7763,7 +7772,7 @@ Local Docker is unchanged: no `DATABASE_URL` and `DEBUG` on.
    `{"status":"ok","database":"connected"}`.
 
 **Logins on the hosted copy:** the same demo accounts as locally
-(`admin@demo.com` / `admin123`, `guest1@demo.com` ... `guest10@demo.com` /
+(`admin@demo.com` / `admin123`, `guest1@demo.com` ... `guest9@demo.com` /
 `guest123` - TICKET-041; the old `admin_demo` ones are replaced by the
 one-off re-seed above). The repo is public, so anyone who reads it can log
 in as the admin there.
@@ -7931,7 +7940,7 @@ recruiters the **hosted link** to try afterwards.
       The footer dot is green ("API & database connected"). Log in once as
       the admin and once as a guest - the login page's **Demo logins** box
       fills either one in a click (`admin@demo.com` / `admin123`,
-      `guest1@demo.com` ... `guest10@demo.com` / `guest123`).
+      `guest1@demo.com` ... `guest9@demo.com` / `guest123`).
 - [x] The QR code is ready: `docs/booking-demo-qr.png`, on your phone or
       printed. It opens https://booking-demo-g4aw.onrender.com.
 
@@ -8257,7 +8266,7 @@ reviews per property backed by ended, confirmed stays (~25% stars only),
 plus one unreviewed recent stay per guest; TICKET-042's short "Placed at
 …" labels; see "Seed photos in S3", "Seeding demo data" and "Demo data:
 final check (TICKET-037)". **TICKET-041 (simple demo logins) is done:**
-`admin@demo.com` / `admin123` and `guest1@demo.com` ... `guest10@demo.com`
+`admin@demo.com` / `admin123` and `guest1@demo.com` ... `guest9@demo.com`
 / `guest123`, kept in `backend/core/demo_accounts.py`; `--clear` also
 removes the old-style accounts; a self-limiting one-off re-seed
 (`--replace-old-demo` in `build.sh`) replaced the hosted data once, with
