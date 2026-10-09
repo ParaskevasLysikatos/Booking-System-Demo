@@ -22,9 +22,3 @@ python manage.py migrate --no-input
 if [ "${SEED_DEMO_DATA:-false}" = "true" ]; then
   python manage.py seed_demo_data --if-empty --replace-old-demo
 fi
-
-# ONE-OFF (9 Oct, TICKET-048): re-seed the hosted demo with the smaller seed
-# (3 properties, 9 guests) - wipes the demo data incl. all bookings and seeds
-# it again. Removed again in the very next commit, so later deploys never
-# wipe anything.
-python manage.py seed_demo_data --clear
