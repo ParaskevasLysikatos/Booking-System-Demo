@@ -7651,6 +7651,11 @@ Options:
 | `--guests N` | 9 | How many guest users to create; more by hand if wanted (TICKET-048, was 10) |
 | `--seed N` | none | Fix the random seed for reproducible output |
 
+**Smaller seed on Render (TICKET-048, 9 Oct):** the hosted copy was re-seeded
+once with the new defaults through a temporary `seed_demo_data --clear` line
+in `build.sh` (`da0596b`, removed again in `4f054b5`), the same trick as the
+1 Oct re-seed - it wiped every Render booking and test payment.
+
 The whole command runs inside one `transaction.atomic()` block, so a
 failure partway through leaves the database untouched rather than
 half-seeded. Verified against a throwaway SQLite DB: correct counts, every
