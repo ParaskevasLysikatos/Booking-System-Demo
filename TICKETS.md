@@ -1037,6 +1037,15 @@ test, always last).
 
 ---
 
+- [ ] **TICKET-048** — Smaller demo seed + demo guests' emails to the owner
+  - Priority: P1 · Depends on: TICKET-041 · Requested 9 Oct, after the meetup.
+  - Why: the owner's inbox filled with "Complete your payment" emails and, worse, Gmail bounce notices: 7 of 12 booking emails since 28 Sep went to `guest1@demo.com`, which can't receive mail, and each one produced 2 "delivery delayed" + 1 "delivery failed" notice. The seeder itself never sends emails - the emails came from real test bookings.
+  - Decisions (agreed 9 Oct): demo guests' emails go to the owner's inbox (`BOOKING_ALERT_EMAILS`), like the demo admin's; seed defaults **3 properties** (1 of them retired, so 2 bookable) and **9 guests** - defaults only, `--properties` / `--guests` can still ask for more; re-seed **locally and on Render** (one-off, wipes Render's bookings and test payments).
+  - Plan: step 1 demo-guest emails → owner · step 2 smaller seed (defaults, exactly one retired property, tests) · step 3 README/TICKETS, local re-seed, one-off Render re-seed, Chrome check, push.
+  - **Step 1 done:** `core/demo_accounts.py:is_demo_guest(user)` (username **and** email `guest<N>@demo.com`, no query); `notifications/outbox.py:recipients_for()` sends a demo guest's guest emails to `BOOKING_ALERT_EMAILS` (own email when the list is empty); real sign-ups unchanged. 3 new tests (EMAIL-34, EMAIL-35 incl. look-alike addresses, fallback); **592 backend tests pass** on Postgres 16. README rule EM-22.
+
+---
+
 ## Explicitly cut unless way ahead of schedule
 
 Not tickets to plan around — only pick these up if everything above is done

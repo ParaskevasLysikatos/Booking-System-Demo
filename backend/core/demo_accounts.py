@@ -8,9 +8,10 @@ real accounts. The seeder sets them with `set_password()`, which skips
 Django's password validators; sign-up still enforces them for everyone
 else.
 
-Emails are not special-cased anywhere: a booking made as a demo guest is
-emailed to that guest's address like any other account's (demo.com is a
-real domain - change DEMO_EMAIL_DOMAIN here if that ever matters).
+Emails: guest<N>@demo.com can't receive mail (every send bounced back to
+the owner as Gmail "delivery delayed / failed" notices), so a demo guest's
+booking emails go to BOOKING_ALERT_EMAILS instead, like the demo admin's -
+see is_demo_guest() and notifications.outbox.recipients_for() (TICKET-048).
 """
 import hashlib
 import re
@@ -42,6 +43,19 @@ LEGACY_GUEST_EMAIL_SUFFIX = "@example.com"
 def demo_guest_email(number):
     """The login email of demo guest `number` (1-based): guest1@demo.com."""
     return f"guest{number}@{DEMO_EMAIL_DOMAIN}"
+
+
+def is_demo_guest(user):
+    """True for a seeded demo guest (username and email both guest<N>@demo.com,
+    the same rule as demo_guest_users()), without a database query."""
+    if user is None:
+        return False
+    username = (getattr(user, "username", "") or "").strip()
+    email = (getattr(user, "email", "") or "").strip()
+    return bool(
+        re.fullmatch(_DEMO_GUEST_EMAIL_REGEX, username, re.IGNORECASE)
+        and re.fullmatch(_DEMO_GUEST_EMAIL_REGEX, email, re.IGNORECASE)
+    )
 
 
 def demo_guest_users():

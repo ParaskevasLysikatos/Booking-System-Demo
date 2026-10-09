@@ -276,6 +276,40 @@ class OutboxTests(TestCase):
         self.booking.save()
         self.assertEqual(self.enqueue().recipient_list, ["boss@example.com"])
 
+    def test_demo_guests_mail_goes_to_the_alert_list(self):
+        """EMAIL-34 (TICKET-048): a seeded demo guest (guest<N>@demo.com can't receive mail)
+        -> its guest emails go to BOOKING_ALERT_EMAILS; a real guest keeps their own."""
+        demo = User.objects.create_user("guest3@demo.com", "guest3@demo.com", "guest123")
+        demo_booking = make_booking()
+        demo_booking.guest = demo
+        demo_booking.save()
+        row = self.enqueue(booking=demo_booking)
+        self.assertEqual(row.recipient_list, ["owner@example.com"])
+        self.assertEqual(mail.outbox[-1].to, ["owner@example.com"])
+        self.assertEqual(self.enqueue(booking=self.booking).recipient_list, ["guest@example.com"])
+
+    def test_only_real_demo_guests_are_redirected(self):
+        """EMAIL-35: the demo rule needs username AND email guest<N>@demo.com - a real sign-up
+        with a look-alike address, or another @demo.com address, keeps its own email."""
+        for username, email in [
+            ("someone", "guest3@demo.com"),          # email matches, username doesn't
+            ("maria@demo.com", "maria@demo.com"),    # demo.com but not guest<N>
+            ("guest3@demo.co", "guest3@demo.co"),    # different domain
+        ]:
+            with self.subTest(email=email):
+                user = User.objects.create_user(username, email, "S3cure-Booking-Pass!")
+                booking = make_booking()
+                booking.guest = user
+                booking.save()
+                self.assertEqual(self.enqueue(booking=booking).recipient_list, [email])
+
+    @override_settings(BOOKING_ALERT_EMAILS=[])
+    def test_demo_guests_fall_back_to_their_own_email(self):
+        demo = User.objects.create_user("guest4@demo.com", "guest4@demo.com", "guest123")
+        self.booking.guest = demo
+        self.booking.save()
+        self.assertEqual(self.enqueue().recipient_list, ["guest4@demo.com"])
+
     def test_rolled_back_change_sends_nothing(self):
         """EMAIL-08: no email for a change that didn't happen."""
         with self.captureOnCommitCallbacks(execute=True):
